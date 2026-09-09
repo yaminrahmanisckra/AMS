@@ -474,7 +474,7 @@ function viewRegistration(studentId, session, year, term, isPending) {
         })
         .then(data => {
             if (!data.success) {
-                content.innerHTML = `<div class="alert alert-danger">${data.message || 'Error loading registration'}</div>`;
+                content.innerHTML = `<div class="alert alert-danger">${escapeHtml(data.message || 'Error loading registration')}</div>`;
                 return;
             }
             
@@ -488,14 +488,14 @@ function viewRegistration(studentId, session, year, term, isPending) {
             let html = `
                 <div class="mb-3">
                     <h6>Student Information</h6>
-                    <p><strong>Name:</strong> ${data.student.name}</p>
-                    <p><strong>Student ID:</strong> ${data.student.student_id}</p>
-                    <p><strong>Batch:</strong> ${data.student.batch || 'N/A'}</p>
-                    <p><strong>Session:</strong> ${data.session} | <strong>Year:</strong> ${data.year} | <strong>Term:</strong> ${data.term}</p>
+                    <p><strong>Name:</strong> ${escapeHtml(data.student.name)}</p>
+                    <p><strong>Student ID:</strong> ${escapeHtml(data.student.student_id)}</p>
+                    <p><strong>Batch:</strong> ${escapeHtml(data.student.batch || 'N/A')}</p>
+                    <p><strong>Session:</strong> ${escapeHtml(data.session)} | <strong>Year:</strong> ${escapeHtml(data.year)} | <strong>Term:</strong> ${escapeHtml(data.term)}</p>
                 </div>
                 <div class="mb-3 d-flex justify-content-between align-items-center">
                     <div>
-                        <button type="button" class="btn btn-sm btn-primary" onclick="showAddCourseModal('${data.session}', '${data.year}', '${data.term}')">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="showAddCourseModal(${jsStringLiteral(data.session)}, ${jsStringLiteral(data.year)}, ${jsStringLiteral(data.term)})">
                             <i class="fas fa-plus me-1"></i>Add Course
                         </button>
                         <button type="button" class="btn btn-sm btn-danger" id="deregisterAllBtn" style="display: ${data.courses && data.courses.length > 0 ? 'inline-block' : 'none'};" onclick="deregisterAllCourses()">
@@ -526,17 +526,17 @@ function viewRegistration(studentId, session, year, term, isPending) {
                 const isRetake = course.remark === 'Retake' || course.remark === 'Re-retake';
                 const carryOnId = `carryOn_${course.id}_${index}`;
                 html += `
-                    <tr data-course-id="${course.id}" data-course-table-id="${course.course_id || course.id}"
-                        data-source-year="${course.source_year || data.year || ''}"
-                        data-source-term="${course.source_term || data.term || ''}"
+                    <tr data-course-id="${escapeHtml(String(course.id))}" data-course-table-id="${escapeHtml(String(course.course_id || course.id))}"
+                        data-source-year="${escapeHtml(course.source_year || data.year || '')}"
+                        data-source-term="${escapeHtml(course.source_term || data.term || '')}"
                         data-use-relevant-for-committee="${typeof course.use_relevant_for_committee === 'boolean' ? course.use_relevant_for_committee : true}">
                         <td>${index + 1}</td>
-                        <td>${course.course_code}</td>
-                        <td>${course.course_name}</td>
-                        <td>${course.credit}</td>
-                        <td>${course.course_type}</td>
-                        <td>${course.nature || 'Core'}</td>
-                        <td>${course.source_year || data.year || '-'} / ${course.source_term || data.term || '-'}</td>
+                        <td>${escapeHtml(course.course_code)}</td>
+                        <td>${escapeHtml(course.course_name)}</td>
+                        <td>${escapeHtml(course.credit)}</td>
+                        <td>${escapeHtml(course.course_type)}</td>
+                        <td>${escapeHtml(course.nature || 'Core')}</td>
+                        <td>${escapeHtml(course.source_year || data.year || '-')} / ${escapeHtml(course.source_term || data.term || '-')}</td>
                         <td>
                             <select class="form-select form-select-sm remark-select" data-course-id="${course.id}" data-index="${index}">
                                 <option value="Regular" ${course.remark === 'Regular' ? 'selected' : ''}>Regular</option>
@@ -621,7 +621,7 @@ function viewRegistration(studentId, session, year, term, isPending) {
         })
         .catch(error => {
             console.error('Error loading registration:', error);
-            content.innerHTML = `<div class="alert alert-danger">Error loading registration: ${error.message || 'Unknown error'}</div>`;
+            content.innerHTML = `<div class="alert alert-danger">Error loading registration: ${escapeHtml(error.message || 'Unknown error')}</div>`;
         });
 }
 
@@ -740,13 +740,13 @@ function showAddCourseModal(session, year, term) {
             availableCourses.forEach(course => {
                 html += `
                     <tr>
-                        <td>${course.course_code}</td>
-                        <td>${course.course_name}</td>
-                        <td>${course.credit}</td>
-                        <td>${course.course_type || 'Theory'}</td>
-                        <td>${course.nature || 'Core'}</td>
+                        <td>${escapeHtml(course.course_code)}</td>
+                        <td>${escapeHtml(course.course_name)}</td>
+                        <td>${escapeHtml(course.credit)}</td>
+                        <td>${escapeHtml(course.course_type || 'Theory')}</td>
+                        <td>${escapeHtml(course.nature || 'Core')}</td>
                         <td>
-                            <button class="btn btn-sm btn-primary" onclick="addCourseToEdit(${course.id}, '${course.course_code.replace(/'/g, "\\'")}', '${course.course_name.replace(/'/g, "\\'")}', ${course.credit}, '${course.course_type || 'Theory'}', '${course.nature || 'Core'}')">
+                            <button class="btn btn-sm btn-primary" onclick="addCourseToEdit(${Number(course.id)}, ${jsStringLiteral(course.course_code)}, ${jsStringLiteral(course.course_name)}, ${Number(course.credit)}, ${jsStringLiteral(course.course_type || 'Theory')}, ${jsStringLiteral(course.nature || 'Core')})">
                                 <i class="fas fa-plus me-1"></i>Add
                             </button>
                         </td>
@@ -759,7 +759,7 @@ function showAddCourseModal(session, year, term) {
         })
         .catch(error => {
             console.error('Error loading courses:', error);
-            content.innerHTML = `<div class="alert alert-danger">Error loading courses: ${error.message || 'Unknown error'}</div>`;
+            content.innerHTML = `<div class="alert alert-danger">Error loading courses: ${escapeHtml(error.message || 'Unknown error')}</div>`;
         });
 }
 
@@ -792,12 +792,12 @@ function addCourseToEdit(courseId, courseCode, courseName, credit, courseType, n
     newRow.setAttribute('data-use-relevant-for-committee', 'false');
     newRow.innerHTML = `
         <td>${newIndex}</td>
-        <td>${courseCode}</td>
-        <td>${courseName}</td>
-        <td>${credit}</td>
-        <td>${courseType}</td>
-        <td>${nature}</td>
-        <td>${currentEditData ? currentEditData.year : '-'} / ${currentEditData ? currentEditData.term : '-'}</td>
+        <td>${escapeHtml(courseCode)}</td>
+        <td>${escapeHtml(courseName)}</td>
+        <td>${escapeHtml(credit)}</td>
+        <td>${escapeHtml(courseType)}</td>
+        <td>${escapeHtml(nature)}</td>
+        <td>${escapeHtml(currentEditData ? currentEditData.year : '-')} / ${escapeHtml(currentEditData ? currentEditData.term : '-')}</td>
         <td>
             <select class="form-select form-select-sm remark-select" data-course-id="${courseId}" data-index="${newIndex}">
                 <option value="Regular" selected>Regular</option>
@@ -1089,7 +1089,8 @@ function cwSetDisplay(id, value) {
 function cwShowStatus(msg, type) {
     const box = cwEl('cwStatus');
     if (!box) return;
-    box.innerHTML = '<div class="alert alert-' + (type || 'info') + ' alert-dismissible py-2"><span>' + msg + '</span><button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button></div>';
+    const safeType = (type === 'danger' || type === 'success' || type === 'warning') ? type : 'info';
+    box.innerHTML = '<div class="alert alert-' + safeType + ' alert-dismissible py-2"><span>' + escapeHtml(msg) + '</span><button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button></div>';
 }
 
 function cwHideStatus() {
@@ -1332,35 +1333,36 @@ function cwRenderStudents(data) {
     let html = '';
     data.students.forEach((s, index) => {
         const isRetake = s.remark === 'Retake' || s.remark === 'Re-retake';
+        const regIdEsc = escapeHtml(s.registration_id);
         const statusBadge = s.status === 'finalized'
             ? '<span class="badge bg-success">Finalized</span>'
-            : '<span class="badge bg-warning text-dark">' + (s.status || 'Pending') + '</span>';
+            : '<span class="badge bg-warning text-dark">' + escapeHtml(s.status || 'Pending') + '</span>';
         const retakeCourseCell = s.is_merged_retake
-            ? '<small>' + (s.registered_course_code || '') + '<br><span class="text-muted">' + (s.registered_course_name || '') + '</span></small>'
+            ? '<small>' + escapeHtml(s.registered_course_code || '') + '<br><span class="text-muted">' + escapeHtml(s.registered_course_name || '') + '</span></small>'
             : (isRetake
-                ? '<small class="text-muted">' + (s.registered_course_code || '-') + '</small>'
+                ? '<small class="text-muted">' + escapeHtml(s.registered_course_code || '-') + '</small>'
                 : '<span class="text-muted">-</span>');
-        html += '<tr data-registration-id="' + s.registration_id + '" data-student-id="' + s.student_id + '">';
+        html += '<tr data-registration-id="' + escapeHtml(s.registration_id) + '" data-student-id="' + escapeHtml(s.student_id) + '">';
         html += '<td>' + (index + 1) + '</td>';
-        html += '<td>' + (s.student_roll || '') + '</td>';
-        html += '<td>' + (s.student_name || '') + '</td>';
-        html += '<td>' + (s.batch || 'N/A') + '</td>';
+        html += '<td>' + escapeHtml(s.student_roll || '') + '</td>';
+        html += '<td>' + escapeHtml(s.student_name || '') + '</td>';
+        html += '<td>' + escapeHtml(s.batch || 'N/A') + '</td>';
         html += '<td>' + statusBadge + '</td>';
         html += '<td>' + retakeCourseCell + '</td>';
-        html += '<td><select class="form-select form-select-sm cw-remark-select" data-registration-id="' + s.registration_id + '">';
+        html += '<td><select class="form-select form-select-sm cw-remark-select" data-registration-id="' + escapeHtml(s.registration_id) + '">';
         ['Regular', 'Retake', 'Re-retake'].forEach(r => {
             html += '<option value="' + r + '"' + (s.remark === r ? ' selected' : '') + '>' + r + '</option>';
         });
         html += '</select></td>';
         html += '<td>';
-        html += '<div class="form-check form-switch" id="cwCarryWrap_' + s.registration_id + '" style="display:' + (isRetake ? 'block' : 'none') + ';">';
-        html += '<input class="form-check-input cw-carry-on-cb" type="checkbox" id="cwCarry_' + s.registration_id + '" data-registration-id="' + s.registration_id + '"' + (s.carry_on ? ' checked' : '') + '>';
-        html += '<label class="form-check-label" for="cwCarry_' + s.registration_id + '">Carry On</label></div>';
-        html += '<span class="text-muted" id="cwCarryPlaceholder_' + s.registration_id + '" style="display:' + (isRetake ? 'none' : 'inline') + ';">-</span>';
+        html += '<div class="form-check form-switch" id="cwCarryWrap_' + regIdEsc + '" style="display:' + (isRetake ? 'block' : 'none') + ';">';
+        html += '<input class="form-check-input cw-carry-on-cb" type="checkbox" id="cwCarry_' + regIdEsc + '" data-registration-id="' + regIdEsc + '"' + (s.carry_on ? ' checked' : '') + '>';
+        html += '<label class="form-check-label" for="cwCarry_' + regIdEsc + '">Carry On</label></div>';
+        html += '<span class="text-muted" id="cwCarryPlaceholder_' + regIdEsc + '" style="display:' + (isRetake ? 'none' : 'inline') + ';">-</span>';
         html += '</td>';
         html += '<td class="text-nowrap">';
-        html += '<button type="button" class="btn btn-sm btn-primary me-1 cw-edit-student-btn" data-student-id="' + s.student_id + '"><i class="fas fa-edit"></i></button>';
-        html += '<button type="button" class="btn btn-sm btn-danger cw-deregister-btn" data-student-id="' + s.student_id + '" data-student-roll="' + (s.student_roll || '') + '" data-student-name="' + (s.student_name || '').replace(/"/g, '&quot;') + '"><i class="fas fa-times-circle"></i></button>';
+        html += '<button type="button" class="btn btn-sm btn-primary me-1 cw-edit-student-btn" data-student-id="' + escapeHtml(s.student_id) + '"><i class="fas fa-edit"></i></button>';
+        html += '<button type="button" class="btn btn-sm btn-danger cw-deregister-btn" data-student-id="' + escapeHtml(s.student_id) + '" data-student-roll="' + escapeHtml(s.student_roll || '') + '" data-student-name="' + escapeHtml(s.student_name || '') + '"><i class="fas fa-times-circle"></i></button>';
         html += '</td></tr>';
     });
     tbody.innerHTML = html;

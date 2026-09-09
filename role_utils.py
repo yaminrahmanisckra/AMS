@@ -22,7 +22,9 @@ DEFAULT_USER_ROLE = 'student'
 DEFAULT_TEACHING_ROLE = 'teacher'
 
 CORE_ROLES = {'dean', 'head', 'teacher'}
-TEACHING_ROLES = CORE_ROLES | {'teaching_assistant'}
+# AUTHZ-08: Teaching Assistants are not full teachers. Session-scoped ops use
+# DutyAssignment checks in utils.ownership (attendance / marks only).
+TEACHING_ROLES = set(CORE_ROLES)
 STAFF_ROLES = TEACHING_ROLES | {'officer'}
 
 
@@ -184,23 +186,20 @@ def validate_role_selection(selected_roles) -> tuple[bool, list[str] | str]:
 
 
 def has_teacher_privileges(user) -> bool:
-    roles = set(parse_roles(getattr(user, 'role', None)))
-    if getattr(user, 'active_role', None):
-        roles = set(parse_roles(user.active_role))
-    return bool(roles & (TEACHING_ROLES | {ADMIN_ROLE}))
+    return bool(set(get_effective_roles(user)) & (TEACHING_ROLES | {ADMIN_ROLE}))
 
 
 def has_staff_privileges(user) -> bool:
-    roles = set(parse_roles(getattr(user, 'role', None)))
-    if getattr(user, 'active_role', None):
-        roles = set(parse_roles(user.active_role))
-    return bool(roles & (STAFF_ROLES | {ADMIN_ROLE}))
+    return bool(set(get_effective_roles(user)) & (STAFF_ROLES | {ADMIN_ROLE}))
 
 
 def is_admin(user) -> bool:
-    if getattr(user, 'active_role', None):
-        return ADMIN_ROLE in parse_roles(user.active_role)
-    return ADMIN_ROLE in parse_roles(getattr(user, 'role', None))
+    return ADMIN_ROLE in get_effective_roles(user)
+
+
+def is_teaching_assistant(user) -> bool:
+    """True when the session's effective role is Teaching Assistant."""
+    return has_role(user, 'teaching_assistant')
 
 
 def has_stored_admin(user) -> bool:
@@ -219,16 +218,11 @@ def pick_impersonation_role(user) -> str:
 
 
 def has_role(user, *roles) -> bool:
-    """True if user holds any of the given roles (respects active_role when set)."""
+    """True if the session's effective role is one of the given roles."""
     if not user:
         return False
     wanted = {r.lower() for r in roles}
-    if is_admin(user) and ADMIN_ROLE in wanted:
-        return True
-    effective = set(get_effective_roles(user))
-    # Admins acting as admin pass admin_required; for role_required include stored roles too
-    stored = set(parse_roles(getattr(user, 'role', None)))
-    return bool((effective | stored) & wanted)
+    return bool(set(get_effective_roles(user)) & wanted)
 
 
 def is_head(user) -> bool:
@@ -255,7 +249,7 @@ def can_manage_curriculum(user) -> bool:
 
 
 def role_required(*roles, json_on_fail=False):
-    """Require login and at least one of the given roles. Administrators always pass."""
+    """Require login and at least one of the given roles. Admins acting as admin always pass."""
     from functools import wraps
     from flask import abort, flash, jsonify, redirect, request, url_for
     from flask_login import current_user

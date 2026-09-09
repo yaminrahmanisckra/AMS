@@ -13,6 +13,7 @@ from utils.window_utils import (
 )
 from blueprints.class_management.models import Session, Teacher, ClassStudent
 from blueprints.student_management.models import Student
+from utils.ownership import resolve_caller_teacher
 from . import academic_calendar_bp
 
 
@@ -54,13 +55,12 @@ def _window_session_options():
 
 
 def can_edit_calendar():
-    """Check if current user can edit calendar (Head or Teaching Assistant)"""
+    """Check if current user can edit calendar (Head only; AUTHZ-08 excludes TA)."""
     if not current_user.is_authenticated:
         return False
-    roles = set(parse_roles(current_user.role))
-    if getattr(current_user, 'active_role', None):
-        roles = set(parse_roles(current_user.active_role))
-    return 'head' in roles or 'teaching_assistant' in roles
+    from role_utils import get_effective_roles
+    roles = set(get_effective_roles(current_user))
+    return 'head' in roles
 
 
 def _normalize_semester_label(label):
@@ -1235,7 +1235,7 @@ def batch_events_index():
     
     if is_teacher:
         # Teachers see all events they created for their sessions
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             flash('Teacher profile not found.', 'warning')
             return redirect(url_for('academic_calendar.index'))
@@ -1297,7 +1297,7 @@ def add_batch_event():
         flash('Only teachers can create assessment schedules.', 'danger')
         return redirect(url_for('academic_calendar.batch_events_index'))
     
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher:
         flash('Teacher profile not found. Please ensure your name matches the teacher record.', 'warning')
         current_app.logger.warning(f"Teacher not found for user: {current_user.full_name}")
@@ -1439,7 +1439,7 @@ def edit_batch_event(event_id):
     event = _get_batch_event_or_404(event_id)
     
     # Verify teacher owns this event's session
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher or event.session.teacher_id != teacher.id:
         flash('You do not have permission to edit this event.', 'danger')
         return redirect(url_for('academic_calendar.batch_events_index'))
@@ -1507,7 +1507,7 @@ def assessment_schedule(session_id):
         
         # Check if user has access to this session
         if has_teacher_privileges(current_user):
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            teacher = resolve_caller_teacher(current_user)
             if teacher and session.teacher_id != teacher.id:
                 flash('You do not have permission to view this course assessment schedule.', 'danger')
                 return redirect(url_for('class_management.index'))
@@ -1576,7 +1576,7 @@ def delete_batch_event(event_id):
         event = _get_batch_event_or_404(event_id)
         
         # Verify teacher owns this event's session
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher or event.session.teacher_id != teacher.id:
             return jsonify({'success': False, 'message': 'You do not have permission to delete this event.'}), 403
         

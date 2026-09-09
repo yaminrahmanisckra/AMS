@@ -118,6 +118,13 @@ def send_notification_batch(subject: str | None, entries: list[dict]) -> int:
         if not recipient:
             continue
         try:
+            from utils.email_safety import EmailSafetyError, normalize_email
+
+            recipient = normalize_email(recipient)
+        except Exception as exc:
+            current_app.logger.warning('notification email skipped bad recipient: %s', exc)
+            continue
+        try:
             # Host rule: SMTP login and From must match
             send_smtp_message(
                 host=host,

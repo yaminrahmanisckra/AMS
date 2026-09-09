@@ -175,7 +175,8 @@
             <hr class="my-4">
             <h6 class="fw-semibold mb-2"><i class="fas fa-paperclip me-1"></i>Downloadable Files</h6>
             <p class="small text-muted mb-3">
-                Upload PDF, Word, Excel, images, etc. Candidates can download these from the public application page.
+                Upload PDF, Office documents, images, or text (ZIP/RAR not allowed).
+                Candidates can download these from the public application page.
                 Max {{ landing_file_max_label }} per file.
             </p>
             <form method="POST" enctype="multipart/form-data"
@@ -185,7 +186,7 @@
                 <div class="col-md-8">
                     <label class="form-label small fw-semibold mb-1">Upload file</label>
                     <input type="file" class="form-control form-control-sm" name="landing_file" required
-                           accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.webp,.txt,.zip,.rar">
+                           accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.webp,.txt">
                 </div>
                 <div class="col-md-4">
                     <button type="submit" class="btn btn-sm btn-outline-primary w-100">

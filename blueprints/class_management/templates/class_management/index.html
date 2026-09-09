@@ -943,7 +943,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Reset dependent dropdowns
     function resetDropdown(select, placeholder) {
         if (!select) return;
-        select.innerHTML = `<option value="">${placeholder}</option>`;
+        select.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>`;
         select.disabled = true;
         select.value = '';
     }

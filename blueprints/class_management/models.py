@@ -6,7 +6,7 @@ from extensions import db
 class Teacher(db.Model):
     __tablename__ = 'teacher'
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
+    name = db.Column(db.String(100), nullable=False, unique=True)
     short_name = db.Column(db.String(10), nullable=False, unique=True)
     designation = db.Column(db.String(50), nullable=True)  # Professor, Associate Professor, Assistant Professor, Lecturer
     institute = db.Column(db.String(100), nullable=True)  # Set from current_tenant().institute_label on insert

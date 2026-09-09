@@ -8,9 +8,12 @@
             <h4 class="fw-bold mb-0">My Application</h4>
             <span class="text-muted small">{{ cycle.name }}</span>
         </div>
-        <a href="{{ url_for('admission_exam.candidate_logout', token=cycle.public_token) }}" class="btn btn-sm btn-outline-secondary">
-            <i class="fas fa-sign-out-alt me-1"></i>Logout
-        </a>
+        <form method="POST" action="{{ url_for('admission_exam.candidate_logout', token=cycle.public_token) }}" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-sign-out-alt me-1"></i>Logout
+            </button>
+        </form>
     </div>
 
     <div class="row g-3 mb-4">
@@ -96,6 +99,7 @@
                     {% if candidate.payment_status != 'verified' %}
                     <form method="POST" enctype="multipart/form-data" class="mt-2 text-start"
                           action="{{ url_for('admission_exam.candidate_update_signature', token=cycle.public_token) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <label class="form-label small mb-1">
                             {% if candidate.signature_path %}Replace signature{% else %}Upload signature{% endif %}
                         </label>
@@ -194,6 +198,7 @@
                                 <form method="POST" class="d-inline"
                                       action="{{ url_for('admission_exam.candidate_delete_document', token=cycle.public_token, doc_id=doc.id) }}"
                                       onsubmit="return confirm('Remove this document?');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
                                 </form>
                                 {% endif %}
@@ -213,6 +218,7 @@
             <form method="POST" enctype="multipart/form-data"
                   action="{{ url_for('admission_exam.candidate_add_documents', token=cycle.public_token) }}"
                   id="dashDocForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div id="dashDocumentRows"></div>
                 <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="dashAddDocBtn">
                     <i class="fas fa-plus me-1"></i>Add file row
@@ -262,6 +268,7 @@
             </p>
             <form method="POST" enctype="multipart/form-data"
                   action="{{ url_for('admission_exam.candidate_update_payment', token=cycle.public_token) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="mb-3">
                     <label class="form-label small fw-semibold">Payment method</label>
                     <div class="d-flex flex-wrap gap-3">

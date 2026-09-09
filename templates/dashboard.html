@@ -356,20 +356,21 @@ html {
             <p>Welcome, {{ current_user.full_name }}! 👋 Select a module to get started.</p>
         </div>
 
-    {% set is_officer = 'officer' in parse_roles(current_user.role) %}
-    {% set is_teaching_assistant = 'teaching_assistant' in parse_roles(current_user.role) %}
-    {% set is_teacher = 'teacher' in parse_roles(current_user.role) and not is_teaching_assistant and not is_officer %}
-    {% set is_head = 'head' in parse_roles(current_user.role) or 'dean' in parse_roles(current_user.role) %}
+    {% set _roles = get_effective_roles(current_user) %}
+    {% set is_officer = 'officer' in _roles %}
+    {% set is_teaching_assistant = 'teaching_assistant' in _roles %}
+    {% set is_teacher = 'teacher' in _roles and not is_teaching_assistant and not is_officer %}
+    {% set is_head = 'head' in _roles or 'dean' in _roles %}
     {% set oc = officer_cards if officer_cards is defined else {} %}
     
     {% set cards = [
         {
             'title': 'Class Management',
-            'desc': 'Manage sessions, students, and attendance for your classes.',
+            'desc': 'Manage sessions, students, and attendance for your classes.' if not is_teaching_assistant else 'Take attendance and enter marks for courses assigned to you.',
             'icon': 'fas fa-chalkboard-teacher',
             'color_class': 'card-blue',
             'url': url_for('class_management.index'),
-            'show': not is_teaching_assistant and not is_officer
+            'show': is_teaching_assistant or (not is_officer and (is_teacher or is_head))
         },
         {
             'title': 'Result Management',
@@ -385,7 +386,7 @@ html {
             'icon': 'fas fa-calendar-alt',
             'color_class': 'card-cyan',
             'url': url_for('routine_management.index'),
-            'show': is_teaching_assistant or (not is_officer)
+            'show': (is_teacher or is_head) and not is_officer
         },
         {
             'title': 'Exam Paper Evaluation',
@@ -393,7 +394,7 @@ html {
             'icon': 'fas fa-file-alt',
             'color_class': 'card-yellow',
             'url': url_for('exam_evaluation'),
-            'show': not is_teaching_assistant and not is_officer
+            'show': (is_teacher or is_head) and not is_officer
         },
         {
             'title': 'Students Management',
@@ -401,7 +402,7 @@ html {
             'icon': 'fas fa-users',
             'color_class': 'card-red',
             'url': url_for('student_management.index'),
-            'show': (is_teaching_assistant or not is_teacher) and not is_officer
+            'show': is_head and not is_officer
         },
         {
             'title': 'Curriculum Management',
@@ -409,7 +410,7 @@ html {
             'icon': 'fas fa-book',
             'color_class': 'card-purple',
             'url': url_for('course_management.index'),
-            'show': (is_teaching_assistant or not is_teacher) and not is_officer
+            'show': is_head and not is_officer
         },
         {
             'title': 'Remuneration',
@@ -476,7 +477,7 @@ html {
             'icon': 'fas fa-book-open',
             'color_class': 'card-indigo',
             'url': url_for('curriculator.index'),
-            'show': is_teaching_assistant or not is_officer
+            'show': (is_teacher or is_head) and not is_officer
         }
     ] %}
     {% endif %}

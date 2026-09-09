@@ -1,12 +1,13 @@
+# CONF-02/03: disabled. Posted cPanel credentials with verify=False (MITM).
+# Do not re-enable until requests use verify=True (or a pinned CA) and secrets are rotated.
 name: Deploy to cPanel (API Method)
 
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   deploy:
+    if: false
     runs-on: ubuntu-latest
     
     steps:

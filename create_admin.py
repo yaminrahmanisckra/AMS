@@ -8,6 +8,10 @@ from werkzeug.security import generate_password_hash
 
 def create_admin():
     """Creates a new admin user"""
+    from utils.security_config import looks_like_production
+    if looks_like_production(__file__):
+        print("WARNING: this looks like production. Prefer an existing admin account.")
+        print("Continue only if you intend to add an operator on this host.\n")
     app = create_app()
     
     with app.app_context():

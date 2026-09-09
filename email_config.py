@@ -48,6 +48,11 @@ class EmailService:
     def send_reset_password_email(self, user_email, reset_token, reset_url):
         """Send password reset email"""
         try:
+            from utils.email_safety import EmailSafetyError, normalize_email
+            user_email = normalize_email(user_email)
+        except Exception as e:
+            return False, f"Error sending email: {e}"
+        try:
             subject = "Password Reset Request - Academic Management System"
             
             html_body = f"""
@@ -102,6 +107,11 @@ class EmailService:
     
     def send_welcome_email(self, user_email, username):
         """Send welcome email to new users"""
+        try:
+            from utils.email_safety import normalize_email
+            user_email = normalize_email(user_email)
+        except Exception as e:
+            return False, f"Error sending email: {e}"
         try:
             subject = "Welcome to Academic Management System"
             

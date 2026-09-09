@@ -102,25 +102,11 @@ def _client_ip():
 
 
 def _current_teacher():
-    """Return Teacher for current user by full_name match (exact, trimmed, then case-insensitive)."""
+    """Return Teacher for current user via users.teacher_id only (AUTHZ-07)."""
     if not current_user.is_authenticated:
         return None
-    from extensions import db
-    name = (current_user.full_name or '').strip()
-    if not name:
-        return None
-    t = Teacher.query.filter_by(name=current_user.full_name).first()
-    if t:
-        return t
-    t = Teacher.query.filter(Teacher.name == name).first()
-    if t:
-        return t
-    t = Teacher.query.filter(db.func.lower(Teacher.name) == name.lower()).first()
-    if t:
-        return t
-    # Match when Teacher.name is "Full Name (Designation)" and user.full_name is "Full Name"
-    t = Teacher.query.filter(db.func.lower(Teacher.name).startswith(name.lower())).first()
-    return t
+    from utils.ownership import resolve_caller_teacher
+    return resolve_caller_teacher(current_user)
 
 
 def is_psac_head():

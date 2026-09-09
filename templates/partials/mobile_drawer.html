@@ -1,5 +1,5 @@
 {% if current_user.is_authenticated %}
-{% set user_roles = parse_roles(current_user.role) %}
+{% set user_roles = get_effective_roles(current_user) %}
 {% set can_view_question_bank = 'student' in user_roles or 'teacher' in user_roles or 'head' in user_roles or 'dean' in user_roles or 'teaching_assistant' in user_roles %}
 
 <div class="m-drawer-backdrop d-lg-none" id="mDrawerBackdrop" hidden aria-hidden="true"></div>
@@ -34,8 +34,15 @@
         </a>
         {% endif %}
 
-        {% if has_teacher_privileges(current_user) or is_admin(current_user) or 'officer' in user_roles %}
+        {% if has_teacher_privileges(current_user) or is_admin(current_user) or 'officer' in user_roles or is_teaching_assistant(current_user) %}
         <div class="m-drawer-section">Modules</div>
+        {% if is_teaching_assistant(current_user) and not has_teacher_privileges(current_user) %}
+        {% if show_class_management|default(true) %}
+        <a class="m-drawer-link" href="{{ url_for('class_management.index') }}" data-endpoint="class_management.index">
+            <i class="fas fa-chalkboard-teacher"></i><span>Class Management</span>
+        </a>
+        {% endif %}
+        {% endif %}
         {% if 'officer' in user_roles and not has_teacher_privileges(current_user) and not is_admin(current_user) %}
         {% if show_view_routine|default(true) %}
         <a class="m-drawer-link" href="{{ url_for('routine_management.public_routines') }}" data-endpoint="routine_management.public_routines">
@@ -163,9 +170,12 @@
         <a class="m-drawer-link" href="{{ url_for('profile') }}" data-endpoint="profile">
             <i class="fas fa-user"></i><span>Profile</span>
         </a>
-        <a class="m-drawer-link" href="{{ url_for('auth.logout') }}">
-            <i class="fas fa-sign-out-alt"></i><span>Logout</span>
-        </a>
+        <form method="POST" action="{{ url_for('auth.logout') }}" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="m-drawer-link border-0 bg-transparent w-100 text-start">
+                <i class="fas fa-sign-out-alt"></i><span>Logout</span>
+            </button>
+        </form>
     </div>
 </aside>
 {% endif %}

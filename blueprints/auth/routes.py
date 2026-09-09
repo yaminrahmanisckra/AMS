@@ -1,17 +1,29 @@
 import hashlib
+import hmac
 import secrets
+from datetime import datetime, timedelta
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from user_models import User
+from user_models import User, PasswordResetCode
 from extensions import db
 from itsdangerous import URLSafeTimedSerializer
 from flask import current_app
-import traceback
-import sys
 from utils.tenant import current_tenant
 from utils.login_throttle import is_locked, record_failure, clear as clear_login_throttle
+from utils.rate_limit import (
+    FORGOT_EMAIL,
+    FORGOT_IP,
+    LOGIN_IP,
+    LOGIN_USERNAME,
+    RESET_IP,
+    VERIFY_IP,
+    first_blocked,
+    reject_too_many,
+)
 from utils.request_ip import client_ip
+from utils.recovery_email import send_recovery_email
+from utils.audit import write_audit
 from role_utils import (
     ADMIN_ROLE,
     ROLE_CHOICES,
@@ -70,6 +82,13 @@ def login():
             return render_form()
         
         client_ip = _client_ip()
+        blocked = first_blocked(
+            ('login.ip', client_ip, *LOGIN_IP),
+            ('login.user', username, *LOGIN_USERNAME),
+        )
+        if blocked:
+            flash('Too many login attempts. Please try again later.', 'error')
+            return reject_too_many(blocked, html=render_form())
         if is_locked(username, client_ip):
             flash('Too many failed login attempts. Please try again in a few minutes.', 'error')
             return render_form()
@@ -294,7 +313,7 @@ def stop_login_as():
     return redirect(url_for('admin_users'))
 
 
-@auth_bp.route('/logout')
+@auth_bp.route('/logout', methods=['POST'])
 @login_required
 def logout():
     # Get username before logout for logging
@@ -364,6 +383,13 @@ def register():
         if not all([username, email, full_name, password, confirm_password]):
             flash('All fields are required.', 'error')
             return render_form()
+
+        try:
+            from utils.email_safety import EmailSafetyError, normalize_email
+            email = normalize_email(email)
+        except EmailSafetyError:
+            flash('Please enter a valid email address.', 'error')
+            return render_form()
         
         if password != confirm_password:
             flash('Passwords do not match.', 'error')
@@ -418,10 +444,10 @@ def get_serializer():
 
 
 def _password_fingerprint(user):
-    """Short hash of the current password_hash, embedded in reset tokens.
+    """Short hash of the current password_hash, embedded in reset records.
 
-    Once the password changes (including via this same reset link), the
-    fingerprint no longer matches, so the old token/link can't be reused.
+    Once the password changes (including via this same reset), the
+    fingerprint no longer matches, so the old code can't be reused.
     """
     return hashlib.sha256((user.password_hash or '').encode('utf-8')).hexdigest()[:16]
 
@@ -430,12 +456,70 @@ FORGOT_PASSWORD_UNIFORM_MESSAGE = (
     'If an account exists for that email address, a verification code has been sent.'
 )
 
-RESET_CODE_SALT = 'password-reset-code-salt'
 RESET_CODE_MAX_AGE = 3600  # 1 hour
+RESET_CODE_MAX_ATTEMPTS = 5
 
 
-def _hash_reset_code(code: str) -> str:
-    return hashlib.sha256((code or '').strip().encode('utf-8')).hexdigest()
+def _hash_reset_code(code: str, salt: str) -> str:
+    """HMAC-SHA256 of the email code; salt is per-request, key is SECRET_KEY."""
+    secret = str(current_app.config.get('SECRET_KEY') or '').encode('utf-8')
+    payload = f'{salt}:{(code or "").strip()}'.encode('utf-8')
+    return hmac.new(secret, payload, hashlib.sha256).hexdigest()
+
+
+def _codes_match(stored_hash: str, code: str, salt: str) -> bool:
+    expected = _hash_reset_code(code, salt)
+    return hmac.compare_digest(stored_hash or '', expected)
+
+
+def _invalidate_unused_reset_codes(user_id, now=None):
+    now = now or datetime.utcnow()
+    PasswordResetCode.query.filter_by(user_id=user_id, used_at=None).update(
+        {'used_at': now},
+        synchronize_session=False,
+    )
+
+
+def _issue_password_reset_code(user):
+    now = datetime.utcnow()
+    _invalidate_unused_reset_codes(user.id, now=now)
+    code = f'{secrets.randbelow(1_000_000):06d}'
+    salt = secrets.token_hex(16)
+    request_id = secrets.token_urlsafe(32)
+    row = PasswordResetCode(
+        request_id=request_id,
+        user_id=user.id,
+        salt=salt,
+        code_hash=_hash_reset_code(code, salt),
+        password_fingerprint=_password_fingerprint(user),
+        attempts=0,
+        expires_at=now + timedelta(seconds=RESET_CODE_MAX_AGE),
+        created_at=now,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return code, request_id
+
+
+def _load_active_reset(request_id):
+    if not request_id:
+        return None
+    row = PasswordResetCode.query.filter_by(request_id=request_id).first()
+    if not row or row.used_at or row.expires_at <= datetime.utcnow():
+        return None
+    if (row.attempts or 0) >= RESET_CODE_MAX_ATTEMPTS:
+        return None
+    user = User.query.get(row.user_id)
+    if not user:
+        return None
+    if row.password_fingerprint != _password_fingerprint(user):
+        return None
+    return row, user
+
+
+def _mark_reset_used(row):
+    row.used_at = datetime.utcnow()
+    db.session.commit()
 
 
 @auth_bp.route('/forgot-password', methods=['GET', 'POST'])
@@ -445,30 +529,40 @@ def forgot_password():
     reject messages that contain long reset links.
     """
     if request.method == 'POST':
-        email = (request.form.get('email') or '').strip()
+        email_raw = (request.form.get('email') or '').strip()
+        try:
+            from utils.email_safety import EmailSafetyError, normalize_email
+            email = normalize_email(email_raw) if email_raw else ''
+        except EmailSafetyError:
+            email = ''
+        blocked = first_blocked(
+            ('forgot.ip', _client_ip(), *FORGOT_IP),
+            ('forgot.email', email or email_raw or 'empty', *FORGOT_EMAIL),
+        )
+        if blocked:
+            flash('Too many recovery requests. Please try again later.', 'danger')
+            return reject_too_many(
+                blocked,
+                html=render_template('auth/forgot_password.html'),
+            )
         user = (
             User.query.filter(db.func.lower(User.email) == email.lower()).first()
             if email
             else None
         )
-        if user:
-            code = f'{secrets.randbelow(1_000_000):06d}'
-            s = get_serializer()
-            challenge = s.dumps(
-                {
-                    'email': user.email,
-                    'pf': _password_fingerprint(user),
-                    'ch': _hash_reset_code(code),
-                },
-                salt=RESET_CODE_SALT,
-            )
-            try:
-                from datetime import datetime as _dt
+        session.pop('reset_challenge', None)
+        session['reset_email_hint'] = email
+        session['reset_request_id'] = secrets.token_urlsafe(32)
 
+        if user:
+            issued_request_id = None
+            try:
+                code, issued_request_id = _issue_password_reset_code(user)
+                session['reset_request_id'] = issued_request_id
                 display_name = (user.full_name or user.username or 'User').strip()
                 account_id = (user.username or user.email or '').strip()
                 from utils.timezone import format_bd as _format_bd
-                requested_at = _format_bd(_dt.utcnow(), '%d %B %Y, %H:%M') + ' (Bangladesh Time)'
+                requested_at = _format_bd(datetime.utcnow(), '%d %B %Y, %H:%M') + ' (Bangladesh Time)'
                 t = current_tenant()
                 recovery_from = (
                     current_app.config.get('MAIL_USERNAME')
@@ -552,15 +646,18 @@ def forgot_password():
                     text_body=text_body,
                     html_body=html_body,
                 )
-                session['reset_challenge'] = challenge
-                session['reset_email_hint'] = user.email
-                flash('A verification code has been sent to your email.', 'info')
-                return redirect(url_for('auth.verify_reset_code'))
+                write_audit(
+                    'auth.password_reset.request',
+                    'user',
+                    entity_id=user.id,
+                    extra={'via': 'email_code'},
+                )
             except Exception as e:
-                print('Email send error:', e, file=sys.stderr)
-                traceback.print_exc(file=sys.stderr)
+                if issued_request_id:
+                    row = PasswordResetCode.query.filter_by(request_id=issued_request_id).first()
+                    if row and not row.used_at:
+                        _mark_reset_used(row)
                 current_app.logger.error(f'Password reset email failed: {e}', exc_info=True)
-                # Friendly message — full SMTP detail stays in server logs
                 err_text = str(e)
                 if 'classified as spam' in err_text.lower() or '550' in err_text:
                     flash(
@@ -574,49 +671,48 @@ def forgot_password():
                         'Email recovery failed. Please ask an AMS administrator to reset your password.',
                         'danger',
                     )
-        else:
-            flash(FORGOT_PASSWORD_UNIFORM_MESSAGE, 'info')
+                return render_template('auth/forgot_password.html')
+
+        flash(FORGOT_PASSWORD_UNIFORM_MESSAGE, 'info')
+        return redirect(url_for('auth.verify_reset_code'))
     return render_template('auth/forgot_password.html')
 
 
 @auth_bp.route('/account/verify-code', methods=['GET', 'POST'])
 def verify_reset_code():
-    """Enter emailed 6-digit code + new password (no link required in the email)."""
-    challenge = session.get('reset_challenge') or request.form.get('challenge') or ''
+    """Enter emailed 6-digit code + new password. Code hash never leaves the server."""
+    request_id = session.get('reset_request_id') or ''
     email_hint = session.get('reset_email_hint') or ''
 
     if request.method == 'POST':
-        challenge = (request.form.get('challenge') or challenge or '').strip()
+        blocked = first_blocked(('verify.ip', _client_ip(), *VERIFY_IP))
+        if blocked:
+            flash('Too many verification attempts. Please try again later.', 'danger')
+            return reject_too_many(
+                blocked,
+                html=render_template('auth/verify_reset_code.html', email_hint=email_hint),
+            )
         code = (request.form.get('code') or '').strip()
         password = request.form.get('password') or ''
         confirm_password = request.form.get('confirm_password') or ''
-
-        s = get_serializer()
-        try:
-            data = s.loads(challenge, salt=RESET_CODE_SALT, max_age=RESET_CODE_MAX_AGE)
-        except Exception:
-            flash('This recovery session is invalid or has expired. Please request a new code.', 'danger')
+        loaded = _load_active_reset(request_id)
+        if not loaded:
+            flash('Invalid or expired verification code. Please request a new code.', 'danger')
             return redirect(url_for('auth.forgot_password'))
 
-        email = data.get('email') if isinstance(data, dict) else None
-        token_fingerprint = data.get('pf') if isinstance(data, dict) else None
-        code_hash = data.get('ch') if isinstance(data, dict) else None
-
-        user = User.query.filter_by(email=email).first() if email else None
-        if not user:
-            flash('Invalid user.', 'danger')
-            return redirect(url_for('auth.forgot_password'))
-
-        if token_fingerprint is not None and token_fingerprint != _password_fingerprint(user):
-            flash('This recovery session is invalid or has expired. Please request a new code.', 'danger')
-            return redirect(url_for('auth.forgot_password'))
-
-        if not code or _hash_reset_code(code) != code_hash:
-            flash('Invalid verification code. Please check the email and try again.', 'danger')
+        row, user = loaded
+        if not _codes_match(row.code_hash, code, row.salt):
+            row.attempts = (row.attempts or 0) + 1
+            if row.attempts >= RESET_CODE_MAX_ATTEMPTS:
+                row.used_at = datetime.utcnow()
+            db.session.commit()
+            flash('Invalid or expired verification code. Please request a new code.', 'danger')
+            if row.used_at:
+                session.pop('reset_request_id', None)
+                return redirect(url_for('auth.forgot_password'))
             return render_template(
                 'auth/verify_reset_code.html',
-                challenge=challenge,
-                email_hint=email or email_hint,
+                email_hint=email_hint,
             )
 
         if not password or not confirm_password:
@@ -628,25 +724,32 @@ def verify_reset_code():
         else:
             user.set_password(password)
             user.must_change_password = False
+            row.used_at = datetime.utcnow()
+            _invalidate_unused_reset_codes(user.id, now=row.used_at)
             db.session.commit()
-            session.pop('reset_challenge', None)
+            write_audit(
+                'auth.password_reset.complete',
+                'user',
+                entity_id=user.id,
+                extra={'via': 'email_code'},
+            )
+            session.pop('reset_request_id', None)
             session.pop('reset_email_hint', None)
+            session.pop('reset_challenge', None)
             flash('Your password has been updated. Please log in.', 'success')
             return redirect(url_for('auth.login'))
 
         return render_template(
             'auth/verify_reset_code.html',
-            challenge=challenge,
-            email_hint=email or email_hint,
+            email_hint=email_hint,
         )
 
-    if not challenge:
+    if not request_id:
         flash('Please request a verification code first.', 'info')
         return redirect(url_for('auth.forgot_password'))
 
     return render_template(
         'auth/verify_reset_code.html',
-        challenge=challenge,
         email_hint=email_hint,
     )
 
@@ -664,6 +767,11 @@ def reset_password(token):
 
 
 def _handle_account_access(token):
+    if request.method == 'POST':
+        blocked = first_blocked(('reset.ip', _client_ip(), *RESET_IP))
+        if blocked:
+            flash('Too many password-reset attempts. Please try again later.', 'danger')
+            return reject_too_many(blocked)
     s = get_serializer()
     try:
         data = s.loads(token, salt='password-reset-salt', max_age=3600)

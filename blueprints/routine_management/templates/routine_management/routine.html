@@ -487,8 +487,8 @@ document.addEventListener('DOMContentLoaded', function () {
         {% endif %}
         div.dataset.courseInfo = JSON.stringify(courseInfo);
 
-        const teacherNames = courseInfo.teachers.map(t => t.short_name).join('/');
-        div.innerHTML = `<strong>${courseInfo.course_code}</strong><br><small>(${teacherNames})</small>`;
+        const teacherNames = courseInfo.teachers.map(t => escapeHtml(t.short_name)).join('/');
+        div.innerHTML = `<strong>${escapeHtml(courseInfo.course_code)}</strong><br><small>(${teacherNames})</small>`;
         return div;
     }
     
@@ -503,7 +503,7 @@ document.addEventListener('DOMContentLoaded', function () {
         {% endif %}
         div.dataset.eventInfo = JSON.stringify(eventInfo); // Store event info separately
 
-        div.innerHTML = `<strong>${eventInfo.course_code}</strong><br><small>(${eventInfo.teacher_short_name})</small>`;
+        div.innerHTML = `<strong>${escapeHtml(eventInfo.course_code)}</strong><br><small>(${escapeHtml(eventInfo.teacher_short_name)})</small>`;
         return div;
     }
 

@@ -21,6 +21,8 @@ WINDOW_EXEMPT_ENDPOINTS = frozenset({
     'auth.no_active_window',
     'auth.login_as',
     'auth.stop_login_as',
+    'media_user_photo',
+    'media_user_signature',
 })
 
 

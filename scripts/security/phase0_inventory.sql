@@ -1,6 +1,13 @@
 -- Phase 0 inventory queries — run against production (read-only) before any auth/schema gates.
 -- Save results under ams_backups/inventory_<date>/
 
+-- CONF-05: leftover bootstrap admin (do not SELECT password hashes)
+SELECT id, username, email, role, must_change_password
+FROM users
+WHERE username = 'admin'
+   OR email = 'admin@example.com'
+   OR LOWER(role) LIKE '%admin%';
+
 SELECT DISTINCT role FROM users ORDER BY role;
 
 SELECT role, COUNT(*) AS n FROM users GROUP BY role ORDER BY n DESC;

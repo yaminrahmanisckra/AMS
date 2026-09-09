@@ -275,3 +275,12 @@ venv_feedback/
 venv_test/
 .venv_test312/
 .venv/
+
+# CONF-06: never commit venvs, deployment zips, or upload trees
+*.zip
+venv*/
+.venv*/
+static/uploads/
+.git 2
+cpanel_deployment.zip
+

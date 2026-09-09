@@ -23,7 +23,6 @@
                         {% endif %}
                     {% endwith %}
                     <form method="POST" action="{{ url_for('auth.verify_reset_code') }}">
-                        <input type="hidden" name="challenge" value="{{ challenge }}">
                         <div class="mb-3">
                             <label for="code" class="form-label">6-digit code from email</label>
                             <input type="text" class="form-control" id="code" name="code"

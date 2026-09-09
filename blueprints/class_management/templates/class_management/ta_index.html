@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}TA Class Duties{% endblock %}
+{% block mobile_title %}TA Duties{% endblock %}
+
+{% block content %}
+<div class="container my-4" style="max-width: 960px;">
+    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+        <div>
+            <h1 class="h4 mb-1">Assigned Classes</h1>
+            <p class="text-muted mb-0 small">
+                As a Teaching Assistant you can take attendance and enter marks only for courses
+                assigned to you by the Head.
+            </p>
+        </div>
+        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">Dashboard</a>
+    </div>
+
+    {% if sessions %}
+    <div class="list-group shadow-sm">
+        {% for session in sessions %}
+        <div class="list-group-item">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div>
+                    <div class="fw-semibold">{{ session.course_code }} — {{ session.course_name or 'Course' }}</div>
+                    <div class="small text-muted">
+                        {{ session.year }} / {{ session.term }}
+                        {% if session.academic_session %} · {{ session.academic_session }}{% endif %}
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-success btn-sm" href="{{ url_for('class_management.take_attendance', session_id=session.id) }}">
+                        <i class="fas fa-clipboard-check me-1"></i>Attendance
+                    </a>
+                    <a class="btn btn-outline-success btn-sm" href="{{ url_for('class_management.view_attendance', session_id=session.id) }}">
+                        View
+                    </a>
+                    <a class="btn btn-warning btn-sm" href="{{ url_for('class_management.assessment', session_id=session.id) }}">
+                        <i class="fas fa-edit me-1"></i>Marks
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info mb-0">
+        No course duties match this window yet. Ask the Head to assign you as Teaching Assistant
+        for a specific course (with academic session, year, and term).
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

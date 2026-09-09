@@ -517,7 +517,7 @@
                                                 <a href="{{ url_for('exam_committee_chief_custom_remuneration', form_id=form.id) }}" class="btn btn-sm btn-primary">
                                                     <i class="fas fa-edit me-1"></i>Edit
                                                 </a>
-                                                <button class="btn btn-sm btn-danger" onclick="deleteRemunerationForm({{ form.id }}, '{{ form.title or 'Untitled' }}')">
+                                                <button class="btn btn-sm btn-danger" onclick="deleteRemunerationForm({{ form.id }}, {{ (form.title or 'Untitled')|tojson }})">
                                                     <i class="fas fa-trash me-1"></i>Delete
                                                 </button>
                                                 {% endif %}
@@ -543,6 +543,22 @@
 </div>
 
 <script>
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function jsStringLiteral(value) {
+    return JSON.stringify(String(value ?? ''))
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;');
+}
+
 const dutyTypeSelect = document.getElementById('duty_type');
 const teacherSelect = document.getElementById('teacher');
 const entrySelect = document.getElementById('exam_entries');
@@ -1051,8 +1067,8 @@ function updateInternalMembersList() {
             <div class="list-group-item">
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="flex-grow-1">
-                        <strong><i class="fas fa-user me-2"></i>${member.name}</strong><br>
-                        <small class="text-muted">${member.designation || 'No designation'}, ${member.institute || {{ tenant.institute_label|tojson }}}</small>
+                        <strong><i class="fas fa-user me-2"></i>${escapeHtml(member.name)}</strong><br>
+                        <small class="text-muted">${escapeHtml(member.designation || 'No designation')}, ${escapeHtml(member.institute || {{ tenant.institute_label|tojson }})}</small>
                         <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="editInternalMember(${index})">
                             <i class="fas fa-edit"></i> Edit
                         </button>
@@ -1097,8 +1113,8 @@ function updateExternalMembersList() {
             <div class="list-group-item">
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
-                        <strong><i class="fas fa-user-tie me-2"></i>${member.name}</strong><br>
-                        <small class="text-muted">${member.designation}, ${member.institute}</small>
+                        <strong><i class="fas fa-user-tie me-2"></i>${escapeHtml(member.name)}</strong><br>
+                        <small class="text-muted">${escapeHtml(member.designation)}, ${escapeHtml(member.institute)}</small>
                     </div>
                     <button type="button" class="btn btn-sm btn-danger" onclick="removeExternalMember(${index})">
                         <i class="fas fa-times"></i>
@@ -1221,8 +1237,8 @@ function showCommitteeMembersList() {
         const institute = savedCommitteeData.chief.institute || {{ tenant.institute_label|tojson }};
         chiefHtml = `
             <div class="list-group-item">
-                <i class="fas fa-crown me-2 text-warning"></i><strong>${savedCommitteeData.chief.name}</strong>
-                <br><small class="text-muted">${designation}, ${institute}</small>
+                <i class="fas fa-crown me-2 text-warning"></i><strong>${escapeHtml(savedCommitteeData.chief.name)}</strong>
+                <br><small class="text-muted">${escapeHtml(designation)}, ${escapeHtml(institute)}</small>
             </div>
         `;
         const committeeChiefListEl = document.getElementById('committeeChiefList');
@@ -1244,8 +1260,8 @@ function showCommitteeMembersList() {
             const institute = member.institute || {{ tenant.institute_label|tojson }};
             internalHtml += `
                 <div class="list-group-item">
-                    <i class="fas fa-user me-2"></i><strong>${member.name}</strong>
-                    <br><small class="text-muted">${designation}, ${institute}</small>
+                    <i class="fas fa-user me-2"></i><strong>${escapeHtml(member.name)}</strong>
+                    <br><small class="text-muted">${escapeHtml(designation)}, ${escapeHtml(institute)}</small>
                 </div>
             `;
         });
@@ -1266,8 +1282,8 @@ function showCommitteeMembersList() {
         savedCommitteeData.external.forEach(member => {
             externalHtml += `
                 <div class="list-group-item">
-                    <strong><i class="fas fa-user-tie me-2"></i>${member.name}</strong><br>
-                    <small class="text-muted">${member.designation}, ${member.institute}</small>
+                    <strong><i class="fas fa-user-tie me-2"></i>${escapeHtml(member.name)}</strong><br>
+                    <small class="text-muted">${escapeHtml(member.designation)}, ${escapeHtml(member.institute)}</small>
                 </div>
             `;
         });
@@ -1672,7 +1688,7 @@ function reloadSubjectsTable() {
                 console.log('Table reloaded successfully');
             } else {
                 containerDiv.style.display = 'none';
-                errorDiv.innerHTML = `<i class="fas fa-info-circle me-2"></i>${data.message || 'No subjects found'}`;
+                errorDiv.innerHTML = `<i class="fas fa-info-circle me-2"></i>${escapeHtml(data.message || 'No subjects found')}`;
                 errorDiv.className = 'alert alert-warning';
                 errorDiv.style.display = 'block';
             }
@@ -1691,15 +1707,6 @@ function reloadSubjectsTable() {
 // Alias for backward compatibility
 function loadSubjectsForEvaluator() {
     reloadSubjectsTable();
-}
-
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
 }
 
 function formatMergeFlag(value) {
@@ -1801,18 +1808,19 @@ function renderSubjectsTable(subjects) {
     // Create teacher options HTML for dropdowns
     let teacherOptionsHtml = '<option value="">Select Teacher</option>';
     teachers.forEach(teacher => {
-        teacherOptionsHtml += `<option value="${teacher.id}">${teacher.name}</option>`;
+        teacherOptionsHtml += `<option value="${escapeHtml(String(teacher.id))}">${escapeHtml(teacher.name)}</option>`;
     });
     
     let html = '';
     subjects.forEach(subject => {
         const canAssign = subject.is_assignable !== false;
         const nonAssignableMessage = '<div class="text-muted small">Assignment unavailable: source course mapping not found.</div>';
+        const courseCodeJs = jsStringLiteral(subject.course_code);
         // Part A - Evaluator and Question Setter
-        const partAEvaluator = teacherMap[subject.part_a.assigned_teacher_id] || 'N/A';
+        const partAEvaluator = escapeHtml(teacherMap[subject.part_a.assigned_teacher_id] || 'N/A');
         const partAQuestionSetter = subject.part_a.is_same_person 
-            ? `${teacherMap[subject.part_a.assigned_teacher_id] || 'N/A'} <span class="badge bg-info">Same</span>`
-            : (teacherMap[subject.part_a.question_setter_id] || 'Not assigned');
+            ? `${escapeHtml(teacherMap[subject.part_a.assigned_teacher_id] || 'N/A')} <span class="badge bg-info">Same</span>`
+            : escapeHtml(teacherMap[subject.part_a.question_setter_id] || 'Not assigned');
         
         const partACell = subject.part_a.assigned && subject.part_a.assignment_id
             ? `<div>
@@ -1822,7 +1830,7 @@ function renderSubjectsTable(subjects) {
                 <div class="mb-2">
                     <strong>Question Setter:</strong> ${partAQuestionSetter}
                 </div>
-                <button class="btn btn-sm btn-danger" onclick="unassignEvaluator(${subject.part_a.assignment_id}, ${subject.course_id}, 'A', '${subject.course_code.replace(/'/g, "\\'")}')">
+                <button class="btn btn-sm btn-danger" onclick="unassignEvaluator(${subject.part_a.assignment_id}, ${subject.course_id}, 'A', ${courseCodeJs})">
                     <i class="fas fa-times"></i> Unassign
                 </button>
                </div>`
@@ -1847,16 +1855,16 @@ function renderSubjectsTable(subjects) {
                         </div>
                     </div>
                 </div>
-                <button class="btn btn-sm btn-primary" onclick="assignEvaluatorInline(${subject.course_id}, 'A', '${subject.course_code.replace(/'/g, "\\'")}')">
+                <button class="btn btn-sm btn-primary" onclick="assignEvaluatorInline(${subject.course_id}, 'A', ${courseCodeJs})">
                     <i class="fas fa-user-plus me-1"></i>Assign
                 </button>
                </div>`;
         
         // Part B - Evaluator and Question Setter
-        const partBEvaluator = teacherMap[subject.part_b.assigned_teacher_id] || 'N/A';
+        const partBEvaluator = escapeHtml(teacherMap[subject.part_b.assigned_teacher_id] || 'N/A');
         const partBQuestionSetter = subject.part_b.is_same_person 
-            ? `${teacherMap[subject.part_b.assigned_teacher_id] || 'N/A'} <span class="badge bg-info">Same</span>`
-            : (teacherMap[subject.part_b.question_setter_id] || 'Not assigned');
+            ? `${escapeHtml(teacherMap[subject.part_b.assigned_teacher_id] || 'N/A')} <span class="badge bg-info">Same</span>`
+            : escapeHtml(teacherMap[subject.part_b.question_setter_id] || 'Not assigned');
         
         const partBCell = subject.part_b.assigned && subject.part_b.assignment_id
             ? `<div>
@@ -1866,7 +1874,7 @@ function renderSubjectsTable(subjects) {
                 <div class="mb-2">
                     <strong>Question Setter:</strong> ${partBQuestionSetter}
                 </div>
-                <button class="btn btn-sm btn-danger" onclick="unassignEvaluator(${subject.part_b.assignment_id}, ${subject.course_id}, 'B', '${subject.course_code.replace(/'/g, "\\'")}')">
+                <button class="btn btn-sm btn-danger" onclick="unassignEvaluator(${subject.part_b.assignment_id}, ${subject.course_id}, 'B', ${courseCodeJs})">
                     <i class="fas fa-times"></i> Unassign
                 </button>
                </div>`
@@ -1891,7 +1899,7 @@ function renderSubjectsTable(subjects) {
                         </div>
                     </div>
                 </div>
-                <button class="btn btn-sm btn-primary" onclick="assignEvaluatorInline(${subject.course_id}, 'B', '${subject.course_code.replace(/'/g, "\\'")}')">
+                <button class="btn btn-sm btn-primary" onclick="assignEvaluatorInline(${subject.course_id}, 'B', ${courseCodeJs})">
                     <i class="fas fa-user-plus me-1"></i>Assign
                 </button>
                </div>`;
@@ -1987,8 +1995,8 @@ function renderSubjectsTable(subjects) {
 
         html += `
             <tr>
-                <td><strong>${subject.course_code}</strong></td>
-                <td>${subject.course_name}${subjectStudentsDetailHtml}${separateRetakeDetailHtml}</td>
+                <td><strong>${escapeHtml(subject.course_code)}</strong></td>
+                <td>${escapeHtml(subject.course_name)}${subjectStudentsDetailHtml}${separateRetakeDetailHtml}</td>
                 <td>${partACell}</td>
                 <td>${partBCell}</td>
             </tr>
@@ -2235,7 +2243,7 @@ function unassignEvaluator(assignmentId, courseId, part, courseCode) {
                 const teachers = {{ teachers_dict|tojson }};
                 let teacherOptionsHtml = '<option value="">Select Teacher</option>';
                 teachers.forEach(teacher => {
-                    teacherOptionsHtml += `<option value="${teacher.id}">${teacher.name}</option>`;
+                    teacherOptionsHtml += `<option value="${escapeHtml(String(teacher.id))}">${escapeHtml(teacher.name)}</option>`;
                 });
                 
                 // Update the cell directly with Question Setter and Evaluator fields
@@ -2259,7 +2267,7 @@ function unassignEvaluator(assignmentId, courseId, part, courseCode) {
                                 </div>
                             </div>
                         </div>
-                        <button class="btn btn-sm btn-primary" onclick="assignEvaluatorInline(${courseId}, '${part}', '${courseCode.replace(/'/g, "\\'")}')">
+                        <button class="btn btn-sm btn-primary" onclick="assignEvaluatorInline(${courseId}, '${part}', ${jsStringLiteral(courseCode)})">
                             <i class="fas fa-user-plus me-1"></i>Assign
                         </button>
                     </div>

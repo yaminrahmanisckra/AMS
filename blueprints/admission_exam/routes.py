@@ -27,8 +27,9 @@ from flask import (
 )
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
+from utils.safe_redirect import safe_redirect_target
 
-from extensions import db, csrf
+from extensions import db
 from role_utils import is_admin, has_role, parse_roles
 
 from . import admission_exam_bp
@@ -74,9 +75,10 @@ BANK_SLIP_MAX_DIMENSIONS = (1600, 1600)
 
 LANDING_FILE_MAX_BYTES = 10 * 1024 * 1024
 LANDING_FILE_MAX_LABEL = '10 MB'
+# FILE-05: no zip/rar — public download surface must not host archives
 LANDING_FILE_EXTS = {
     'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
-    'png', 'jpg', 'jpeg', 'gif', 'webp', 'txt', 'zip', 'rar',
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'txt',
 }
 _LANDING_HTML_ALLOWED = {
     'p', 'br', 'div', 'span', 'strong', 'b', 'em', 'i', 'u', 's', 'sub', 'sup',
@@ -97,6 +99,11 @@ EXTRA_FIELD_DEFS = [
 # ---------------------------------------------------------------------------
 # Access helpers
 # ---------------------------------------------------------------------------
+
+def _redirect_back(fallback):
+    """Redirect to safe same-site referrer, else ``fallback`` (INJ-03)."""
+    return redirect(safe_redirect_target(request.referrer, fallback=fallback))
+
 
 def _user_is_manager():
     """Admins and officers can create cycles and manage everything."""
@@ -246,12 +253,14 @@ def _generate_application_id(cycle):
 
 
 def _photo_dir(cycle):
-    """Prefer static/uploads (same pattern as user photos — reliable on cPanel)."""
-    path = os.path.join(
-        current_app.root_path, 'static', 'uploads', 'admission_exam', f'cycle_{cycle.id}'
-    )
-    os.makedirs(path, exist_ok=True)
-    return path
+    """Private admission cycle directory (outside docroot when PRIVATE_UPLOAD_DIR is set)."""
+    from utils.private_uploads import ensure_private_subdir
+    return ensure_private_subdir('admission_exam', f'cycle_{cycle.id}')
+
+
+def _admission_rel(*parts):
+    from utils.private_uploads import store_relative
+    return store_relative('admission_exam', *parts)
 
 
 def _save_image_upload(cycle, application_id, file_storage, *, kind='photo',
@@ -300,10 +309,13 @@ def _save_image_upload(cycle, application_id, file_storage, *, kind='photo',
         prefix = 'sig'
     else:
         prefix = 'photo'
-    new_name = f"{safe_id}_{prefix}_{int(datetime.utcnow().timestamp())}.jpg"
+    from utils.private_uploads import private_token_filename
+    new_name = private_token_filename('jpg')
+    # Keep a readable prefix for support/debugging without leaking sequential APPID in the URL.
+    new_name = f'{safe_id}_{prefix}_{new_name}'
     abs_path = os.path.join(_photo_dir(cycle), new_name)
     img.save(abs_path, format='JPEG', quality=PHOTO_JPEG_QUALITY, optimize=True)
-    return os.path.join('static', 'uploads', 'admission_exam', f'cycle_{cycle.id}', new_name), None
+    return _admission_rel(f'cycle_{cycle.id}', new_name), None
 
 
 def _save_photo(cycle, application_id, file_storage):
@@ -334,29 +346,28 @@ def _save_candidate_signature(cycle, application_id, file_storage):
 
 
 def _save_candidate_document(cycle, application_id, file_storage):
-    """Save attested certificate/transcript (JPG/PNG only, max 5 MB). Returns (path, orig_name, err)."""
-    filename = secure_filename(file_storage.filename or '')
-    if not filename or '.' not in filename:
-        return None, None, 'Invalid document file.'
-    ext = filename.rsplit('.', 1)[1].lower()
-    if ext not in DOCUMENT_ALLOWED_EXTS:
-        return None, None, 'Documents must be JPG or PNG images (PDF is not allowed).'
-    file_storage.stream.seek(0, os.SEEK_END)
-    size = file_storage.stream.tell()
-    file_storage.stream.seek(0)
-    if size <= 0:
-        return None, None, 'Document file is empty.'
-    if size > DOCUMENT_MAX_BYTES:
-        return None, None, (
-            f'Document is too large ({size / (1024 * 1024):.1f} MB). '
-            f'Maximum allowed size is {DOCUMENT_MAX_LABEL}.'
-        )
+    """Save attested certificate/transcript (JPG/PNG, Pillow re-encode). Returns (path, orig_name, err)."""
+    from utils.private_uploads import private_token_filename
+    from utils.uploads import DOCUMENT_IMAGE_PURPOSE, UploadError, validate_upload, materialize_validated
+
+    try:
+        validated = validate_upload(file_storage, DOCUMENT_IMAGE_PURPOSE)
+    except UploadError as exc:
+        return None, None, exc.message
+
     safe_id = re.sub(r'[^A-Za-z0-9_-]', '_', application_id)
-    new_name = f"{safe_id}_doc_{uuid.uuid4().hex[:10]}.{ext}"
-    abs_path = os.path.join(_photo_dir(cycle), new_name)
-    file_storage.save(abs_path)
-    rel = os.path.join('static', 'uploads', 'admission_exam', f'cycle_{cycle.id}', new_name)
-    return rel.replace('\\', '/'), filename[:255], None
+    token_name = private_token_filename('jpg')  # ext may change after re-encode
+    abs_dir = _photo_dir(cycle)
+    abs_path = os.path.join(abs_dir, f'{safe_id}_doc_{token_name}')
+    try:
+        ext = materialize_validated(validated, abs_path, force_reencode=True)
+    except UploadError as exc:
+        return None, None, exc.message
+    base, _ = os.path.splitext(abs_path)
+    final_abs = f'{base}.{ext}'
+    final_name = os.path.basename(final_abs)
+    rel = _admission_rel(f'cycle_{cycle.id}', final_name)
+    return rel, validated.original_name[:255], None
 
 
 def _document_abs_path(document):
@@ -1092,13 +1103,14 @@ def _save_signature(cycle, file_storage):
         return None, 'Could not read the signature image. Please upload a valid JPG or PNG.'
 
     out_ext = 'png' if img.mode == 'RGBA' else 'jpg'
-    new_name = f"chairman_signature_{int(datetime.utcnow().timestamp())}.{out_ext}"
+    from utils.private_uploads import private_token_filename
+    new_name = f"chairman_signature_{private_token_filename(out_ext)}"
     abs_path = os.path.join(_photo_dir(cycle), new_name)
     if out_ext == 'png':
         img.save(abs_path, format='PNG', optimize=True)
     else:
         img.save(abs_path, format='JPEG', quality=90, optimize=True)
-    return os.path.join('static', 'uploads', 'admission_exam', f'cycle_{cycle.id}', new_name), None
+    return _admission_rel(f'cycle_{cycle.id}', new_name), None
 
 
 def _parse_extra_fields(candidate):
@@ -3180,7 +3192,6 @@ def landing(token):
 
 
 @admission_exam_bp.route('/apply/<token>/form', methods=['GET', 'POST'])
-@csrf.exempt
 def apply_form(token):
     cycle, disabled = _public_cycle_by_token(token)
     if disabled:
@@ -3357,7 +3368,6 @@ def apply_form(token):
 
 
 @admission_exam_bp.route('/apply/<token>/login', methods=['GET', 'POST'])
-@csrf.exempt
 def candidate_login(token):
     cycle, disabled = _public_cycle_by_token(token)
     if disabled:
@@ -3366,7 +3376,24 @@ def candidate_login(token):
         return redirect(url_for('admission_exam.candidate_dashboard', token=token))
 
     if request.method == 'POST':
+        from utils.rate_limit import (
+            ADMISSION_LOGIN_APP,
+            ADMISSION_LOGIN_IP,
+            first_blocked,
+            reject_too_many,
+        )
+        from utils.request_ip import client_ip
+
         application_id = (request.form.get('application_id') or '').strip().upper()
+        blocked = first_blocked(
+            ('adm.ip', client_ip(), *ADMISSION_LOGIN_IP),
+            ('adm.app', application_id or 'empty', *ADMISSION_LOGIN_APP),
+        )
+        if blocked:
+            return reject_too_many(
+                blocked,
+                html=render_template('admission_exam/candidate_login.html', cycle=cycle),
+            )
         pin = (request.form.get('pin') or '').strip()
         candidate = AdmissionCandidate.query.filter_by(application_id=application_id).first()
         if candidate and candidate.cycle_id == cycle.id and candidate.check_pin(pin):
@@ -3378,7 +3405,7 @@ def candidate_login(token):
     return render_template('admission_exam/candidate_login.html', cycle=cycle)
 
 
-@admission_exam_bp.route('/apply/<token>/logout')
+@admission_exam_bp.route('/apply/<token>/logout', methods=['POST'])
 def candidate_logout(token):
     session.pop(CANDIDATE_SESSION_KEY, None)
     return redirect(url_for('admission_exam.landing', token=token))
@@ -3420,7 +3447,6 @@ def candidate_dashboard(cycle, candidate):
 
 
 @admission_exam_bp.route('/apply/<token>/payment', methods=['POST'])
-@csrf.exempt
 @candidate_required
 def candidate_update_payment(cycle, candidate):
     """Candidate may correct payment info while pending or after rejection."""
@@ -3475,23 +3501,22 @@ def candidate_update_payment(cycle, candidate):
 @admission_exam_bp.route('/apply/<token>/photo')
 @candidate_required
 def candidate_photo(cycle, candidate):
-    path = _photo_abs_path(candidate)
-    if not path:
+    from utils.safe_files import send_confined_file
+    if not candidate.photo_path:
         abort(404)
-    return send_file(path)
+    return send_confined_file(candidate.photo_path)
 
 
 @admission_exam_bp.route('/apply/<token>/signature')
 @candidate_required
 def candidate_signature_image(cycle, candidate):
-    path = _candidate_signature_abs_path(candidate)
-    if not path:
+    from utils.safe_files import send_confined_file
+    if not candidate.signature_path:
         abort(404)
-    return send_file(path)
+    return send_confined_file(candidate.signature_path)
 
 
 @admission_exam_bp.route('/apply/<token>/signature', methods=['POST'])
-@csrf.exempt
 @candidate_required
 def candidate_update_signature(cycle, candidate):
     """Allow candidate to upload/replace signature while payment is not verified."""
@@ -3515,26 +3540,30 @@ def candidate_update_signature(cycle, candidate):
 @admission_exam_bp.route('/apply/<token>/bank-slip')
 @candidate_required
 def candidate_bank_slip(cycle, candidate):
-    path = _bank_slip_abs_path(candidate)
-    if not path:
+    from utils.safe_files import send_confined_file
+    if not candidate.bank_slip_path:
         abort(404)
-    return send_file(path)
+    return send_confined_file(candidate.bank_slip_path)
 
 
 @admission_exam_bp.route('/apply/<token>/document/<int:doc_id>')
 @candidate_required
 def candidate_document_file(cycle, candidate, doc_id):
+    from utils.safe_files import send_confined_file
     doc = AdmissionCandidateDocument.query.filter_by(
         id=doc_id, candidate_id=candidate.id
     ).first_or_404()
-    path = _document_abs_path(doc)
-    if not path:
+    if not doc.file_path:
         abort(404)
-    return send_file(path, download_name=doc.original_filename or os.path.basename(path))
+    return send_confined_file(
+        doc.file_path,
+        as_attachment=True,
+        force_attachment=True,
+        download_name=doc.original_filename or os.path.basename(doc.file_path),
+    )
 
 
 @admission_exam_bp.route('/apply/<token>/documents', methods=['POST'])
-@csrf.exempt
 @candidate_required
 def candidate_add_documents(cycle, candidate):
     """Candidate may add more certificates while payment is not verified."""
@@ -3564,7 +3593,6 @@ def candidate_add_documents(cycle, candidate):
 
 
 @admission_exam_bp.route('/apply/<token>/document/<int:doc_id>/delete', methods=['POST'])
-@csrf.exempt
 @candidate_required
 def candidate_delete_document(cycle, candidate, doc_id):
     if candidate.payment_status == 'verified':
@@ -3602,6 +3630,15 @@ def _admit_pdf_response(pdf_bytes, download_name):
 @admission_exam_bp.route('/apply/<token>/admit-card.pdf')
 @candidate_required
 def candidate_admit_card(cycle, candidate):
+    from utils.rate_limit import PDF_EXPORT, first_blocked, reject_too_many
+    from utils.request_ip import client_ip
+    blocked = first_blocked(
+        ('pdf.admit', str(candidate.id), *PDF_EXPORT),
+        ('pdf.admit.ip', client_ip(), *PDF_EXPORT),
+    )
+    if blocked:
+        flash('Too many downloads. Please try again later.', 'warning')
+        return reject_too_many(blocked)
     if not candidate.can_download_admit:
         flash('Your admit card is not available yet.', 'warning')
         return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
@@ -3834,51 +3871,39 @@ def cycle_landing_content(cycle):
 @cycle_access_required
 def cycle_landing_file_upload(cycle):
     """Upload a downloadable file for the public landing page."""
+    from utils.uploads import LANDING_PURPOSE, UploadError, validate_upload
+
     upload = request.files.get('landing_file')
     if not upload or not upload.filename:
         flash('Please choose a file to upload.', 'danger')
         return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
 
-    filename = secure_filename(upload.filename) or 'file'
-    if '.' not in filename:
-        flash('Invalid file name.', 'danger')
-        return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
-    ext = filename.rsplit('.', 1)[1].lower()
-    if ext not in LANDING_FILE_EXTS:
-        flash(
-            'File type not allowed. Use PDF, Word, Excel, PowerPoint, image, text, or ZIP.',
-            'danger',
-        )
+    try:
+        validated = validate_upload(upload, LANDING_PURPOSE)
+    except UploadError as exc:
+        flash(exc.message, 'danger')
         return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
 
-    upload.stream.seek(0, os.SEEK_END)
-    size = upload.stream.tell()
-    upload.stream.seek(0)
-    if size <= 0:
-        flash('Empty file.', 'danger')
-        return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
-    if size > LANDING_FILE_MAX_BYTES:
-        flash(f'File is too large. Maximum is {LANDING_FILE_MAX_LABEL}.', 'danger')
-        return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
-
-    stored = f"{uuid.uuid4().hex}.{ext}"
+    stored = f"{uuid.uuid4().hex}.{validated.ext}"
     abs_dir = _landing_files_dir(cycle)
     abs_path = os.path.join(abs_dir, stored)
-    upload.save(abs_path)
-    rel_path = os.path.join(
-        'static', 'uploads', 'admission_exam', f'cycle_{cycle.id}', 'landing_files', stored
-    ).replace('\\', '/')
+    with open(abs_path, 'wb') as fh:
+        fh.write(validated.data)
+    rel_path = _admission_rel(f'cycle_{cycle.id}', 'landing_files', stored)
 
     payload = _parse_landing_payload(cycle.instructions)
     payload['attachments'].append({
         'id': uuid.uuid4().hex[:16],
-        'name': filename[:180],
+        'name': validated.original_name[:180],
         'path': rel_path,
-        'size': size,
+        'size': len(validated.data),
     })
     cycle.instructions = _serialize_landing_payload(payload['sections'], payload['attachments'])
     db.session.commit()
-    flash(f'File “{filename}” uploaded. It will appear on the public application page.', 'success')
+    flash(
+        f'File “{validated.original_name}” uploaded. It will appear on the public application page.',
+        'success',
+    )
     return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
 
 
@@ -3912,7 +3937,9 @@ def cycle_landing_file_delete(cycle, file_id):
 
 @admission_exam_bp.route('/apply/<token>/file/<file_id>')
 def landing_file_download(token, file_id):
-    """Public download of a landing-page attachment."""
+    """Public download of a landing-page attachment (confined to upload roots)."""
+    from utils.safe_files import send_confined_file
+
     cycle, disabled = _public_cycle_by_token(token)
     if disabled:
         return disabled
@@ -3920,13 +3947,11 @@ def landing_file_download(token, file_id):
     item = next((a for a in attachments if a['id'] == file_id), None)
     if not item:
         abort(404)
-    abs_path = _landing_file_abs_path(item.get('path'))
-    if not abs_path or not os.path.isfile(abs_path):
-        abort(404)
-    return send_file(
-        abs_path,
+    return send_confined_file(
+        item.get('path'),
         as_attachment=True,
-        download_name=item.get('name') or os.path.basename(abs_path),
+        force_attachment=True,
+        download_name=item.get('name') or os.path.basename(str(item.get('path') or 'file')),
     )
 
 
@@ -3942,7 +3967,7 @@ def cycle_toggle_enabled(cycle):
         flash('Cycle enabled. The public link is available again (subject to Open/Closed status).', 'success')
     else:
         flash('Cycle disabled. The public application link is now unavailable.', 'warning')
-    return redirect(request.referrer or url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+    return _redirect_back(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
 
 
 @admission_exam_bp.route('/cycle/<int:cycle_id>/status', methods=['POST'])
@@ -4103,43 +4128,48 @@ def candidate_detail(candidate):
 @login_required
 @candidate_access_required
 def candidate_photo_admin(candidate):
-    path = _photo_abs_path(candidate)
-    if not path:
+    from utils.safe_files import send_confined_file
+    if not candidate.photo_path:
         abort(404)
-    return send_file(path)
+    return send_confined_file(candidate.photo_path)
 
 
 @admission_exam_bp.route('/candidate/<int:candidate_id>/signature')
 @login_required
 @candidate_access_required
 def candidate_signature_admin(candidate):
-    path = _candidate_signature_abs_path(candidate)
-    if not path:
+    from utils.safe_files import send_confined_file
+    if not candidate.signature_path:
         abort(404)
-    return send_file(path)
+    return send_confined_file(candidate.signature_path)
 
 
 @admission_exam_bp.route('/candidate/<int:candidate_id>/bank-slip')
 @login_required
 @candidate_access_required
 def candidate_bank_slip_admin(candidate):
-    path = _bank_slip_abs_path(candidate)
-    if not path:
+    from utils.safe_files import send_confined_file
+    if not candidate.bank_slip_path:
         abort(404)
-    return send_file(path)
+    return send_confined_file(candidate.bank_slip_path)
 
 
 @admission_exam_bp.route('/candidate/<int:candidate_id>/document/<int:doc_id>')
 @login_required
 @candidate_access_required
 def candidate_document_admin(candidate, doc_id):
+    from utils.safe_files import send_confined_file
     doc = AdmissionCandidateDocument.query.filter_by(
         id=doc_id, candidate_id=candidate.id
     ).first_or_404()
-    path = _document_abs_path(doc)
-    if not path:
+    if not doc.file_path:
         abort(404)
-    return send_file(path, download_name=doc.original_filename or os.path.basename(path))
+    return send_confined_file(
+        doc.file_path,
+        as_attachment=True,
+        force_attachment=True,
+        download_name=doc.original_filename or os.path.basename(doc.file_path),
+    )
 
 
 @admission_exam_bp.route('/candidate/<int:candidate_id>/document/<int:doc_id>/verify', methods=['POST'])
@@ -4204,7 +4234,7 @@ def candidate_payment(candidate):
                 'on the application form PDF for candidates you verify.',
                 'warning',
             )
-    return redirect(request.referrer or url_for('admission_exam.candidate_detail', candidate_id=candidate.id))
+    return _redirect_back(url_for('admission_exam.candidate_detail', candidate_id=candidate.id))
 
 
 @admission_exam_bp.route('/candidate/<int:candidate_id>/set-scrutinizer', methods=['POST'])
@@ -4240,7 +4270,7 @@ def candidate_select(candidate):
     candidate.application_status = status
     db.session.commit()
     flash(f'Application {candidate.application_id} marked as {status}.', 'success')
-    return redirect(request.referrer or url_for('admission_exam.candidate_detail', candidate_id=candidate.id))
+    return _redirect_back(url_for('admission_exam.candidate_detail', candidate_id=candidate.id))
 
 
 @admission_exam_bp.route('/candidate/<int:candidate_id>/roll', methods=['POST'])
@@ -4489,7 +4519,7 @@ def assign_rolls(cycle):
             'in the database, then try again.',
             'danger',
         )
-        return redirect(request.referrer or url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+        return _redirect_back(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
 
     if pending:
         flash(
@@ -4510,7 +4540,7 @@ def assign_rolls(cycle):
             '(rejected applications are skipped).',
             'warning',
         )
-    return redirect(request.referrer or url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+    return _redirect_back(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
 
 
 @admission_exam_bp.route('/cycle/<int:cycle_id>/unassign-rolls', methods=['POST'])
@@ -4533,7 +4563,7 @@ def unassign_rolls(cycle):
         flash(f'Unassigned roll numbers from {len(rows)} candidate(s).', 'success')
     else:
         flash('No roll numbers to unassign.', 'info')
-    return redirect(request.referrer or url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+    return _redirect_back(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
 
 
 @admission_exam_bp.route('/cycle/<int:cycle_id>/publish-admit', methods=['POST'])
@@ -4576,10 +4606,10 @@ def cycle_signature_upload(cycle):
 @login_required
 @cycle_access_required
 def cycle_signature_image(cycle):
-    path = _signature_abs_path(cycle)
-    if not path:
+    from utils.safe_files import send_confined_file
+    if not cycle.chairman_signature_path:
         abort(404)
-    return send_file(path)
+    return send_confined_file(cycle.chairman_signature_path)
 
 
 @admission_exam_bp.route('/my-verification-signature', methods=['POST'])
@@ -4628,10 +4658,10 @@ def user_verification_signature_upload():
 def user_verification_signature_image():
     if not user_can_access_admission():
         abort(403)
-    path = _user_signature_abs_path(current_user)
-    if not path:
+    from utils.safe_files import send_confined_file
+    if not current_user.signature_path:
         abort(404)
-    return send_file(path)
+    return send_confined_file(current_user.signature_path)
 
 
 @admission_exam_bp.route('/user/<int:user_id>/scrutinizer-signature')
@@ -4640,11 +4670,11 @@ def user_scrutinizer_signature_image(user_id):
     """Serve a committee member's Scrutinizer signature (admission staff only)."""
     if not user_can_access_admission():
         abort(403)
+    from utils.safe_files import send_confined_file
     user = User.query.get_or_404(user_id)
-    path = _user_signature_abs_path(user)
-    if not path:
+    if not user.signature_path:
         abort(404)
-    return send_file(path)
+    return send_confined_file(user.signature_path)
 
 
 @admission_exam_bp.route('/candidate/<int:candidate_id>/admit-card.pdf')

@@ -3,15 +3,52 @@ PassengerAppRoot "/home/kulawams/public_html/ams"
 PassengerBaseURI "/"
 PassengerPython "/home/kulawams/virtualenv/public_html/ams/3.12/bin/python"
 # DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION END
+
 # DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION BEGIN
 <IfModule Litespeed>
 SetEnv SESSION_COOKIE_SECURE True
+SetEnv CSRF_ENABLED True
 </IfModule>
 # DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION END
+
 # HSTS only on HTTPS requests (env=HTTPS). Do not send this over plain HTTP.
 <IfModule mod_headers.c>
     Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
 </IfModule>
+
+# CONF-01: if Passenger is down or misses a path, Apache/LiteSpeed must not
+# serve source, secrets, logs, or data files. Do not list directory contents.
+Options -Indexes -MultiViews
+
+<FilesMatch "\.(env|py|pyc|pyo|db|sqlite|sqlite3|log|md|sql|csv|zip|bak|ini|cfg|yaml|yml|sh|lock|pid)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<FilesMatch "^(\.env.*|\.git.*|passenger_wsgi\.py|requirements.*|Dockerfile.*|docker-compose.*)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+RedirectMatch 404 ^/\.git(/|$)
+RedirectMatch 404 ^/(instance|logs|tmp|migrations|scripts|tests|docs|blueprints|utils|tenants|uploads|venv[^/]*|\.venv[^/]*)(/|$)
+# FILE-01/02: block direct public access to legacy sensitive uploads (serve via /media/… or admission routes)
+RedirectMatch 404 ^/static/uploads/(user_photos|user_signatures|admission_exam)(/|$)
+
 # php -- BEGIN cPanel-generated handler, do not edit
 # Set the “ea-php80” package as the default “PHP” programming language.
 <IfModule mime_module>

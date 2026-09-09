@@ -316,7 +316,7 @@
 
 {% block content %}
 {% set profile_user_roles = parse_roles(current_user.role) %}
-{% set name_locked = (not is_admin(current_user)) and (current_user.teacher_id or ('teacher' in profile_user_roles or 'head' in profile_user_roles or 'dean' in profile_user_roles)) %}
+{% set name_locked = not is_admin(current_user) %}
 {% set user_roles = profile_user_roles %}
 {% set theme_options = [
     ('default', 'Default', 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)'),
@@ -348,7 +348,7 @@
             <div class="profile-avatar-ring">
                 <div class="profile-avatar" id="profile-avatar">
                     {% if current_user.photo %}
-                    <img src="{{ current_user.photo }}" alt="Profile photo" class="profile-avatar-img" id="profile-avatar-img">
+                    <img src="{{ url_for('media_user_photo', user_id=current_user.id) }}" alt="Profile photo" class="profile-avatar-img" id="profile-avatar-img">
                     {% else %}
                     <div class="profile-avatar-ph" id="profile-avatar-ph">
                         <i class="fas fa-user"></i>
@@ -402,7 +402,7 @@
             <p class="profile-hint">Used on remuneration bills, admission forms (Scrutinizer), and other official PDFs. Prefer a clear scan or photo of your handwritten signature on a white background (JPG/PNG, max 1&nbsp;MB).</p>
             <div class="profile-sig-frame" id="profile-sig-frame">
                 {% if current_user.signature_path %}
-                <img src="{{ signature_preview_url or ('/' + current_user.signature_path.lstrip('/')) }}"
+                <img src="{{ signature_preview_url or url_for('media_user_signature', user_id=current_user.id) }}"
                      alt="Your signature"
                      id="profile-sig-img">
                 {% else %}

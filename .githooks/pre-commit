@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Optional pre-commit: block secrets if gitleaks is installed.
+# Enable: git config core.hooksPath .githooks
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --no-banner --config "$ROOT/.gitleaks.toml"
+  exit $?
+fi
+
+echo "gitleaks not installed — skipping secret scan (pipx install gitleaks, or brew install gitleaks)" >&2
+exit 0

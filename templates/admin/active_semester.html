@@ -841,8 +841,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (value > 0) {
                         const row = document.createElement('tr');
                         row.innerHTML = `
-                            <td>${labels[key] || key}</td>
-                            <td class="text-end">${value}</td>
+                            <td>${escapeHtml(labels[key] || key)}</td>
+                            <td class="text-end">${escapeHtml(value)}</td>
                         `;
                         countsTable.appendChild(row);
                     }

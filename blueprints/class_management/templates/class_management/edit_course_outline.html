@@ -1518,8 +1518,8 @@ function importCLOsFromCourse() {
             const row = document.createElement('div');
             row.className = 'border rounded p-3 mb-3';
             row.id = cloEntry.id;
-            const escapedDescription = (cloEntry.description || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-            const escapedPlosValue = plosValue.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            const escapedDescription = escapeHtml(cloEntry.description || '');
+            const escapedPlosValue = escapeHtml(plosValue);
             row.innerHTML = `
                 <div class="row g-2">
                     <div class="col-12 col-md-1 mb-2 mb-md-0">
@@ -1647,8 +1647,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const row = document.createElement('div');
             row.className = 'border rounded p-3 mb-3';
             row.id = clo.id;
-            const escapedDescription = (clo.description || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-            const plosValue = (clo.plos && Array.isArray(clo.plos) ? clo.plos.join(', ') : (clo.plos || '')).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            const escapedDescription = escapeHtml(clo.description || '');
+            const plosValue = escapeHtml(clo.plos && Array.isArray(clo.plos) ? clo.plos.join(', ') : (clo.plos || ''));
             row.innerHTML = `
                 <div class="row g-2">
                     <div class="col-12 col-md-1 mb-2 mb-md-0">
@@ -2279,7 +2279,7 @@ function addAssessmentTechnique(data = {}) {
         <div class="row g-2">
             <div class="col-md-${strategyCols}">
                 <label class="form-label small">Assessment Strategy</label>
-                <input type="text" class="form-control form-control-sm" name="assessment_strategy[]" value="${data.strategy || ''}" placeholder="Class Test 1, Group Debate, etc.">
+                <input type="text" class="form-control form-control-sm" name="assessment_strategy[]" value="${escapeHtml(data.strategy || '')}" placeholder="Class Test 1, Group Debate, etc.">
             </div>
             ${cloInputs}
             <div class="col-md-${totalMarksCols}">
@@ -2306,7 +2306,7 @@ function addRubric(data = {}) {
     row.innerHTML = `
         <div class="mb-3">
             <label class="form-label small"><strong>Rubric Type:</strong></label>
-            <input type="text" class="form-control form-control-sm" name="rubric_type[]" value="${data.type || ''}" placeholder="Class Tests, Group Debate, etc.">
+            <input type="text" class="form-control form-control-sm" name="rubric_type[]" value="${escapeHtml(data.type || '')}" placeholder="Class Tests, Group Debate, etc.">
         </div>
         <div class="table-responsive">
             <table class="table table-bordered table-sm">
@@ -2353,19 +2353,19 @@ function addRubricRow(rubricId, data = {}) {
     const row = document.createElement('tr');
     row.innerHTML = `
         <td>
-            <input type="text" class="form-control form-control-sm" name="rubric_criteria[]" value="${data.criteria || ''}" placeholder="e.g., 1. Conceptual Clarity (2 marks)">
+            <input type="text" class="form-control form-control-sm" name="rubric_criteria[]" value="${escapeHtml(data.criteria || '')}" placeholder="e.g., 1. Conceptual Clarity (2 marks)">
         </td>
         <td>
-            <textarea class="form-control form-control-sm" name="rubric_excellent[]" rows="2" placeholder="Description">${data.excellent || ''}</textarea>
+            <textarea class="form-control form-control-sm" name="rubric_excellent[]" rows="2" placeholder="Description">${escapeHtml(data.excellent || '')}</textarea>
         </td>
         <td>
-            <textarea class="form-control form-control-sm" name="rubric_good[]" rows="2" placeholder="Description">${data.good || ''}</textarea>
+            <textarea class="form-control form-control-sm" name="rubric_good[]" rows="2" placeholder="Description">${escapeHtml(data.good || '')}</textarea>
         </td>
         <td>
-            <textarea class="form-control form-control-sm" name="rubric_satisfactory[]" rows="2" placeholder="Description">${data.satisfactory || ''}</textarea>
+            <textarea class="form-control form-control-sm" name="rubric_satisfactory[]" rows="2" placeholder="Description">${escapeHtml(data.satisfactory || '')}</textarea>
         </td>
         <td>
-            <textarea class="form-control form-control-sm" name="rubric_poor[]" rows="2" placeholder="Description">${data.poor || ''}</textarea>
+            <textarea class="form-control form-control-sm" name="rubric_poor[]" rows="2" placeholder="Description">${escapeHtml(data.poor || '')}</textarea>
         </td>
         <td>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()" title="Delete Row">
@@ -2408,24 +2408,24 @@ function addGradingPolicyRow(data = {}) {
         // First pair
         row.innerHTML = `
             <td>
-                <input type="text" class="form-control form-control-sm" name="grade_range[]" value="${data.range || ''}" placeholder="80 and over">
+                <input type="text" class="form-control form-control-sm" name="grade_range[]" value="${escapeHtml(data.range || '')}" placeholder="80 and over">
             </td>
             <td>
-                <input type="text" class="form-control form-control-sm" name="grade[]" value="${data.grade || ''}" placeholder="A+">
+                <input type="text" class="form-control form-control-sm" name="grade[]" value="${escapeHtml(data.grade || '')}" placeholder="A+">
             </td>
             <td>
-                <input type="text" class="form-control form-control-sm" name="grade_range[]" value="${data.range2 || ''}" placeholder="55-59">
+                <input type="text" class="form-control form-control-sm" name="grade_range[]" value="${escapeHtml(data.range2 || '')}" placeholder="55-59">
             </td>
             <td>
-                <input type="text" class="form-control form-control-sm" name="grade[]" value="${data.grade2 || ''}" placeholder="B-">
+                <input type="text" class="form-control form-control-sm" name="grade[]" value="${escapeHtml(data.grade2 || '')}" placeholder="B-">
             </td>
         `;
     } else if (cells.length === 2) {
         // Add second pair
         const range2 = document.createElement('td');
-        range2.innerHTML = `<input type="text" class="form-control form-control-sm" name="grade_range[]" value="${data.range2 || ''}" placeholder="55-59">`;
+        range2.innerHTML = `<input type="text" class="form-control form-control-sm" name="grade_range[]" value="${escapeHtml(data.range2 || '')}" placeholder="55-59">`;
         const grade2 = document.createElement('td');
-        grade2.innerHTML = `<input type="text" class="form-control form-control-sm" name="grade[]" value="${data.grade2 || ''}" placeholder="B-">`;
+        grade2.innerHTML = `<input type="text" class="form-control form-control-sm" name="grade[]" value="${escapeHtml(data.grade2 || '')}" placeholder="B-">`;
         row.appendChild(range2);
         row.appendChild(grade2);
     }
@@ -2459,7 +2459,7 @@ function addCIEColumn(columnName = '') {
     th.innerHTML = `
         <div class="d-flex align-items-center gap-1">
             <input type="text" class="form-control form-control-sm cie-column-name" 
-                   value="${columnName}" 
+                   value="${escapeHtml(columnName)}" 
                    style="min-width: 80px; font-weight: bold;"
                    onchange="updateCIEColumnName(this, ${cieColumns.length - 1})">
             <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" 
@@ -2678,7 +2678,7 @@ function addAttendanceMarksRow(data = {}) {
     const row = document.createElement('tr');
     row.innerHTML = `
         <td>
-            <input type="text" class="form-control form-control-sm" name="attendance_range[]" value="${data.range || ''}" placeholder="e.g., Above 90%, 85% to less than 90%">
+            <input type="text" class="form-control form-control-sm" name="attendance_range[]" value="${escapeHtml(data.range || '')}" placeholder="e.g., Above 90%, 85% to less than 90%">
         </td>
         <td>
             <input type="number" class="form-control form-control-sm" name="attendance_marks[]" value="${data.marks || ''}" placeholder="0" min="0">
@@ -2705,7 +2705,7 @@ function addSessionalStrategyPoint(value = '') {
     row.className = 'input-group input-group-sm mb-2 sessional-strategy-row';
     row.innerHTML = `
         <span class="input-group-text strategy-point-label"></span>
-        <input type="text" class="form-control" name="strategy_point[]" value="${(value || '').replace(/"/g, '&quot;')}" placeholder="Assessment strategy point">
+        <input type="text" class="form-control" name="strategy_point[]" value="${escapeHtml(value || '')}" placeholder="Assessment strategy point">
         <button type="button" class="btn btn-outline-danger" onclick="this.closest('.sessional-strategy-row').remove(); renumberStrategyPoints();" title="Remove">
             <i class="fas fa-trash"></i>
         </button>
@@ -2727,7 +2727,7 @@ function addSessionalCaComponent(value = '') {
     row.className = 'input-group input-group-sm mb-2 sessional-ca-component-row';
     row.innerHTML = `
         <span class="input-group-text ca-component-label"></span>
-        <input type="text" class="form-control" name="ca_component[]" value="${(value || '').replace(/"/g, '&quot;')}" placeholder="e.g., Assignment, Presentation, Quiz test">
+        <input type="text" class="form-control" name="ca_component[]" value="${escapeHtml(value || '')}" placeholder="e.g., Assignment, Presentation, Quiz test">
         <button type="button" class="btn btn-outline-danger" onclick="this.closest('.sessional-ca-component-row').remove(); renumberCaComponents();" title="Remove">
             <i class="fas fa-trash"></i>
         </button>
@@ -2836,7 +2836,7 @@ function addMakeUpProcedure(value = '') {
     row.className = 'input-group input-group-sm mb-2 makeup-procedure-row';
     row.innerHTML = `
         <span class="input-group-text makeup-procedure-label"></span>
-        <input type="text" class="form-control" name="make_up_procedure[]" value="${(value || '').replace(/"/g, '&quot;')}" placeholder="Make-up procedure">
+        <input type="text" class="form-control" name="make_up_procedure[]" value="${escapeHtml(value || '')}" placeholder="Make-up procedure">
         <button type="button" class="btn btn-outline-danger" onclick="this.closest('.makeup-procedure-row').remove(); renumberMakeUpProcedures();" title="Remove">
             <i class="fas fa-trash"></i>
         </button>
@@ -2868,7 +2868,7 @@ function addCLORow(data = {}) {
             </div>
             <div class="col-md-9">
                 <label class="form-label small">Description</label>
-                <input type="text" class="form-control form-control-sm" name="clo_description[]" value="${data.description || ''}" placeholder="e.g., identify major discrepancies amongst different schools of jurisprudence" onchange="updateCLOData(${cloNumber - 1}, this.value)">
+                <input type="text" class="form-control form-control-sm" name="clo_description[]" value="${escapeHtml(data.description || '')}" placeholder="e.g., identify major discrepancies amongst different schools of jurisprudence" onchange="updateCLOData(${cloNumber - 1}, this.value)">
             </div>
             <div class="col-md-2">
                 <label class="form-label small">Actions</label>
@@ -2880,7 +2880,7 @@ function addCLORow(data = {}) {
         <div class="row g-2 mt-2">
             <div class="col-md-12">
                 <label class="form-label small">Mapping with PLOs (comma-separated, e.g., PLO 1, PLO 2, PLO 13, PLO 17)</label>
-                <input type="text" class="form-control form-control-sm" name="clo_plos[]" value="${data.plos ? data.plos.join(', ') : ''}" placeholder="PLO 1, PLO 2" onchange="updateCLOPLOs(${cloNumber - 1}, this.value)">
+                <input type="text" class="form-control form-control-sm" name="clo_plos[]" value="${escapeHtml(data.plos ? data.plos.join(', ') : '')}" placeholder="PLO 1, PLO 2" onchange="updateCLOPLOs(${cloNumber - 1}, this.value)">
             </div>
         </div>
     `;
@@ -3025,7 +3025,7 @@ function addCourseContentRow(section, content = '', hrs = '', clo = '', index = 
     
     const rowIndex = index !== null ? index : tbody.children.length;
     const row = document.createElement('tr');
-    const escapedContent = (content || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const escapedContent = escapeHtml(content || '');
     const checked = selected ? 'checked' : '';
     row.innerHTML = `
         <td>${rowIndex + 1}</td>
@@ -3036,13 +3036,13 @@ function addCourseContentRow(section, content = '', hrs = '', clo = '', index = 
             <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_content[]" value="${escapedContent}" placeholder="Enter content/topic description" onchange="updateCourseContentSummary()">
         </td>
         <td>
-            <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_hrs[]" value="${hrs}" placeholder="Hrs" style="width: 70px;" onchange="updateCourseContentSummary()">
+            <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_hrs[]" value="${escapeHtml(hrs)}" placeholder="Hrs" style="width: 70px;" onchange="updateCourseContentSummary()">
         </td>
         <td>
-            <input type="number" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_classes[]" value="${numClasses === '1' ? '' : numClasses}" placeholder="1" min="1" style="width: 70px;">
+            <input type="number" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_classes[]" value="${numClasses === '1' ? '' : escapeHtml(numClasses)}" placeholder="1" min="1" style="width: 70px;">
         </td>
         <td>
-            <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_clo[]" value="${clo}" placeholder="e.g., 1, 2" style="width: 100px;" onchange="updateCourseContentSummary()">
+            <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_clo[]" value="${escapeHtml(clo)}" placeholder="e.g., 1, 2" style="width: 100px;" onchange="updateCourseContentSummary()">
         </td>
         <td>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCourseContentRow(this, '${section}')" title="Remove row">
@@ -3866,7 +3866,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     '<div class="col-md-4">' +
                         '<label class="form-label small mb-1">কাস্টম নাম</label>' +
                         '<input type="text" class="form-control form-control-sm ai-assessment-custom-name' +
-                            (typeVal === 'custom' ? '' : ' d-none') + '" value="' + (customName || '').replace(/"/g, '&quot;') + '" placeholder="যেমন: Case Analysis">' +
+                            (typeVal === 'custom' ? '' : ' d-none') + '" value="' + escapeHtml(customName || '') + '" placeholder="যেমন: Case Analysis">' +
                     '</div>' +
                     '<div class="col-md-2">' +
                         '<label class="form-label small mb-1">সংখ্যা</label>' +

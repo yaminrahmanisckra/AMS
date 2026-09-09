@@ -36,6 +36,11 @@ def _effective_roles():
     return set(get_effective_roles(current_user))
 
 
+def resolve_caller_teacher(user=None):
+    from utils.ownership import resolve_caller_teacher as _resolve
+    return _resolve(user or current_user)
+
+
 def _is_head():
     """Only Head can manage who has add/remove permission."""
     if not current_user.is_authenticated:
@@ -54,11 +59,11 @@ def _can_add_remove_syllabus():
 
 
 def _can_edit_syllabus():
-    """Head, dean, teaching_assistant, or CurriculatorEditor (Head-granted full edit) can edit all content."""
+    """Head, dean, or CurriculatorEditor (Head-granted full edit) can edit all content."""
     if not current_user.is_authenticated:
         return False
     roles = _effective_roles()
-    if 'head' in roles or 'dean' in roles or 'teaching_assistant' in roles:
+    if 'head' in roles or 'dean' in roles:
         return True
     return CurriculatorEditor.query.filter_by(user_id=current_user.id).first() is not None
 
@@ -280,7 +285,7 @@ def part_view(doc_id, part_key):
             from role_utils import get_effective_roles
             for u in User.query.order_by(User.full_name).all():
                 roles = set(get_effective_roles(u))
-                if roles & {'head', 'dean', 'teacher', 'teaching_assistant'}:
+                if roles & {'head', 'dean', 'teacher'}:
                     part_a_eligible_users.append({'id': u.id, 'full_name': u.full_name, 'username': u.username})
     elif part_key == 'D':
         for sk in ('grading_scale', 'theory_evaluation', 'sessional_evaluation', 'approval_records'):
@@ -1120,7 +1125,7 @@ def course_entry_add(part_id):
 def course_entry_save(entry_id):
     """Save Part C course entry. Permission: assigned teacher or head/TA."""
     entry = SyllabusCourseEntry.query.get_or_404(entry_id)
-    teacher = _teacher().query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     is_assigned = any(
         a.teacher_id == teacher.id for a in entry.author_assignments
     ) if teacher else False
@@ -1167,7 +1172,7 @@ def course_entry_save(entry_id):
 def course_entry_ai_generate(entry_id):
     """Return a Part C proposal JSON. Does not save until the teacher clicks Save."""
     entry = SyllabusCourseEntry.query.get_or_404(entry_id)
-    teacher = _teacher().query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     is_assigned = any(
         a.teacher_id == teacher.id for a in entry.author_assignments
     ) if teacher else False
@@ -1203,7 +1208,7 @@ def course_entry_ai_generate(entry_id):
 def course_entry_push_to_course(entry_id):
     """Copy accepted Part C fields into Course Information after explicit confirm."""
     entry = SyllabusCourseEntry.query.get_or_404(entry_id)
-    teacher = _teacher().query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     is_assigned = any(
         a.teacher_id == teacher.id for a in entry.author_assignments
     ) if teacher else False

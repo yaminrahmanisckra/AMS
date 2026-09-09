@@ -2071,6 +2071,8 @@
         align-items: center;
         justify-content: center;
         position: static;
+        flex-wrap: nowrap;
+        flex-shrink: 0;
     }
 
     body.m-shell .rem-actions .btn i {

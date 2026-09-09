@@ -266,7 +266,8 @@
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Attachments <span class="text-muted">(optional)</span></label>
-                                <input type="file" name="attachments" class="form-control form-control-sm" multiple>
+                                <input type="file" name="attachments" class="form-control form-control-sm" multiple
+                                       accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.doc,.docx">
                             </div>
                             <button type="submit" class="btn btn-primary btn-sm sv-send-btn">
                                 <i class="fas fa-paper-plane me-1"></i>Send Question
@@ -345,7 +346,8 @@
                                     </div>
                                     <form class="sv-reply-form" method="POST" action="{{ url_for('class_management.student_reply_course_question', thread_id=thread.id) }}" enctype="multipart/form-data">
                                         <textarea id="qa-student-reply-{{ thread.id }}" name="message" class="form-control form-control-sm mb-2 qa-rich-editor" rows="4" placeholder="Reply..."></textarea>
-                                        <input type="file" name="attachments" class="form-control form-control-sm mb-2" multiple>
+                                        <input type="file" name="attachments" class="form-control form-control-sm mb-2" multiple
+                                               accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.doc,.docx">
                                         <button type="submit" class="btn btn-sm btn-outline-primary">
                                             <i class="fas fa-reply me-1"></i>Reply
                                         </button>

@@ -7,11 +7,12 @@ import csv
 from datetime import datetime
 from io import BytesIO, StringIO
 from dotenv import load_dotenv
-from flask import Flask, render_template, redirect, url_for, flash, request, send_file, Response, jsonify, current_app, session, make_response
+from flask import Flask, render_template, redirect, url_for, flash, request, send_file, Response, jsonify, current_app, session, make_response, abort
 from flask_login import LoginManager, current_user, login_required
 from extensions import db, migrate, mail
-from user_models import User
+from user_models import User, PasswordResetCode  # noqa: F401 — register reset table
 from utils.audit import AuditLog  # noqa: F401 — register table; writes via write_audit
+from utils.rate_limit import RateLimitBucket  # noqa: F401 — register rate_limit_bucket
 from error_handler import (
     register_error_handlers,
     setup_application_logging,
@@ -26,9 +27,11 @@ from role_utils import (
     DEFAULT_TEACHING_ROLE,
     has_teacher_privileges,
     parse_roles,
+    get_effective_roles,
     get_primary_role,
     is_admin,
     is_head,
+    is_teaching_assistant,
     validate_role_selection,
     serialize_roles,
     has_stored_admin,
@@ -48,9 +51,10 @@ from utils.ai.models import AIProviderSetting, AIOutlineGenerationJob, AIOutline
 from utils.dashboard_settings import StudentDashboardCard, OfficerDashboardCard  # noqa: F401
 from blueprints.remuneration_management.models import RemunerationForm
 from utils.window_utils import query_for_window, stamp_window_id, ensure_record_in_window, get_effective_window_id, filter_by_active_window, get_for_window, get_or_404_for_window, filter_offered_courses
+from utils.ownership import resolve_caller_teacher
 from utils.timezone import format_bd, bd_now
 from utils.tenant import current_tenant, init_tenant, public_app_url, year_is_postgraduate, course_year_digit_is_pg
-from utils.security_config import apply_proxy_fix, resolve_secret_key, session_lifetime_seconds, socketio_cors_origins
+from utils.security_config import apply_proxy_fix, is_production, resolve_secret_key, session_lifetime_seconds
 
 try:
     from openpyxl import Workbook
@@ -59,8 +63,6 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     Workbook = None
     Alignment = Font = Border = Side = get_column_letter = None
-
-from flask_socketio import SocketIO, emit, join_room, leave_room
 
 load_dotenv()
 
@@ -224,11 +226,12 @@ def create_app():
     app.config['TEMPLATES_AUTO_RELOAD'] = False
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
 
-    # CSRF staged rollout: init always; enforcement only when CSRF_ENABLED=true
+    # CSRF: production defaults on; local stays off unless CSRF_ENABLED=true
+    _csrf_default = 'true' if is_production() else 'false'
     app.config['WTF_CSRF_CHECK_DEFAULT'] = False
     app.config['WTF_CSRF_TIME_LIMIT'] = None  # marks auto-save pages stay open for hours
     app.config['WTF_CSRF_ENABLED'] = True
-    app.config['CSRF_ENABLED'] = os.getenv('CSRF_ENABLED', 'false').lower() in ('1', 'true', 'yes')
+    app.config['CSRF_ENABLED'] = os.getenv('CSRF_ENABLED', _csrf_default).lower() in ('1', 'true', 'yes')
     
     # Session cookie configuration for ngrok compatibility
     # Don't set domain to allow cookies to work with any domain (including ngrok)
@@ -293,6 +296,10 @@ def create_app():
             return fallback
         return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
 
+    app.config['MAIL_SSL_VERIFY'] = _env_bool('MAIL_SSL_VERIFY', True)
+    app.config['MAIL_SSL_FINGERPRINT'] = (os.getenv('MAIL_SSL_FINGERPRINT') or '').strip()
+    app.config['MAIL_USE_SENDMAIL'] = _env_bool('MAIL_USE_SENDMAIL', False)
+
     app.config['NOTIFICATION_MAIL_SERVER'] = os.getenv('NOTIFICATION_MAIL_SERVER') or app.config['MAIL_SERVER']
     _notif_port = os.getenv('NOTIFICATION_MAIL_PORT')
     app.config['NOTIFICATION_MAIL_PORT'] = int(_notif_port) if _notif_port else app.config['MAIL_PORT']
@@ -326,10 +333,13 @@ def create_app():
     # OpenAI API configuration
     app.config['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
     
-    # File upload configuration
-    upload_folder = os.path.join(basedir, 'static', 'uploads', 'user_photos')
-    os.makedirs(upload_folder, exist_ok=True)
-    app.config['UPLOAD_FOLDER'] = upload_folder
+    # File upload configuration (photos under PRIVATE_UPLOAD_DIR — FILE-01)
+    app.config['PRIVATE_UPLOAD_DIR'] = (
+        (os.getenv('PRIVATE_UPLOAD_DIR') or '').strip()
+        or os.path.join(os.path.expanduser('~'), 'ams_private_uploads')
+    )
+    from utils.private_uploads import ensure_private_subdir
+    app.config['UPLOAD_FOLDER'] = ensure_private_subdir('user_photos', app=app)
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
     app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
     
@@ -411,6 +421,8 @@ def create_app():
         'auth.login_as',
         'auth.stop_login_as',
         'profile',
+        'media_user_photo',
+        'media_user_signature',
     })
 
     @app.before_request
@@ -575,118 +587,6 @@ def create_app():
         response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
     
-    # Initialize SocketIO for WebSocket support
-    from utils.websocket_events import init_socketio
-    socketio = SocketIO(
-        app,
-        cors_allowed_origins=socketio_cors_origins(),
-        async_mode='threading',
-        logger=False,
-        engineio_logger=False,
-    )
-    init_socketio(socketio)
-    
-    # WebSocket connection handlers
-    @socketio.on('connect', namespace='/')
-    def handle_connect(auth):
-        """Reject anonymous Socket.IO clients (H31 / X01)."""
-        from flask_login import current_user
-        if not current_user.is_authenticated:
-            return False
-        return True
-    
-    @socketio.on('disconnect', namespace='/')
-    def handle_disconnect():
-        """Handle client disconnection"""
-        from flask_login import current_user
-        if current_user.is_authenticated:
-            leave_room(f'user_{current_user.id}')
-    
-    @socketio.on('join_session', namespace='/')
-    def handle_join_session(data):
-        """Join a class session room — same access as view_attendance."""
-        from flask_login import current_user
-        from role_utils import is_admin, parse_roles
-        from utils.ownership import user_owns_class_session
-        if not current_user.is_authenticated:
-            return False
-        session_id = (data or {}).get('session_id')
-        if not session_id:
-            return False
-        try:
-            from blueprints.class_management.models import Session as ClassSession
-            sess = ClassSession.query.get(int(session_id))
-        except (TypeError, ValueError):
-            return False
-        if not sess:
-            return False
-        try:
-            user_roles = set(parse_roles(getattr(current_user, 'role', '')))
-            if getattr(current_user, 'active_role', None):
-                user_roles = set(parse_roles(current_user.active_role))
-            can_view = (
-                is_admin(current_user)
-                or 'head' in user_roles
-                or 'dean' in user_roles
-                or user_owns_class_session(current_user, sess)
-            )
-        except Exception:
-            return False
-        if not can_view:
-            return False
-        join_room(f'session_{session_id}')
-        emit('joined_session', {'session_id': session_id})
-    
-    @socketio.on('leave_session', namespace='/')
-    def handle_leave_session(data):
-        """Leave a session room"""
-        from flask_login import current_user
-        if current_user.is_authenticated:
-            session_id = data.get('session_id')
-            if session_id:
-                leave_room(f'session_{session_id}')
-                emit('left_session', {'session_id': session_id})
-    
-    @socketio.on('join_result_session', namespace='/')
-    def handle_join_result_session(data):
-        """Join a result session room — same access as add_marks."""
-        from flask_login import current_user
-        if not current_user.is_authenticated:
-            return False
-        session_id = (data or {}).get('session_id')
-        if not session_id:
-            return False
-        try:
-            from blueprints.result_management.models import RSession
-            result_sess = RSession.query.get(int(session_id))
-        except (TypeError, ValueError):
-            return False
-        if not result_sess:
-            return False
-        try:
-            from blueprints.result_management.routes import _can_access_session
-            if not _can_access_session(result_sess):
-                return False
-        except Exception:
-            return False
-        join_room(f'result_session_{session_id}')
-        emit('joined_result_session', {'session_id': session_id})
-
-    @socketio.on('leave_result_session', namespace='/')
-    def handle_leave_result_session(data):
-        """Leave a result session room"""
-        from flask_login import current_user
-        if not current_user.is_authenticated:
-            return False
-        session_id = (data or {}).get('session_id')
-        if not session_id:
-            return False
-        leave_room(f'result_session_{session_id}')
-        emit('left_result_session', {'session_id': session_id})
-    
-    # Store socketio in app context for access in routes
-    app.socketio = socketio
-    
     # Register error handlers for cPanel deployment
     register_error_handlers(app)
 
@@ -724,7 +624,7 @@ def create_app():
         """Check if current user is assigned as Exam Committee Chief"""
         if not current_user.is_authenticated:
             return False
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return False
         return query_for_window(DutyAssignment).filter_by(
@@ -737,7 +637,7 @@ def create_app():
         """Check if current user is an Exam Committee Internal Member"""
         if not current_user.is_authenticated:
             return False
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return False
         return query_for_window(DutyAssignment).filter_by(
@@ -803,7 +703,7 @@ def create_app():
         """Check if current user has an active tabulator assignment"""
         if not current_user.is_authenticated:
             return False
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return False
         return query_for_window(DutyAssignment).filter_by(
@@ -817,11 +717,12 @@ def create_app():
         if not current_user.is_authenticated:
             return {}
         
-        is_officer = 'officer' in parse_roles(current_user.role)
-        is_teaching_assistant = 'teaching_assistant' in parse_roles(current_user.role)
-        is_teacher = 'teacher' in parse_roles(current_user.role) and not is_teaching_assistant and not is_officer
-        is_head = 'head' in parse_roles(current_user.role) or 'dean' in parse_roles(current_user.role)
-        head_active = (current_user.active_role == 'head') if hasattr(current_user, 'active_role') else False
+        roles = set(get_effective_roles(current_user))
+        is_officer = 'officer' in roles
+        is_teaching_assistant = 'teaching_assistant' in roles
+        is_teacher = 'teacher' in roles and not is_teaching_assistant and not is_officer
+        is_head = 'head' in roles or 'dean' in roles
+        head_active = getattr(current_user, 'active_role', None) == 'head'
         
         # Check for course registration review
         show_course_registration_review = False
@@ -842,20 +743,27 @@ def create_app():
                 officer_cards = {}
         
         t = current_tenant()
-        show_curriculum = (is_teaching_assistant or not is_teacher) and not is_officer
+        show_curriculum = (not is_teaching_assistant and not is_teacher) and not is_officer
         show_remuneration = (
             (not is_teaching_assistant and not head_active and not is_officer)
             or (is_officer and bool(officer_cards.get('remuneration', True)))
         ) and t.feature_enabled('remuneration')
         return {
-            'show_class_management': not is_teaching_assistant and not is_officer and not head_active,
+            'show_class_management': (
+                is_teaching_assistant
+                or (has_teacher_privileges(current_user) and not is_officer and not head_active)
+            ),
             'show_result_management': (is_head or _is_tabulator()) and not is_teaching_assistant and not is_officer,
-            'show_routine_management': (is_teaching_assistant or (not is_officer)) and not head_active,
+            'show_routine_management': (
+                has_teacher_privileges(current_user) and not is_officer and not head_active
+            ),
             'show_view_routine': (
                 (not is_officer) or bool(officer_cards.get('class_routine', True))
             ),
-            'show_exam_evaluation': not is_teaching_assistant and not is_officer and not head_active,
-            'show_students_management': (is_teaching_assistant or not is_teacher) and not is_officer,
+            'show_exam_evaluation': not is_teaching_assistant and not is_officer and not head_active and has_teacher_privileges(current_user),
+            'show_students_management': (
+                has_teacher_privileges(current_user) and not is_teacher and not is_officer
+            ),
             'show_curriculum_management': show_curriculum,
             'show_curriculator': show_curriculum and t.feature_enabled('curriculator'),
             'show_remuneration': show_remuneration,
@@ -876,7 +784,7 @@ def create_app():
         # Student notifications: inject on every page so bell shows on dashboard and elsewhere
         student_notification_count = 0
         student_notifications = []
-        if current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role):
+        if current_user.is_authenticated and 'student' in get_effective_roles(current_user):
             try:
                 unread = StudentNotification.query.filter_by(
                     user_id=current_user.id
@@ -896,8 +804,10 @@ def create_app():
             'ALL_ROLE_CHOICES': ROLE_CHOICES,
             'has_teacher_privileges': has_teacher_privileges,
             'parse_roles': parse_roles,
+            'get_effective_roles': get_effective_roles,
             'get_primary_role': get_primary_role,
             'is_admin': is_admin,
+            'is_teaching_assistant': is_teaching_assistant,
             'is_exam_committee_chief': _is_exam_committee_chief,
             'is_exam_committee_member': _is_exam_committee_member,
             'is_tabulator': _is_tabulator,
@@ -928,11 +838,11 @@ def create_app():
         if is_admin(current_user):
             return redirect(url_for('admin_dashboard'))
 
-        roles = parse_roles(current_user.role)
+        roles = get_effective_roles(current_user)
         if 'head' in roles or 'dean' in roles:
             return redirect(url_for('head_dashboard'))
 
-        if getattr(current_user, 'active_role', None) == 'student':
+        if 'student' in roles:
             return redirect(url_for('student_dashboard'))
 
         show_course_registration_review = False
@@ -1008,45 +918,38 @@ def create_app():
         return candidate
 
     def _ensure_teacher_for_user(user):
+        """Resolve Teacher via users.teacher_id only (AUTHZ-07). Mint if unlinked and name free."""
         if not user or not has_teacher_privileges(user):
             return None
-        # Canonical mapping: prefer explicit users.teacher_id when available.
-        teacher = None
-        user_teacher_id = getattr(user, 'teacher_id', None)
-        if user_teacher_id:
-            teacher = Teacher.query.get(user_teacher_id)
 
-        if not teacher:
-            teacher = Teacher.query.filter_by(name=user.full_name).first()
-
-        if not teacher and getattr(user, 'full_name', None):
-            normalized_name = str(user.full_name).strip().casefold()
-            teacher = next(
-                (
-                    t for t in Teacher.query.all()
-                    if str(t.name or '').strip().casefold() == normalized_name
-                ),
-                None
-            )
-
+        teacher = resolve_caller_teacher(user)
         if teacher:
-            if hasattr(user, 'teacher_id') and user.teacher_id != teacher.id:
-                user.teacher_id = teacher.id
-                db.session.commit()
             return teacher
-        short_name = _generate_teacher_short_name(user.username or user.full_name or 'teacher')
-        teacher = Teacher(name=user.full_name, short_name=short_name, institute=current_tenant().institute_label)
+
+        # Broken link — do not adopt another Teacher by name.
+        if getattr(user, 'teacher_id', None):
+            return None
+
+        full_name = (getattr(user, 'full_name', None) or '').strip()
+        if not full_name:
+            return None
+
+        # Roster already has this name: admin must set teacher_id explicitly.
+        if Teacher.query.filter_by(name=full_name).first():
+            return None
+
+        short_name = _generate_teacher_short_name(user.username or full_name or 'teacher')
+        teacher = Teacher(name=full_name, short_name=short_name, institute=current_tenant().institute_label)
         db.session.add(teacher)
-        if hasattr(user, 'teacher_id'):
-            db.session.flush()
-            user.teacher_id = teacher.id
+        db.session.flush()
+        user.teacher_id = teacher.id
         db.session.commit()
         return teacher
 
     def _current_teacher():
         if not current_user.is_authenticated:
             return None
-        return _ensure_teacher_for_user(current_user)
+        return resolve_caller_teacher(current_user) or _ensure_teacher_for_user(current_user)
 
     def _teacher_identity_ids(teacher):
         """Return all teacher IDs that likely represent the same person."""
@@ -1078,21 +981,8 @@ def create_app():
         return redirect(url_for('index'))
 
     def _safe_next_url(next_url):
-        """Return next_url if it's a safe same-site relative path, else None.
-
-        Rejects absolute URLs, scheme-relative URLs (``//evil.com``), and
-        anything that doesn't start with a single ``/`` to prevent open
-        redirects via a user-controlled ``next`` parameter.
-        """
-        if not next_url or not isinstance(next_url, str):
-            return None
-        next_url = next_url.strip()
-        if not next_url.startswith('/') or next_url.startswith('//'):
-            return None
-        # Guard against backslash tricks some browsers treat as forward slashes.
-        if next_url.startswith('/\\') or next_url.startswith('\\'):
-            return None
-        return next_url
+        from utils.safe_redirect import safe_next_url
+        return safe_next_url(next_url)
 
     def _can_edit_exam_entry(entry):
         """True if current_user may create/overwrite marks for this exam entry.
@@ -1141,6 +1031,24 @@ def create_app():
         already_submitted = request.cookies.get(cookie_key) == '1' and not link.allow_multiple
 
         if request.method == 'POST' and not already_submitted:
+            from utils.rate_limit import FEEDBACK_IP, first_blocked, reject_too_many
+            from utils.request_ip import client_ip as request_client_ip
+            blocked = first_blocked(
+                ('fb.ip', request_client_ip(), *FEEDBACK_IP),
+                ('fb.code', code, *FEEDBACK_IP),
+            )
+            if blocked:
+                flash('Too many submissions. Please try again later.', 'error')
+                return reject_too_many(
+                    blocked,
+                    html=render_template(
+                        'student_feedback_form.html',
+                        status=status,
+                        link=link,
+                        submitted=False,
+                        prefill=prefill,
+                    ),
+                )
             academic_info = {
                 'academic_session': request.form.get('academic_session', '').strip(),
                 'course_title': request.form.get('course_title', '').strip(),
@@ -2653,29 +2561,18 @@ def create_app():
             if action == 'pdf':
                 pdf_buffer = _generate_marks_pdf(entry, data)
                 # Format: Course Code_Course Name_Part_Marksheet.pdf
-                import re
-                def sanitize_filename(text):
-                    """Remove or replace special characters for safe filename"""
-                    if not text:
-                        return ''
-                    # Replace spaces with underscores
-                    text = text.replace(' ', '_')
-                    # Remove or replace special characters that might cause issues
-                    text = re.sub(r'[<>:"/\\|?*]', '', text)
-                    # Remove multiple consecutive underscores
-                    text = re.sub(r'_+', '_', text)
-                    return text.strip('_')
-                
-                course_code = sanitize_filename(entry.course_code or 'exam')
-                course_name = sanitize_filename(entry.course_name or '')
-                part = sanitize_filename(entry.section if entry.section else 'Full')
+                from utils.email_safety import content_disposition_attachment, safe_download_filename
+
+                course_code = safe_download_filename(entry.course_code or 'exam')
+                course_name = safe_download_filename(entry.course_name or 'course')
+                part = safe_download_filename(entry.section if entry.section else 'Full')
                 filename = f"{course_code}_{course_name}_Part_{part}_Marksheet.pdf"
                 pdf_data = pdf_buffer.getvalue()
                 return Response(
                     pdf_data,
                     mimetype='application/pdf',
                     headers={
-                        'Content-Disposition': f'attachment; filename=\"{filename}\"',
+                        'Content-Disposition': content_disposition_attachment(filename),
                         'Content-Length': str(len(pdf_data)),
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
                         'Pragma': 'no-cache',
@@ -2684,13 +2581,14 @@ def create_app():
                 )
             if action == 'excel':
                 excel_buffer, mimetype, extension = _generate_marks_excel(entry, data)
-                filename = f"{entry.course_code or 'exam'}_marksheet.{extension}"
+                from utils.email_safety import content_disposition_attachment, safe_download_filename
+                filename = f"{safe_download_filename(entry.course_code or 'exam')}_marksheet.{safe_download_filename(extension or 'xlsx')}"
                 excel_data = excel_buffer.getvalue()
                 return Response(
                     excel_data,
                     mimetype=mimetype,
                     headers={
-                        'Content-Disposition': f'attachment; filename=\"{filename}\"',
+                        'Content-Disposition': content_disposition_attachment(filename),
                         'Content-Length': str(len(excel_data)),
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
                         'Pragma': 'no-cache',
@@ -3207,8 +3105,6 @@ def create_app():
                 teacher = None
                 if getattr(user, 'teacher_id', None):
                     teacher = Teacher.query.get(user.teacher_id)
-                if not teacher:
-                    teacher = Teacher.query.filter_by(name=user.full_name).first()
                 if teacher:
                     user_teachers[user.id] = teacher
 
@@ -3315,6 +3211,13 @@ def create_app():
 
         if not email:
             flash('Email is required.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+        try:
+            from utils.email_safety import EmailSafetyError, normalize_email
+            email = normalize_email(email)
+        except EmailSafetyError:
+            flash('Please enter a valid email address.', 'danger')
             return redirect(url_for('admin_dashboard'))
 
         changed = []
@@ -3823,11 +3726,16 @@ def create_app():
             for key, preset in PROVIDER_PRESETS.items()
         ]
 
-        def _clean_base_url_form(value):
+        def _clean_base_url_form(value, provider=None):
+            from utils.ai.url_safety import AIURLSafetyError, sanitize_ai_base_url
+
             cleaned = (value or '').strip()
             if not cleaned or cleaned.lower() in ('none', 'null', 'undefined'):
                 return None
-            return cleaned
+            try:
+                return sanitize_ai_base_url(cleaned, provider=provider)
+            except AIURLSafetyError as exc:
+                raise ValueError(str(exc)) from exc
 
         def _setup_form_from_setting(setting):
             return {
@@ -3881,7 +3789,16 @@ def create_app():
             setting.display_name = (request.form.get('display_name') or '').strip() or preset.get('label_bn') or preset.get('label')
             model_choice = (request.form.get('model_name') or '').strip()
             setting.model_name = normalize_model_for_provider(setting.provider, model_choice)
-            setting.api_base_url = _clean_base_url_form(request.form.get('api_base_url'))
+            try:
+                setting.api_base_url = _clean_base_url_form(
+                    request.form.get('api_base_url'),
+                    provider=setting.provider,
+                )
+            except ValueError as exc:
+                flash(str(exc), 'danger')
+                session['ai_setup_draft'] = _setup_form_from_setting(setting)
+                redirect_target = url_for('admin_ai_settings', edit=setting.id) if setting.id else url_for('admin_ai_settings')
+                return redirect(redirect_target)
             try:
                 setting.temperature = float(request.form.get('temperature') or 0.3)
             except (TypeError, ValueError):
@@ -4026,6 +3943,12 @@ def create_app():
         from utils.ai.provider_presets import normalize_model_for_provider
         model_name = normalize_model_for_provider(provider, (data.get('model_name') or '').strip())
         api_base_url = (data.get('api_base_url') or '').strip() or None
+        if api_base_url:
+            from utils.ai.url_safety import AIURLSafetyError, sanitize_ai_base_url
+            try:
+                api_base_url = sanitize_ai_base_url(api_base_url, provider=provider)
+            except AIURLSafetyError as exc:
+                return jsonify({'success': False, 'message': str(exc)}), 400
         api_key = (data.get('api_key') or '').strip()
 
         if not api_key:
@@ -6640,6 +6563,24 @@ def create_app():
         elif duty_type == 'teaching_assistant':
             if not student_id:
                 return jsonify({'success': False, 'message': 'Please select a student for Teaching Assistant duty'}), 400
+            missing = []
+            if not academic_session:
+                missing.append('Academic Session')
+            if not year:
+                missing.append('Year')
+            if not term:
+                missing.append('Term')
+            if not course_code and course_payloads:
+                course_id = course_payloads[0]['course_id']
+                course_code = course_payloads[0]['course_code']
+                course_name = course_payloads[0]['course_name']
+            if not course_code:
+                missing.append('Course')
+            if missing:
+                return jsonify({
+                    'success': False,
+                    'message': f'Teaching Assistant assignment requires: {", ".join(missing)}',
+                }), 400
         elif duty_type == 'exam_committee_chief':
             missing = []
             if not academic_session:
@@ -6687,7 +6628,11 @@ def create_app():
                 })
             elif duty_type == 'teaching_assistant':
                 filter_kwargs.update({
-                    'student_id': student_id
+                    'student_id': student_id,
+                    'course_code': course_code,
+                    'academic_session': academic_session or None,
+                    'year': year or None,
+                    'term': term or None,
                 })
             elif duty_type == 'exam_committee_chief':
                 filter_kwargs.update({
@@ -7052,7 +6997,7 @@ def create_app():
             return (-session_start_year, session_text, year_order, term_order, year_norm, term_norm)
 
         # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             flash('Teacher profile not found.', 'danger')
             return redirect(url_for('index'))
@@ -7300,7 +7245,7 @@ def create_app():
     def exam_committee_member_dashboard():
         """Dashboard for Exam Committee Members to view their assignments and remuneration forms"""
         # Check if current user is assigned as Exam Committee Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             flash('Teacher profile not found.', 'warning')
             return redirect(url_for('index'))
@@ -7343,7 +7288,7 @@ def create_app():
     def exam_committee_chief_dashboard():
         """Dashboard for Exam Committee Chief to manage tabulators and scrutinizers"""
         # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             flash('Teacher profile not found.', 'warning')
             return redirect(url_for('index'))
@@ -7793,7 +7738,7 @@ def create_app():
     @login_required
     def exam_committee_chief_assign():
         """Assign tabulator or scrutinizer by Exam Committee Chief/Internal Member"""
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
@@ -7998,7 +7943,7 @@ def create_app():
         # Only admin, head, or the Exam Committee Chief for THIS specific
         # session/year/term may modify its committee members.
         is_authorized = is_admin(current_user) or is_head(current_user)
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not is_authorized:
             if not teacher:
                 return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
@@ -8197,7 +8142,7 @@ def create_app():
         # Only admin, head, or the Exam Committee Chief for THIS specific
         # session/year/term may archive its committee members.
         is_authorized = is_admin(current_user) or is_head(current_user)
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not is_authorized:
             if not teacher:
                 return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
@@ -8320,7 +8265,7 @@ def create_app():
     def restore_committee_members():
         """Restore an archived examination committee back to active status"""
         # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
@@ -8477,7 +8422,7 @@ def create_app():
     def get_subjects_for_evaluator():
         """Get subjects from curriculum for Exam Paper Evaluator assignment"""
         # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
         
@@ -9106,7 +9051,7 @@ def create_app():
         """Deregister a student-course registration from committee subject list."""
         from blueprints.course_management.models import CourseRegistrationInvite
 
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
@@ -9221,7 +9166,7 @@ def create_app():
     def assign_evaluator():
         """Assign Exam Paper Evaluator to a subject part"""
         # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
         
@@ -9490,7 +9435,7 @@ def create_app():
     @login_required
     def exam_committee_chief_evaluator_assignments_pdf():
         """Download Question Setter + Evaluator assignments as PDF."""
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             flash('Teacher profile not found.', 'warning')
             return redirect(url_for('exam_committee_chief_dashboard'))
@@ -9919,7 +9864,7 @@ def create_app():
     def unassign_evaluator():
         """Unassign Exam Paper Evaluator from a subject part"""
         # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
         
@@ -9998,7 +9943,7 @@ def create_app():
     def reset_committee_members():
         """Reset/Delete all committee members for a session/year/term"""
         # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
@@ -10046,7 +9991,7 @@ def create_app():
     def exam_committee_chief_custom_remuneration(form_id=None):
         """Custom Remuneration Statement form for Exam Committee Chief"""
         # Check if current user is assigned as Exam Committee Chief
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             flash('Teacher profile not found.', 'warning')
             return redirect(url_for('index'))
@@ -10407,7 +10352,7 @@ def create_app():
     def exam_committee_chief_custom_remuneration_save():
         """Save custom remuneration form data to database"""
         # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
@@ -10568,7 +10513,7 @@ def create_app():
             current_app.logger.info(f'Received save request with data keys: {list(data.keys()) if data else "None"}')
             
             # Check if current user is assigned as Exam Committee Chief or Member
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            teacher = resolve_caller_teacher(current_user)
             if not teacher:
                 return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
             
@@ -10828,7 +10773,7 @@ def create_app():
     def exam_committee_chief_custom_remuneration_load(form_id):
         """Load saved custom remuneration form data"""
         # Check if current user is assigned as Exam Committee Chief
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
         
@@ -10900,7 +10845,7 @@ def create_app():
         """Get Remuneration Statement Form data by session, year, and term for Bill Form"""
         try:
             # Check if current user is assigned as Exam Committee Chief or Member
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            teacher = resolve_caller_teacher(current_user)
             if not teacher:
                 return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
             
@@ -11063,7 +11008,7 @@ def create_app():
     def exam_committee_chief_get_committee():
         """Get examination committee data for specific session/year/term"""
         try:
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            teacher = resolve_caller_teacher(current_user)
             if not teacher:
                 return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
             
@@ -11211,7 +11156,7 @@ def create_app():
         """Delete a custom remuneration form"""
         try:
             # Check if current user is assigned as Exam Committee Chief or Member
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            teacher = resolve_caller_teacher(current_user)
             if not teacher:
                 return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
@@ -11266,7 +11211,7 @@ def create_app():
     def exam_committee_chief_custom_remuneration_export_pdf():
         """Export custom remuneration form to PDF matching scanned copy format"""
         # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
@@ -12259,7 +12204,7 @@ def create_app():
     def exam_committee_member_remuneration():
         """Custom Remuneration Statement form for Exam Committee Internal Members"""
         # Check if current user is assigned as Exam Committee Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             flash('Teacher profile not found.', 'warning')
             return redirect(url_for('index'))
@@ -12539,7 +12484,7 @@ def create_app():
     def get_committee_members():
         """Get examination committee members for a given session/year/term"""
         # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
         
@@ -13893,7 +13838,7 @@ def create_app():
             from blueprints.class_management.models import Teacher
             
             # Get current user's teacher record
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            teacher = resolve_caller_teacher(current_user)
             if not teacher:
                 return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
             
@@ -18088,7 +18033,12 @@ def create_app():
                 before_user = {}
             old_full_name = user_to_edit.full_name
             user_to_edit.full_name = request.form['full_name']
-            user_to_edit.email = request.form['email']
+            try:
+                from utils.email_safety import EmailSafetyError, normalize_email
+                user_to_edit.email = normalize_email(request.form['email'])
+            except EmailSafetyError:
+                flash('Please enter a valid email address.', 'danger')
+                return redirect(url_for('admin_edit_user', user_id=user_id))
             # Only roles offered on the form are assignable here — never let a crafted
             # request grant 'admin' through this endpoint.
             selected_roles = [r for r in request.form.getlist('roles') if r in ASSIGNABLE_ROLE_KEYS]
@@ -18106,10 +18056,13 @@ def create_app():
             if teacher_id_val:
                 teacher = Teacher.query.get(teacher_id_val)
             if not teacher and 'teacher' in normalized_roles:
-                teacher = Teacher.query.filter_by(name=old_full_name).first()
-            if not teacher and 'teacher' in normalized_roles:
-                teacher = Teacher.query.filter_by(name=user_to_edit.full_name).first()
-            if not teacher and 'teacher' in normalized_roles:
+                # Admin-only: create a new roster row when none is linked and the name is free.
+                if Teacher.query.filter_by(name=user_to_edit.full_name).first():
+                    flash(
+                        'A teacher roster entry already uses this name. Link it via Teacher ID instead of creating a duplicate.',
+                        'danger',
+                    )
+                    return redirect(url_for('admin_edit_user', user_id=user_id))
                 short_name = (user_to_edit.username or user_to_edit.full_name.split()[0].lower())[:10]
                 counter = 1
                 base_short = short_name
@@ -18207,6 +18160,13 @@ def create_app():
         # Validation
         if not all([username, email, full_name, password, confirm_password]):
             flash('All fields are required.', 'danger')
+            return redirect(url_for('admin_users'))
+
+        try:
+            from utils.email_safety import EmailSafetyError, normalize_email
+            email = normalize_email(email)
+        except EmailSafetyError:
+            flash('Please enter a valid email address.', 'danger')
             return redirect(url_for('admin_users'))
         
         if password != confirm_password:
@@ -18336,6 +18296,37 @@ def create_app():
             
         return render_template('admin_reset_password.html', user=user_to_reset)
 
+    @app.route('/media/users/<int:user_id>/photo')
+    @login_required
+    def media_user_photo(user_id):
+        """Serve a user profile photo (owner, admin, or head only)."""
+        from utils.safe_files import send_confined_file
+        from role_utils import is_head
+
+        target = User.query.get_or_404(user_id)
+        if not (
+            current_user.id == target.id
+            or is_admin(current_user)
+            or is_head(current_user)
+        ):
+            abort(403)
+        if not target.photo:
+            abort(404)
+        return send_confined_file(target.photo)
+
+    @app.route('/media/users/<int:user_id>/signature')
+    @login_required
+    def media_user_signature(user_id):
+        """Serve a user digital signature (owner or admin only)."""
+        from utils.safe_files import send_confined_file
+
+        target = User.query.get_or_404(user_id)
+        if not (current_user.id == target.id or is_admin(current_user)):
+            abort(403)
+        if not target.signature_path:
+            abort(404)
+        return send_confined_file(target.signature_path)
+
     @app.route('/profile', methods=['GET', 'POST'])
     @login_required
     def profile():
@@ -18358,24 +18349,15 @@ def create_app():
             name_changed = False
             email_changed = False
 
-            # H06: Teaching staff names are the identity key used to link Teacher
-            # records (attendance, marks, ownership checks, etc.). Letting a
-            # non-admin rename themselves could let them "become" another
-            # teacher, so lock the name field for anyone linked to a Teacher
-            # record or holding a teaching/head/dean role.
+            # AUTHZ-07: non-admins cannot rename themselves (blocks Teacher spoofing).
             profile_user_roles = parse_roles(current_user.role)
-            name_locked = (not is_admin(current_user)) and (
-                bool(getattr(current_user, 'teacher_id', None))
-                or bool({'teacher', 'head', 'dean'} & set(profile_user_roles))
-            )
+            name_locked = not is_admin(current_user)
 
             # Validate and update name
             if full_name and full_name != old_full_name and name_locked:
                 flash('Your name is managed by the institution and cannot be changed here. Please contact an administrator.', 'danger')
                 db.session.rollback()
-                teacher_record = None
-                if 'teacher' in profile_user_roles or 'dean' in profile_user_roles or 'head' in profile_user_roles:
-                    teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                teacher_record = resolve_caller_teacher(current_user)
                 return render_template('profile.html', teacher_record=teacher_record)
 
             if full_name and full_name != old_full_name:
@@ -18384,62 +18366,72 @@ def create_app():
                 if existing_user:
                     flash('This name is already in use by another user.', 'danger')
                     db.session.rollback()
-                    teacher_record = None
-                    user_roles = parse_roles(current_user.role)
-                    if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
-                        teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                    teacher_record = resolve_caller_teacher(current_user)
                     return render_template('profile.html', teacher_record=teacher_record)
                 current_user.full_name = full_name
                 name_changed = True
 
             # Validate and update email
             if email and email != old_email:
+                try:
+                    from utils.email_safety import EmailSafetyError, normalize_email
+                    email = normalize_email(email)
+                except EmailSafetyError:
+                    flash('Please enter a valid email address.', 'danger')
+                    db.session.rollback()
+                    teacher_record = resolve_caller_teacher(current_user)
+                    return render_template('profile.html', teacher_record=teacher_record)
                 # Check if email already exists
                 existing_user = User.query.filter(User.id != current_user.id, User.email == email).first()
                 if existing_user:
                     flash('Email already in use by another user.', 'danger')
                     db.session.rollback()
-                    teacher_record = None
-                    user_roles = parse_roles(current_user.role)
-                    if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
-                        teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                    teacher_record = resolve_caller_teacher(current_user)
                     return render_template('profile.html', teacher_record=teacher_record)
                 current_user.email = email
                 email_changed = True
 
-            # Handle photo upload
+            # Handle photo upload (FILE-01 path + FILE-03/06 validation)
             if 'photo' in request.files:
                 photo_file = request.files['photo']
                 if photo_file and photo_file.filename:
-                    # Check file extension
-                    filename = photo_file.filename
-                    file_ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
-                    if file_ext not in app.config['ALLOWED_EXTENSIONS']:
-                        flash('Invalid file type. Allowed: PNG, JPG, JPEG, GIF, WEBP', 'danger')
+                    from utils.private_uploads import (
+                        ensure_private_subdir,
+                        private_token_filename,
+                        store_relative,
+                    )
+                    from utils.safe_files import confined_existing_file
+                    from utils.uploads import PROFILE_IMAGE_PURPOSE, UploadError, validate_upload, materialize_validated
+
+                    try:
+                        validated = validate_upload(photo_file, PROFILE_IMAGE_PURPOSE)
+                    except UploadError as exc:
+                        flash(exc.message, 'danger')
                         db.session.rollback()
-                        teacher_record = None
-                        user_roles = parse_roles(current_user.role)
-                        if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
-                            teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                        teacher_record = resolve_caller_teacher(current_user)
                         return render_template('profile.html', teacher_record=teacher_record)
-                    
-                    # Delete old photo if exists
+
                     if current_user.photo:
-                        old_photo_rel_path = current_user.photo.lstrip('/')
-                        old_photo_path = os.path.join(app.root_path, old_photo_rel_path)
-                        if os.path.exists(old_photo_path):
+                        old_abs = confined_existing_file(current_user.photo)
+                        if old_abs:
                             try:
-                                os.remove(old_photo_path)
-                            except:
+                                os.remove(old_abs)
+                            except OSError:
                                 pass
-                    
-                    # Save new photo
-                    filename = f"user_{current_user.id}_{int(datetime.utcnow().timestamp())}.{file_ext}"
-                    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                    photo_file.save(filepath)
-                    
-                    # Store relative path in database
-                    current_user.photo = f"/static/uploads/user_photos/{filename}"
+
+                    new_name = private_token_filename('jpg')
+                    folder = ensure_private_subdir('user_photos', app=app)
+                    filepath = os.path.join(folder, new_name)
+                    try:
+                        ext = materialize_validated(validated, filepath, force_reencode=True)
+                    except UploadError as exc:
+                        flash(exc.message, 'danger')
+                        db.session.rollback()
+                        teacher_record = resolve_caller_teacher(current_user)
+                        return render_template('profile.html', teacher_record=teacher_record)
+                    base, _ = os.path.splitext(filepath)
+                    final_name = f'{os.path.basename(base)}.{ext}'
+                    current_user.photo = store_relative('user_photos', final_name)
 
             # Digital signature (shared: admission scrutinizer, remuneration recipient, etc.)
             from utils.user_signature import (
@@ -18457,10 +18449,7 @@ def create_app():
                     if err:
                         flash(err, 'danger')
                         db.session.rollback()
-                        teacher_record = None
-                        user_roles = parse_roles(current_user.role)
-                        if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
-                            teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                        teacher_record = resolve_caller_teacher(current_user)
                         return render_template(
                             'profile.html',
                             teacher_record=teacher_record,
@@ -18481,62 +18470,47 @@ def create_app():
                 if not current_password or not current_user.check_password(current_password):
                     flash('Current password is incorrect.', 'danger')
                     db.session.rollback()
-                    teacher_record = None
-                    user_roles = parse_roles(current_user.role)
-                    if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
-                        teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                    teacher_record = resolve_caller_teacher(current_user)
                     return render_template('profile.html', teacher_record=teacher_record)
                 if new_password != confirm_password:
                     flash('New passwords do not match.', 'danger')
                     db.session.rollback()
-                    teacher_record = None
-                    user_roles = parse_roles(current_user.role)
-                    if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
-                        teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                    teacher_record = resolve_caller_teacher(current_user)
                     return render_template('profile.html', teacher_record=teacher_record)
                 if new_password:
                     current_user.set_password(new_password)
                     current_user.must_change_password = False
 
-            # Update teacher information if user is a teacher
-            # IMPORTANT: Find teacher by OLD name first, then update to new name
+            # Update linked Teacher roster fields (AUTHZ-07: via teacher_id only)
             user_roles = parse_roles(current_user.role)
             if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
-                # Use old_full_name to find existing teacher record
-                teacher = Teacher.query.filter_by(name=old_full_name).first()
-                
-                if not teacher:
-                    # If no teacher found by old name, try new name (in case name wasn't changed)
-                    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
-                
-                if not teacher:
-                    # Create teacher record if it doesn't exist
-                    short_name_base = (current_user.username or current_user.full_name.split()[0].lower() if current_user.full_name else 'teacher')
-                    short_name_base = ''.join(ch for ch in short_name_base.lower() if ch.isalnum())[:10] or 'teacher'
-                    short_name = short_name_base
-                    counter = 1
-                    while Teacher.query.filter_by(short_name=short_name).first():
-                        suffix = str(counter)
-                        short_name = f"{short_name_base[:10-len(suffix)]}{suffix}"
-                        counter += 1
-                    teacher = Teacher(name=current_user.full_name, short_name=short_name, institute=current_tenant().institute_label)
-                    db.session.add(teacher)
-                    db.session.flush()
-                
-                # Update teacher name if it changed (adapts to name change)
-                if name_changed and teacher.name != current_user.full_name:
-                    teacher.name = current_user.full_name
-                    # Note: All existing relationships (class_sessions, assignments, etc.) 
-                    # that reference this teacher by ID will automatically adapt
-                    # since they use teacher_id foreign key, not name matching
-                
-                # Update call_sign, bank_account_no, and tin_number
-                call_sign = request.form.get('call_sign', '').strip()
-                bank_account_no = request.form.get('bank_account_no', '').strip()
-                tin_number = request.form.get('tin_number', '').strip()
-                teacher.call_sign = call_sign if call_sign else None
-                teacher.bank_account_no = bank_account_no if bank_account_no else None
-                teacher.tin_number = tin_number if tin_number else None
+                teacher = resolve_caller_teacher(current_user)
+                if not teacher and is_admin(current_user):
+                    # Admins may mint a linked Teacher when editing their own profile.
+                    teacher = _ensure_teacher_for_user(current_user)
+
+                if teacher:
+                    # Admin-only name change may sync the linked Teacher.name
+                    if name_changed and is_admin(current_user) and teacher.name != current_user.full_name:
+                        clash = Teacher.query.filter(
+                            Teacher.name == current_user.full_name,
+                            Teacher.id != teacher.id,
+                        ).first()
+                        if clash:
+                            flash('Another teacher roster entry already uses that name.', 'danger')
+                            db.session.rollback()
+                            return render_template(
+                                'profile.html',
+                                teacher_record=resolve_caller_teacher(current_user),
+                            )
+                        teacher.name = current_user.full_name
+
+                    call_sign = request.form.get('call_sign', '').strip()
+                    bank_account_no = request.form.get('bank_account_no', '').strip()
+                    tin_number = request.form.get('tin_number', '').strip()
+                    teacher.call_sign = call_sign if call_sign else None
+                    teacher.bank_account_no = bank_account_no if bank_account_no else None
+                    teacher.tin_number = tin_number if tin_number else None
 
             # Update theme preference
             theme = request.form.get('theme', 'default').strip()
@@ -18580,7 +18554,7 @@ def create_app():
         teacher_record = None
         user_roles = parse_roles(current_user.role)
         if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
-            teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+            teacher_record = resolve_caller_teacher(current_user)
 
         from utils.user_signature import user_signature_public_url
         return render_template(
@@ -18709,8 +18683,7 @@ if __name__ == '__main__':
         print("   It's waiting for HTTP requests. Press CTRL+C to stop.")
         print("="*60 + "\n")
         
-        # Use SocketIO to run the app (enables WebSocket support)
-        app.socketio.run(app, host=host, port=port, use_reloader=False, log_output=False, allow_unsafe_werkzeug=True)
+        app.run(host=host, port=port, use_reloader=False, threaded=True)
     except OSError as e:
         if "Address already in use" in str(e):
             print(f"\n❌ Error: Port {port} is already in use!")

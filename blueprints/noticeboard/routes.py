@@ -16,7 +16,9 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
+from markupsafe import Markup
 from sqlalchemy import or_
+from utils.outline_richtext import html_is_empty, sanitize_outline_html
 
 from extensions import db
 from role_utils import parse_roles
@@ -39,6 +41,20 @@ from .audience import (
     validate_targets_for_user,
 )
 from .models import Notice, NoticeTarget
+
+
+def _sanitize_notice_html(raw: str | None) -> str:
+    """Allowlisted HTML only — strips script, event handlers, and javascript: URLs."""
+    return sanitize_outline_html(raw or '')
+
+
+def _notice_body_markup(raw: str | None) -> Markup:
+    return Markup(_sanitize_notice_html(raw))
+
+
+@noticeboard_bp.app_template_filter('safe_notice_html')
+def safe_notice_html(raw):
+    return _notice_body_markup(raw)
 
 
 def _require_composer():
@@ -228,6 +244,7 @@ def _render_notice_pdf(notice: Notice):
 
     ctx = {
         'notice': notice,
+        'body_html': _notice_body_markup(notice.body_html),
         'author_name': author_name,
         'audience_summary': format_audience_summary(notice),
         'signature_data_uri': signature_data_uri,
@@ -255,8 +272,9 @@ def _render_notice_pdf(notice: Notice):
 
     safe_title = re.sub(r'[^\w\-]+', '_', (notice.title or 'notice'))[:60]
     filename = f'notice_{notice.id}_{safe_title}.pdf'
+    from utils.email_safety import content_disposition_attachment
     resp = Response(pdf_data, mimetype='application/pdf')
-    resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    resp.headers['Content-Disposition'] = content_disposition_attachment(filename)
     resp.headers['Content-Length'] = str(len(pdf_data))
     return resp
 
@@ -360,14 +378,14 @@ def create():
 
     if request.method == 'POST':
         title = (request.form.get('title') or '').strip()
-        body_html = (request.form.get('body_html') or '').strip()
+        body_html = _sanitize_notice_html(request.form.get('body_html'))
         notice_date = _parse_notice_date(request.form.get('notice_date'))
         raw_targets = parse_targets_from_form(request.form)
         targets, err = validate_targets_for_user(raw_targets, current_user)
 
         if not title:
             flash('Title is required.', 'danger')
-        elif not body_html or body_html in ('<p></p>', '<p><br></p>'):
+        elif html_is_empty(body_html):
             flash('Notice body is required.', 'danger')
         elif err:
             flash(err, 'danger')
@@ -457,14 +475,14 @@ def edit(notice_id):
 
     if request.method == 'POST':
         title = (request.form.get('title') or '').strip()
-        body_html = (request.form.get('body_html') or '').strip()
+        body_html = _sanitize_notice_html(request.form.get('body_html'))
         notice_date = _parse_notice_date(request.form.get('notice_date'))
         raw_targets = parse_targets_from_form(request.form)
         targets, err = validate_targets_for_user(raw_targets, current_user)
 
         if not title:
             flash('Title is required.', 'danger')
-        elif not body_html or body_html in ('<p></p>', '<p><br></p>'):
+        elif html_is_empty(body_html):
             flash('Notice body is required.', 'danger')
         elif err:
             flash(err, 'danger')
@@ -508,7 +526,7 @@ def edit(notice_id):
         notice=notice,
         options=options,
         form_title=notice.title,
-        form_body=notice.body_html,
+        form_body=_sanitize_notice_html(notice.body_html),
         form_date=notice.notice_date.isoformat() if notice.notice_date else _bd_today().isoformat(),
         selected=selected,
     )
@@ -566,6 +584,7 @@ def notice_detail(notice_id):
     return render_template(
         'noticeboard/detail.html',
         notice=notice,
+        body_html=_notice_body_markup(notice.body_html),
         author_name=(notice.author.full_name if notice.author else '') or '—',
         audience_summary=format_audience_summary(notice),
         can_manage=can_manage_notice(notice),
@@ -625,7 +644,8 @@ def ai_draft():
         if html.startswith('```'):
             html = re.sub(r'^```(?:html)?\s*', '', html)
             html = re.sub(r'\s*```$', '', html)
-        if not html:
+        html = _sanitize_notice_html(html)
+        if html_is_empty(html):
             return jsonify({'ok': False, 'error': 'AI returned an empty draft.'}), 502
         return jsonify({
             'ok': True,

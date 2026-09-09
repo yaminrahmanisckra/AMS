@@ -27,6 +27,47 @@ def is_production() -> bool:
     return bool(os.getenv('CPANEL')) or env == 'production'
 
 
+def _path_looks_like_docroot(path: str) -> bool:
+    if not path:
+        return False
+    return 'public_html' in os.path.abspath(path).replace('\\', '/')
+
+
+def looks_like_production(script_path: str | None = None) -> bool:
+    """True when a destructive script would likely hit live data."""
+    if is_production():
+        return True
+    mysql_flag = (os.getenv('MYSQL') or '').strip().lower()
+    if mysql_flag in ('1', 'true', 'yes', 'on'):
+        return True
+    db_url = (os.getenv('DATABASE_URL') or '').strip().lower()
+    if db_url.startswith('mysql'):
+        return True
+    if _path_looks_like_docroot(os.getcwd()):
+        return True
+    if script_path and _path_looks_like_docroot(script_path):
+        return True
+    return False
+
+
+def refuse_destructive_in_production(script_path: str | None = None) -> None:
+    """Abort wipe/reset scripts unless AMS_ALLOW_DESTRUCTIVE=1."""
+    import sys
+
+    allow = (os.getenv('AMS_ALLOW_DESTRUCTIVE') or '').strip().lower()
+    if allow in ('1', 'true', 'yes', 'on'):
+        return
+    if not looks_like_production(script_path):
+        return
+    print(
+        'Refusing destructive database script: this environment looks like production '
+        '(FLASK_ENV=production, CPANEL, MYSQL, mysql DATABASE_URL, or a public_html path).',
+        file=sys.stderr,
+    )
+    print('These scripts are for local/dev only.', file=sys.stderr)
+    raise SystemExit(2)
+
+
 def resolve_secret_key() -> str:
     """Return SECRET_KEY. Production refuses missing or well-known placeholders."""
     secret = (os.getenv('SECRET_KEY') or '').strip()

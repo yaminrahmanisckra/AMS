@@ -41,6 +41,26 @@ def _clean_optional_url(url):
     return cleaned.rstrip('/')
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Do not follow HTTP redirects (SSRF pivot via 302)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(
+            req.full_url, code, f'Redirect blocked ({code}) for AI requests', headers, fp
+        )
+
+
+_AI_OPENER = None
+
+
+def _ai_opener():
+    global _AI_OPENER
+    if _AI_OPENER is None:
+        https_handler = urllib.request.HTTPSHandler(context=_ssl_context())
+        _AI_OPENER = urllib.request.build_opener(_NoRedirectHandler, https_handler)
+    return _AI_OPENER
+
+
 def _friendly_api_error(status_code, detail, provider=None):
     """Turn provider JSON errors into short Bengali messages for admins."""
     message = ''
@@ -111,11 +131,17 @@ def _is_retryable_http(status_code, detail):
 
 
 def _http_post_json(url, headers, body, timeout=120, provider=None):
+    from utils.ai.url_safety import AIURLSafetyError, validate_ai_http_url
+
+    try:
+        url = validate_ai_http_url(url, provider=provider)
+    except AIURLSafetyError as exc:
+        raise AIClientError(str(exc)) from exc
+
     data = json.dumps(body).encode('utf-8')
     req = urllib.request.Request(url, data=data, headers=headers, method='POST')
-    context = _ssl_context() if str(url).lower().startswith('https://') else None
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
+        with _ai_opener().open(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode('utf-8', errors='replace')
@@ -188,7 +214,13 @@ def _extract_text_openai_compatible(response):
 
 
 def _call_openai(cfg, system_prompt, user_prompt, timeout=120, json_mode=True, images=None):
-    base = _clean_optional_url(cfg.get('api_base_url')) or 'https://api.openai.com/v1'
+    from utils.ai.url_safety import AIURLSafetyError, resolve_provider_base_url
+
+    provider = cfg.get('provider', 'openai')
+    try:
+        base = resolve_provider_base_url(provider, cfg.get('api_base_url'))
+    except AIURLSafetyError as exc:
+        raise AIClientError(str(exc)) from exc
     url = f'{base}/chat/completions'
     if images:
         user_content = [{'type': 'text', 'text': user_prompt}]
@@ -246,8 +278,13 @@ def _normalize_gemini_model(model_name):
 def _call_gemini(cfg, system_prompt, user_prompt, timeout=120, json_mode=True, images=None, pdf_bytes=None):
     import base64
 
+    from utils.ai.url_safety import AIURLSafetyError, resolve_provider_base_url
+
     model = _normalize_gemini_model(cfg['model_name'])
-    base = _clean_optional_url(cfg.get('api_base_url')) or 'https://generativelanguage.googleapis.com/v1beta'
+    try:
+        base = resolve_provider_base_url('gemini', cfg.get('api_base_url'))
+    except AIURLSafetyError as exc:
+        raise AIClientError(str(exc)) from exc
     url = f'{base}/models/{model}:generateContent?key={cfg["api_key"].strip()}'
     generation_config = {
         'temperature': cfg['temperature'],
@@ -285,9 +322,13 @@ def _call_gemini(cfg, system_prompt, user_prompt, timeout=120, json_mode=True, i
 
 def _call_anthropic(cfg, system_prompt, user_prompt, timeout=120, images=None):
     from utils.ai.provider_presets import normalize_model_for_provider
+    from utils.ai.url_safety import AIURLSafetyError, resolve_provider_base_url
 
     model = normalize_model_for_provider('anthropic', cfg.get('model_name'))
-    base = _clean_optional_url(cfg.get('api_base_url')) or 'https://api.anthropic.com/v1'
+    try:
+        base = resolve_provider_base_url('anthropic', cfg.get('api_base_url'))
+    except AIURLSafetyError as exc:
+        raise AIClientError(str(exc)) from exc
     url = f'{base}/messages'
     if images:
         content = [{'type': 'text', 'text': user_prompt}]

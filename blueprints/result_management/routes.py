@@ -1,4 +1,5 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, Response, current_app, jsonify
+from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, Response, current_app, jsonify, abort
+from werkzeug.exceptions import HTTPException
 from flask_login import login_required, current_user
 from utils.academic_rules import assessment_cfg, calculate_grade as tenant_calculate_grade
 from reportlab.lib.pagesizes import letter
@@ -19,6 +20,7 @@ from blueprints.class_management.models import Teacher, Session as ClassSession,
 from blueprints.course_management.models import StudentCourseRegistration, Course, ActiveSemesterConfig, CurriculumYearTerm
 from blueprints.student_management.models import Student as StudentProfile
 from blueprints.course_management.models import DutyAssignment
+from utils.ownership import resolve_caller_teacher
 from utils.window_utils import (
     filter_query_by_window_id,
     filter_by_active_window,
@@ -76,7 +78,7 @@ def _is_head_user():
 def _current_teacher():
     if not current_user.is_authenticated:
         return None
-    return Teacher.query.filter_by(name=current_user.full_name).first()
+    return resolve_caller_teacher(current_user)
 
 
 def _is_tabulator_user():
@@ -430,9 +432,17 @@ def _term_registration_variants(term):
     return list(variants)
 
 
+def _require_result_session_access(session):
+    """Abort 403 unless the caller may manage this result session."""
+    if not _can_access_session(session):
+        abort(403)
+    return session
+
+
 def _get_rsession_or_404(session_id):
-    """Load a result session scoped to the active operational window."""
-    return get_or_404_for_window(RSession, session_id)
+    """Load a result session in the active window that the caller may access."""
+    session = get_or_404_for_window(RSession, session_id)
+    return _require_result_session_access(session)
 
 
 def _find_exam_entry_for_result_subject(result_session, subject):
@@ -474,17 +484,21 @@ def _find_exam_entry_for_result_subject(result_session, subject):
     return None
 
 
-def _get_rstudent_or_404(student_id):
-    """Load a result student only if its parent session is in the active window."""
+def _get_rstudent_or_404(student_id, session_id=None):
+    """Load a result student only if the caller may access its parent session."""
     student = RStudent.query.get_or_404(student_id)
     _get_rsession_or_404(student.session_id)
+    if session_id is not None and int(student.session_id) != int(session_id):
+        abort(404)
     return student
 
 
-def _get_rsubject_or_404(subject_id):
-    """Load a result subject only if its parent session is in the active window."""
+def _get_rsubject_or_404(subject_id, session_id=None):
+    """Load a result subject only if the caller may access its parent session."""
     subject = RSubject.query.get_or_404(subject_id)
     _get_rsession_or_404(subject.session_id)
+    if session_id is not None and int(subject.session_id) != int(session_id):
+        abort(404)
     return subject
 
 
@@ -1630,6 +1644,8 @@ def delete_student(student_id):
         db.session.delete(student)
         db.session.commit()
         flash(f'Student "{student_name}" deleted successfully!', 'success')
+    except HTTPException:
+        raise
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting result student {student_id}: {e}', exc_info=True)
@@ -2129,7 +2145,7 @@ def refresh_marks(session_id):
         if not subject_id:
             return jsonify({'success': False, 'message': 'Subject ID is required'}), 400
         
-        selected_subject = _get_rsubject_or_404(subject_id)
+        selected_subject = _get_rsubject_or_404(subject_id, session_id=session_id)
         
         # Get students from Course Management (same logic as add_marks)
         # This ensures we refresh marks for all registered students, not just those in RCourseRegistration
@@ -2389,6 +2405,8 @@ def refresh_marks(session_id):
             'error_count': error_count
         })
         
+    except HTTPException:
+        raise
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error refreshing marks: {e}", exc_info=True)
@@ -2411,6 +2429,8 @@ def delete_subject(subject_id):
         db.session.delete(subject)
         db.session.commit()
         flash(f'Subject "{subject_name}" deleted successfully!', 'success')
+    except HTTPException:
+        raise
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting subject {subject_id}: {e}', exc_info=True)
@@ -3179,7 +3199,10 @@ def add_marks(session_id):
     current_app.logger.info(f'Result Management: Found {len(subjects)} subjects for session {session_id} ({session.name})')
     
     selected_subject_id = request.args.get('subject_id', type=int)
-    selected_subject = RSubject.query.get(selected_subject_id) if selected_subject_id else None
+    selected_subject = (
+        _get_rsubject_or_404(selected_subject_id, session_id=session_id)
+        if selected_subject_id else None
+    )
     
     if selected_subject:
         current_app.logger.info(f'Result Management: Selected subject {selected_subject.code} ({selected_subject.name}) for session {session_id}')
@@ -3609,7 +3632,7 @@ def add_marks(session_id):
             flash('Please select a subject.', 'danger')
             return redirect(url_for('result_management.add_marks', session_id=session_id))
 
-        subject = _get_rsubject_or_404(subject_id)
+        subject = _get_rsubject_or_404(subject_id, session_id=session_id)
 
         retake_map = _load_course_management_retake_map(session, subject.code, students)
 
@@ -3774,7 +3797,7 @@ def auto_save_marks(session_id):
         if not subject_id:
             return jsonify({'success': False, 'message': 'Subject ID is required'}), 400
         
-        subject = _get_rsubject_or_404(subject_id)
+        subject = _get_rsubject_or_404(subject_id, session_id=session_id)
         
         # Get students for this subject (same logic as add_marks)
         from blueprints.course_management.models import StudentCourseRegistration
@@ -3954,6 +3977,8 @@ def auto_save_marks(session_id):
             'updated_count': updated_count
         })
         
+    except HTTPException:
+        raise
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error auto-saving marks: {e}", exc_info=True)
@@ -3984,10 +4009,7 @@ def course_wise_result(session_id):
     results = []
     selected_subject = None
     if selected_subject_id:
-        selected_subject = RSubject.query.get(selected_subject_id)
-        if not selected_subject or selected_subject.session_id != session_id:
-            flash('Invalid subject selected.', 'danger')
-            return redirect(url_for('result_management.course_wise_result', session_id=session_id))
+        selected_subject = _get_rsubject_or_404(selected_subject_id, session_id=session_id)
         
         # Check if marks exist for this subject
         marks_count = RMark.query.filter_by(subject_id=selected_subject_id).count()
@@ -4060,10 +4082,7 @@ def student_wise_result(session_id):
     term_assessment = {}
 
     if selected_student_id:
-        selected_student = RStudent.query.get(selected_student_id)
-        if not selected_student or selected_student.session_id != session_id:
-            flash('Invalid student selected.', 'danger')
-            return redirect(url_for('result_management.student_wise_result', session_id=session_id))
+        selected_student = _get_rstudent_or_404(selected_student_id, session_id=session_id)
         if not _student_has_course_registrations(session_id, selected_student_id):
             flash('This student is not registered for any course in this session.', 'warning')
             return redirect(url_for('result_management.student_wise_result', session_id=session_id))
@@ -4099,7 +4118,10 @@ def course_registration(session_id):
     students = RStudent.query.filter_by(session_id=session_id).order_by(RStudent.student_id).all()
 
     selected_subject_id = request.args.get('subject_id', type=int)
-    selected_subject = RSubject.query.get(selected_subject_id) if selected_subject_id else None
+    selected_subject = (
+        _get_rsubject_or_404(selected_subject_id, session_id=session_id)
+        if selected_subject_id else None
+    )
 
     registrations = {}
     auto_registered_student_ids = set()
@@ -4154,6 +4176,7 @@ def course_registration(session_id):
         if not subject_id:
             flash('A subject must be selected.', 'danger')
             return redirect(url_for('result_management.course_registration', session_id=session_id))
+        _get_rsubject_or_404(subject_id, session_id=session_id)
         
         # Get all student IDs that were submitted (i.e., whose checkboxes could have been checked)
         students_on_page = RStudent.query.filter_by(session_id=session_id).all()
@@ -4647,8 +4670,8 @@ def test_download(session_id, subject_id):
         current_app.logger.info(f"Testing download endpoint for session {session_id}, subject {subject_id}")
         
         # Check if subject and session exist
-        subject = _get_rsubject_or_404(subject_id)
         session = _get_rsession_or_404(session_id)
+        subject = _get_rsubject_or_404(subject_id, session_id=session_id)
         
         # Create a simple test PDF
         from reportlab.lib.pagesizes import letter
@@ -4679,6 +4702,8 @@ def test_download(session_id, subject_id):
             }
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         current_app.logger.error(f"Test download failed: {e}")
         return f"Test failed: {str(e)}", 500
@@ -4698,8 +4723,8 @@ def download_course_result(session_id, subject_id):
             flash(f'Missing required module for PDF: {e}', 'error')
             return redirect(url_for('result_management.course_wise_result', session_id=session_id))
         
-        subject = _get_rsubject_or_404(subject_id)
         session = _get_rsession_or_404(session_id)
+        subject = _get_rsubject_or_404(subject_id, session_id=session_id)
         _sync_subject_marks_retake_grades(session, subject)
         results = _query_course_result_rows(session_id, subject)
         remark_by_roll = _remark_map_for_course_pdf(session, subject)
@@ -4726,6 +4751,8 @@ def download_course_result(session_id, subject_id):
         
         return response
         
+    except HTTPException:
+        raise
     except Exception as e:
         # Simple error logging without error_handler dependency
         current_app.logger.error(f"Error generating course result PDF for session {session_id}, subject {subject_id}: {e}")
@@ -4748,8 +4775,8 @@ def download_student_result(session_id, student_id):
             flash(f'Missing required module for PDF: {e}', 'error')
             return redirect(url_for('result_management.student_wise_result', session_id=session_id))
         
-        student = _get_rstudent_or_404(student_id)
         session = _get_rsession_or_404(session_id)
+        student = _get_rstudent_or_404(student_id, session_id=session_id)
         if not _student_has_course_registrations(session_id, student_id):
             flash('This student is not registered for any course in this session.', 'warning')
             return redirect(url_for('result_management.student_wise_result', session_id=session_id))
@@ -4784,6 +4811,8 @@ def download_student_result(session_id, student_id):
         
         return response
         
+    except HTTPException:
+        raise
     except Exception as e:
         # Simple error logging without error_handler dependency
         current_app.logger.error(f"Error generating student result PDF for session {session_id}, student {student_id}: {e}")
@@ -4794,8 +4823,8 @@ def download_student_result(session_id, student_id):
 @result_management_bp.route('/download/student_result_docx/<int:session_id>/<int:student_id>')
 @login_required
 def download_student_result_docx(session_id, student_id):
-    student = _get_rstudent_or_404(student_id)
     session = _get_rsession_or_404(session_id)
+    student = _get_rstudent_or_404(student_id, session_id=session_id)
     if not _student_has_course_registrations(session_id, student_id):
         flash('This student is not registered for any course in this session.', 'warning')
         return redirect(url_for('result_management.student_wise_result', session_id=session_id))

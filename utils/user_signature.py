@@ -1,16 +1,15 @@
 """Shared user signature helpers (profile, admission, remuneration PDFs).
 
-Signatures are stored on ``User.signature_path`` under
-``static/uploads/user_signatures/`` and reused wherever a staff/teacher
-signature image is needed.
+AUTHZ / FILE-01: signatures live under ``PRIVATE_UPLOAD_DIR`` (or legacy
+``static/uploads/user_signatures/`` during dual-read). HTTP previews must use
+the authenticated ``media_user_signature`` route — never a public static URL.
 """
 from __future__ import annotations
 
 import base64
 import os
-from datetime import datetime
 
-from flask import current_app
+from flask import current_app, url_for
 from werkzeug.utils import secure_filename
 
 ALLOWED_SIGNATURE_EXTS = frozenset({'png', 'jpg', 'jpeg'})
@@ -33,13 +32,14 @@ def user_signature_abs_path(user):
 
 
 def user_signature_public_url(user):
-    """URL path for preview (``/static/uploads/...``), or None."""
-    if not user or not getattr(user, 'signature_path', None):
+    """Authenticated preview URL for the user's signature, or None."""
+    if not user or not getattr(user, 'signature_path', None) or not getattr(user, 'id', None):
         return None
-    rel = str(user.signature_path).replace('\\', '/').lstrip('/')
-    if not rel.startswith('static/'):
-        rel = f'static/{rel}'
-    return '/' + rel
+    try:
+        return url_for('media_user_signature', user_id=user.id)
+    except Exception:
+        # Outside request context (PDF jobs): no HTTP URL needed.
+        return None
 
 
 def save_user_signature(user, file_storage):
@@ -59,6 +59,7 @@ def save_user_signature(user, file_storage):
         return None, f'Signature is too large. Maximum is {SIGNATURE_MAX_SIZE_LABEL}.'
     try:
         from PIL import Image, ImageOps
+        from utils.private_uploads import ensure_private_subdir, private_token_filename, store_relative
 
         img = Image.open(file_storage.stream)
         try:
@@ -76,15 +77,14 @@ def save_user_signature(user, file_storage):
             out_ext = 'jpg'
         resample = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS', Image.LANCZOS)
         img.thumbnail(SIGNATURE_MAX_DIMENSIONS, resample)
-        folder = os.path.join(current_app.root_path, 'static', 'uploads', 'user_signatures')
-        os.makedirs(folder, exist_ok=True)
-        new_name = f'user_{user.id}_sig_{int(datetime.utcnow().timestamp())}.{out_ext}'
+        folder = ensure_private_subdir('user_signatures')
+        new_name = private_token_filename(out_ext)
         abs_path = os.path.join(folder, new_name)
         if out_ext == 'png':
             img.save(abs_path, format='PNG', optimize=True)
         else:
             img.save(abs_path, format='JPEG', quality=90, optimize=True)
-        return os.path.join('static', 'uploads', 'user_signatures', new_name).replace('\\', '/'), None
+        return store_relative('user_signatures', new_name), None
     except Exception:
         current_app.logger.exception('User signature save failed')
         return None, 'Could not read the signature image. Please upload a valid JPG or PNG.'

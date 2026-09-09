@@ -226,12 +226,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     allStudents = filteredStudents;
                     renderStudents(filteredStudents);
                 } else {
-                    container.innerHTML = `<div class="alert alert-danger">${data.message || 'Error loading students'}</div>`;
+                    container.innerHTML = `<div class="alert alert-danger">${escapeHtml(data.message || 'Error loading students')}</div>`;
                 }
             })
             .catch(error => {
                 console.error('Error loading students:', error);
-                container.innerHTML = `<div class="alert alert-danger">Error loading students: ${error.message}</div>`;
+                container.innerHTML = `<div class="alert alert-danger">Error loading students: ${escapeHtml(error.message)}</div>`;
             });
     }
     
@@ -246,7 +246,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Get existing students in this session
         const existingStudentIds = new Set();
         {% for student in students %}
-        existingStudentIds.add('{{ student.student_id }}');
+        existingStudentIds.add(String({{ student.student_id|tojson }}));
         {% endfor %}
         
         let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
@@ -258,12 +258,12 @@ document.addEventListener('DOMContentLoaded', function() {
             html += `<tr class="${isExisting ? 'table-secondary' : ''}">
                 <td>
                     ${isExisting ? '<span class="badge bg-warning">Added</span>' : 
-                      `<input type="checkbox" class="student-checkbox" value="${student.id}" ${isSelected ? 'checked' : ''} ${isExisting ? 'disabled' : ''}>`}
+                      `<input type="checkbox" class="student-checkbox" value="${escapeHtml(String(student.id))}" ${isSelected ? 'checked' : ''} ${isExisting ? 'disabled' : ''}>`}
                 </td>
-                <td><strong>${student.student_id}</strong></td>
-                <td>${student.name}</td>
-                <td>${student.batch || '-'}</td>
-                <td>${student.email || '-'}</td>
+                <td><strong>${escapeHtml(student.student_id)}</strong></td>
+                <td>${escapeHtml(student.name)}</td>
+                <td>${escapeHtml(student.batch || '-')}</td>
+                <td>${escapeHtml(student.email || '-')}</td>
             </tr>`;
         });
         

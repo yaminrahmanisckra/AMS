@@ -313,7 +313,7 @@ function viewArchiveDetails(archiveId) {
             if (data.success) {
                 displayArchiveDetails(data);
             } else {
-                modalBody.innerHTML = `<div class="alert alert-danger">${data.message || 'Failed to load archive details'}</div>`;
+                modalBody.innerHTML = `<div class="alert alert-danger">${escapeHtml(data.message || 'Failed to load archive details')}</div>`;
             }
         })
         .catch(error => {
@@ -357,7 +357,7 @@ function displayArchiveDetails(responseData) {
         renderArchiveDetails(data, metadata, null);
     } catch (error) {
         console.error('Error in displayArchiveDetails:', error);
-        modalBody.innerHTML = `<div class="alert alert-danger">Error displaying archive details: ${error.message}</div>`;
+        modalBody.innerHTML = `<div class="alert alert-danger">Error displaying archive details: ${escapeHtml(error.message)}</div>`;
     }
 }
 
@@ -432,7 +432,7 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
             `;
             currentTeachers.forEach(teacher => {
                 const selected = filterTeacherId && teacher.id === filterTeacherId ? 'selected' : '';
-                html += `<option value="${teacher.id}" ${selected}>${teacher.name}${teacher.designation ? ' - ' + teacher.designation : ''}</option>`;
+                html += `<option value="${escapeHtml(teacher.id)}" ${selected}>${escapeHtml(teacher.name)}${teacher.designation ? ' - ' + escapeHtml(teacher.designation) : ''}</option>`;
             });
             html += `
                     </select>
@@ -453,12 +453,12 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
         <div class="mb-4">
             <h5 class="border-bottom pb-2"><i class="fas fa-info-circle me-2"></i>Session Information</h5>
             <div class="row g-2">
-                <div class="col-md-6"><strong>Academic Session:</strong> ${data.academic_session || 'N/A'}</div>
-                <div class="col-md-6"><strong>Year:</strong> ${data.year || 'N/A'}</div>
-                <div class="col-md-6"><strong>Term:</strong> ${data.term || 'N/A'}</div>
-                <div class="col-md-6"><strong>Archived At:</strong> ${displayMetadata.archived_at ? new Date(displayMetadata.archived_at).toLocaleString() : 'N/A'}</div>
-                ${displayMetadata.archived_by ? `<div class="col-md-6"><strong>Archived By:</strong> ${displayMetadata.archived_by}</div>` : ''}
-                ${displayMetadata.description ? `<div class="col-md-12"><strong>Description:</strong> ${displayMetadata.description}</div>` : ''}
+                <div class="col-md-6"><strong>Academic Session:</strong> ${escapeHtml(data.academic_session || 'N/A')}</div>
+                <div class="col-md-6"><strong>Year:</strong> ${escapeHtml(data.year || 'N/A')}</div>
+                <div class="col-md-6"><strong>Term:</strong> ${escapeHtml(data.term || 'N/A')}</div>
+                <div class="col-md-6"><strong>Archived At:</strong> ${displayMetadata.archived_at ? escapeHtml(new Date(displayMetadata.archived_at).toLocaleString()) : 'N/A'}</div>
+                ${displayMetadata.archived_by ? `<div class="col-md-6"><strong>Archived By:</strong> ${escapeHtml(displayMetadata.archived_by)}</div>` : ''}
+                ${displayMetadata.description ? `<div class="col-md-12"><strong>Description:</strong> ${escapeHtml(displayMetadata.description)}</div>` : ''}
             </div>
         </div>
     `;
@@ -507,10 +507,10 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
                 <div class="accordion-item">
                     <h2 class="accordion-header" id="heading_${sessionId}">
                         <button class="accordion-button ${idx === 0 ? '' : 'collapsed'}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_${sessionId}" aria-expanded="${idx === 0}">
-                            <strong>${session.course_code || 'N/A'}</strong> - ${session.course_name || 'N/A'}
+                            <strong>${escapeHtml(session.course_code || 'N/A')}</strong> - ${escapeHtml(session.course_name || 'N/A')}
                             ${!filterTeacherId ? (() => {
                                 const teacher = currentTeachers.find(t => t.id === session.teacher_id);
-                                return teacher ? `<span class="badge bg-secondary ms-2">${teacher.name}</span>` : '';
+                                return teacher ? `<span class="badge bg-secondary ms-2">${escapeHtml(teacher.name)}</span>` : '';
                             })() : ''}
                             <span class="badge bg-primary ms-2">${session.students ? session.students.length : 0} Students</span>
                             <span class="badge bg-info ms-2">${session.attendances ? session.attendances.length : 0} Attendance</span>
@@ -545,8 +545,8 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
                 session.students.forEach(student => {
                     html += `
                         <tr>
-                            <td><strong>${student.student_id || 'N/A'}</strong></td>
-                            <td>${student.name || 'N/A'}</td>
+                            <td><strong>${escapeHtml(student.student_id || 'N/A')}</strong></td>
+                            <td>${escapeHtml(student.name || 'N/A')}</td>
                             <td class="text-center">${student.assessment1 !== null && student.assessment1 !== undefined ? student.assessment1.toFixed(2) : '-'}</td>
                             <td class="text-center">${student.assessment2 !== null && student.assessment2 !== undefined ? student.assessment2.toFixed(2) : '-'}</td>
                             <td class="text-center">${student.assessment3 !== null && student.assessment3 !== undefined ? student.assessment3.toFixed(2) : '-'}</td>
@@ -589,10 +589,10 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
                 session.attendances.forEach(att => { // Show all attendance records
                     html += `
                         <tr>
-                            <td>${att.student_id || 'N/A'}</td>
-                            <td>${att.date ? new Date(att.date).toLocaleDateString() : 'N/A'}</td>
-                            <td><span class="badge ${att.status === 'present' ? 'bg-success' : (att.status === 'absent' ? 'bg-danger' : 'bg-warning')}">${att.status || 'N/A'}</span></td>
-                            ${att.remark ? `<td>${att.remark}</td>` : ''}
+                            <td>${escapeHtml(att.student_id || 'N/A')}</td>
+                            <td>${att.date ? escapeHtml(new Date(att.date).toLocaleDateString()) : 'N/A'}</td>
+                            <td><span class="badge ${att.status === 'present' ? 'bg-success' : (att.status === 'absent' ? 'bg-danger' : 'bg-warning')}">${escapeHtml(att.status || 'N/A')}</span></td>
+                            ${att.remark ? `<td>${escapeHtml(att.remark)}</td>` : ''}
                         </tr>
                     `;
                 });
@@ -642,7 +642,7 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
         data.result_management.sessions.forEach(session => {
             html += `
                 <tr>
-                    <td>${session.batch || 'N/A'}</td>
+                    <td>${escapeHtml(session.batch || 'N/A')}</td>
                     <td>${session.students ? session.students.length : 0}</td>
                     <td>${session.subjects ? session.subjects.length : 0}</td>
                     <td>${session.marks ? session.marks.length : 0}</td>
@@ -678,11 +678,11 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
         data.course_registrations.forEach(reg => {
             html += `
                 <tr>
-                    <td>${reg.course_code || 'N/A'}</td>
-                    <td>${reg.course_name || 'N/A'}</td>
-                    <td>${reg.credit || 0}</td>
-                    <td><span class="badge bg-info">${reg.status || 'N/A'}</span></td>
-                    <td>${reg.remark || 'Regular'}</td>
+                    <td>${escapeHtml(reg.course_code || 'N/A')}</td>
+                    <td>${escapeHtml(reg.course_name || 'N/A')}</td>
+                    <td>${escapeHtml(reg.credit || 0)}</td>
+                    <td><span class="badge bg-info">${escapeHtml(reg.status || 'N/A')}</span></td>
+                    <td>${escapeHtml(reg.remark || 'Regular')}</td>
                 </tr>
             `;
         });
@@ -740,13 +740,13 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
             
             html += `
                 <tr>
-                    <td><strong>${ee.course_code || 'N/A'}</strong></td>
-                    <td>${ee.course_name || 'N/A'}</td>
-                    <td><span class="badge bg-info">${ee.batch || 'N/A'}</span></td>
-                    <td><span class="badge bg-secondary">${ee.section || 'Full'}</span></td>
+                    <td><strong>${escapeHtml(ee.course_code || 'N/A')}</strong></td>
+                    <td>${escapeHtml(ee.course_name || 'N/A')}</td>
+                    <td><span class="badge bg-info">${escapeHtml(ee.batch || 'N/A')}</span></td>
+                    <td><span class="badge bg-secondary">${escapeHtml(ee.section || 'Full')}</span></td>
                     ${!filterTeacherId ? (() => {
                         const teacher = currentTeachers.find(t => t.id === ee.owner_teacher_id);
-                        return `<td>${teacher ? teacher.name : 'N/A'}</td>`;
+                        return `<td>${teacher ? escapeHtml(teacher.name) : 'N/A'}</td>`;
                     })() : ''}
                     <td>${marksDataDisplay}</td>
                     <td>${ee.submitted_to_committee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-warning">No</span>'}</td>
@@ -788,10 +788,10 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
         data.duty_assignments.forEach(da => {
             html += `
                 <tr>
-                    <td><span class="badge bg-secondary">${da.duty_type || 'N/A'}</span></td>
-                    <td>${da.course_code || 'N/A'}</td>
-                    <td>${da.batch || 'N/A'}</td>
-                    <td><span class="badge bg-warning">${da.status || 'N/A'}</span></td>
+                    <td><span class="badge bg-secondary">${escapeHtml(da.duty_type || 'N/A')}</span></td>
+                    <td>${escapeHtml(da.course_code || 'N/A')}</td>
+                    <td>${escapeHtml(da.batch || 'N/A')}</td>
+                    <td><span class="badge bg-warning">${escapeHtml(da.status || 'N/A')}</span></td>
                 </tr>
             `;
         });
@@ -815,11 +815,11 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between">
                         <div>
-                            <strong>${event.title || 'N/A'}</strong>
-                            <br><small class="text-muted">${event.description || ''}</small>
+                            <strong>${escapeHtml(event.title || 'N/A')}</strong>
+                            <br><small class="text-muted">${escapeHtml(event.description || '')}</small>
                         </div>
                         <div class="text-end">
-                            <span class="badge bg-primary">${event.event_type || 'N/A'}</span>
+                            <span class="badge bg-primary">${escapeHtml(event.event_type || 'N/A')}</span>
                             <br><small>${event.event_date ? new Date(event.event_date).toLocaleDateString() : 'N/A'}</small>
                         </div>
                     </div>
@@ -854,12 +854,12 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
         data.routines.forEach(r => {
             html += `
                 <tr>
-                    <td>${r.day || 'N/A'}</td>
-                    <td>${r.time_slot || 'N/A'}</td>
-                    <td>${r.room_number || 'N/A'}</td>
-                    <td>${r.course_code || 'N/A'}</td>
-                    <td>${r.teacher_short_name || 'N/A'}</td>
-                    <td>${r.part || 'Full'}</td>
+                    <td>${escapeHtml(r.day || 'N/A')}</td>
+                    <td>${escapeHtml(r.time_slot || 'N/A')}</td>
+                    <td>${escapeHtml(r.room_number || 'N/A')}</td>
+                    <td>${escapeHtml(r.course_code || 'N/A')}</td>
+                    <td>${escapeHtml(r.teacher_short_name || 'N/A')}</td>
+                    <td>${escapeHtml(r.part || 'Full')}</td>
                 </tr>
             `;
         });
@@ -892,10 +892,10 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
         data.remuneration_forms.forEach(form => {
             html += `
                 <tr>
-                    <td>${form.applicant_name || 'N/A'}</td>
-                    <td>${form.designation || 'N/A'}</td>
+                    <td>${escapeHtml(form.applicant_name || 'N/A')}</td>
+                    <td>${escapeHtml(form.designation || 'N/A')}</td>
                     <td>${form.total_amount ? form.total_amount.toFixed(2) : '0.00'}</td>
-                    <td><span class="badge bg-info">${form.status || 'N/A'}</span></td>
+                    <td><span class="badge bg-info">${escapeHtml(form.status || 'N/A')}</span></td>
                     <td>${form.created_at ? new Date(form.created_at).toLocaleDateString() : 'N/A'}</td>
                 </tr>
             `;
@@ -1023,7 +1023,7 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
         modalBody.innerHTML = html;
     } catch (error) {
         console.error('Error rendering archive details:', error);
-        modalBody.innerHTML = `<div class="alert alert-danger">Error rendering archive details: ${error.message}</div>`;
+        modalBody.innerHTML = `<div class="alert alert-danger">Error rendering archive details: ${escapeHtml(error.message)}</div>`;
     }
 }
 </script>

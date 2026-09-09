@@ -11,11 +11,13 @@ import sys
 # Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app import create_app
+from utils.security_config import refuse_destructive_in_production
 from extensions import db
 
 def clear_database(confirm=False):
     """Clear all data from database"""
+    refuse_destructive_in_production(__file__)
+    from app import create_app
     app = create_app()
     
     with app.app_context():
@@ -66,7 +68,6 @@ def clear_database(confirm=False):
             sys.exit(1)
 
 if __name__ == '__main__':
-    import sys
-    # Check for --yes flag
+    refuse_destructive_in_production(__file__)
     confirm = '--yes' in sys.argv or '-y' in sys.argv
     clear_database(confirm=confirm)

@@ -10,6 +10,7 @@
 
     <form method="POST" enctype="multipart/form-data"
           action="{{ url_for('admission_exam.apply_form', token=cycle.public_token) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
         {% set personal_fields = form_fields|selectattr('section', 'equalto', 'personal')|list %}
         {% set other_fields = form_fields|selectattr('section', 'equalto', 'other')|list %}

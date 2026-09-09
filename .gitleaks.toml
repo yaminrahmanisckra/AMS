@@ -1,0 +1,20 @@
+# gitleaks — block secrets in new commits (CONF-06 / 1.11)
+# Run: gitleaks protect --staged --no-banner
+# Hook: .githooks/pre-commit (optional: git config core.hooksPath .githooks)
+
+title = "Academic Management System"
+
+[allowlist]
+description = "Placeholders and public examples"
+paths = [
+    '''(^|/)env\.example$''',
+    '''(^|/)docs/''',
+    '''(^|/)SECURITY_AUDIT_REPORT_BN\.md$''',
+]
+regexes = [
+    '''your-secret-key-here''',
+    '''your-recovery-mailbox-password''',
+    '''your-noreply-mailbox-password''',
+    '''your-email@gmail.com''',
+    '''your-app-password''',
+]

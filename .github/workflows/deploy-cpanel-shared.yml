@@ -1,12 +1,13 @@
+# CONF-02/03: disabled. Posted cPanel credentials with verify=False to /public_html.
+# Do not re-enable until TLS verify, no create_admin.py in the artifact, and a non-docroot target.
 name: Deploy to Shared Hosting cPanel
 
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   deploy:
+    if: false
     runs-on: ubuntu-latest
     
     steps:

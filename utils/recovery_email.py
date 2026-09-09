@@ -31,6 +31,7 @@ def _sync_mail_from_os_environ():
     mail_keys = (
         'MAIL_SERVER', 'MAIL_PORT', 'MAIL_USE_TLS', 'MAIL_USE_SSL',
         'MAIL_USERNAME', 'MAIL_PASSWORD', 'MAIL_DEFAULT_SENDER', 'MAIL_FROM_NAME',
+        'MAIL_SSL_VERIFY', 'MAIL_SSL_FINGERPRINT', 'MAIL_USE_SENDMAIL',
     )
     for k in mail_keys:
         v = os.environ.get(k)
@@ -57,26 +58,75 @@ def _mail_bool(key: str, fallback=False) -> bool:
     return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-def _ssl_context():
-    """
-    SSL context for SMTP.
+def _ssl_cafile():
+    try:
+        import certifi
+        return certifi.where()
+    except Exception:
+        return None
 
-    Many cPanel/shared hosts intercept outbound TLS and cause
-    CERTIFICATE_VERIFY_FAILED / hostname mismatch.
-    Set MAIL_SSL_VERIFY=True only when the host has a working CA bundle.
-    Default: verify off on CPANEL, otherwise on.
+
+def _ssl_verify_enabled() -> bool:
+    """TLS certificate verification. Default on, including cPanel.
+
+    Set MAIL_SSL_VERIFY=false only as an emergency if the host CA bundle is broken.
     """
-    cpanel = str(os.environ.get('CPANEL') or os.environ.get('cPanel') or '').strip() in (
-        '1', 'true', 'yes', 'on',
-    )
-    verify_default = not cpanel
-    verify = _mail_bool('MAIL_SSL_VERIFY', verify_default)
-    if verify:
+    raw = os.environ.get('MAIL_SSL_VERIFY')
+    if raw is not None and str(raw).strip() != '':
+        return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
+    try:
+        raw = current_app.config.get('MAIL_SSL_VERIFY')
+        if raw is not None and str(raw).strip() != '':
+            return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
+    except RuntimeError:
+        pass
+    return True
+
+
+def _ssl_fingerprint_pin() -> str:
+    raw = os.environ.get('MAIL_SSL_FINGERPRINT')
+    if raw is None or str(raw).strip() == '':
+        try:
+            raw = current_app.config.get('MAIL_SSL_FINGERPRINT')
+        except RuntimeError:
+            raw = None
+    pin = str(raw or '').replace(':', '').replace(' ', '').lower()
+    return pin
+
+
+def _ssl_context():
+    """SSL context for SMTP. Verify host certs by default (certifi when available)."""
+    pin = _ssl_fingerprint_pin()
+    if pin:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    if _ssl_verify_enabled():
+        cafile = _ssl_cafile()
+        if cafile:
+            return ssl.create_default_context(cafile=cafile)
         return ssl.create_default_context()
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     return ctx
+
+
+def _assert_smtp_tls_fingerprint(server) -> None:
+    pin = _ssl_fingerprint_pin()
+    if not pin:
+        return
+    sock = getattr(server, 'sock', None)
+    if sock is None:
+        raise ssl.SSLError('SMTP TLS fingerprint set but no TLS socket')
+    der = sock.getpeercert(binary_form=True)
+    if not der:
+        raise ssl.SSLError('SMTP TLS fingerprint set but peer certificate missing')
+    import hashlib
+    digest = hashlib.sha256(der).hexdigest()
+    if digest != pin:
+        raise ssl.SSLError('SMTP TLS certificate fingerprint mismatch')
 
 
 def _format_from(sender: str, display_name: str | None = None) -> str:
@@ -96,6 +146,18 @@ def _build_message(
     from_name: str | None = None,
 ):
     from email.utils import formatdate, make_msgid
+    from utils.email_safety import (
+        EmailSafetyError,
+        format_from_header,
+        format_to_header,
+        sanitize_header_text,
+    )
+
+    try:
+        to_header = format_to_header(recipient)
+        from_header = format_from_header(sender, from_name)
+    except EmailSafetyError as exc:
+        raise ValueError(str(exc)) from exc
 
     if html_body:
         msg = MIMEMultipart('alternative')
@@ -104,10 +166,9 @@ def _build_message(
     else:
         msg = MIMEText(text_body or '', 'plain', 'utf-8')
 
-    from_header = _format_from(sender, from_name)
-    msg['Subject'] = Header(subject, 'utf-8')
+    msg['Subject'] = Header(sanitize_header_text(subject, max_len=200), 'utf-8')
     msg['From'] = from_header
-    msg['To'] = recipient
+    msg['To'] = to_header
     msg['Date'] = formatdate(localtime=True)
     # Do NOT set Auto-Submitted — Hosting Bangladesh outbound filter often
     # treats auto-generated headers as bulk/spam (550 classified as SPAM).
@@ -270,6 +331,8 @@ def _smtp_session(host, port, user, password, use_tls, use_ssl, timeout=SMTP_TIM
                 server.ehlo()
             except Exception:
                 pass
+        if use_ssl or use_tls:
+            _assert_smtp_tls_fingerprint(server)
         if user and password:
             try:
                 server.login(user, password)
@@ -319,13 +382,16 @@ def send_smtp_message(
     Send one message. Returns the endpoint string that succeeded (host:port or sendmail:…).
     Retries mail.domain submission if localhost is rejected as spam, then local sendmail.
     """
-    recipient = (recipient or '').strip()
-    sender = (sender or '').strip()
+    from utils.email_safety import EmailSafetyError, normalize_email
+
+    try:
+        recipient = normalize_email(recipient)
+        sender = normalize_email(sender)
+    except EmailSafetyError as exc:
+        raise RuntimeError(str(exc)) from exc
     user = (user or '').strip()
-    if not recipient:
-        raise RuntimeError('Missing recipient email')
-    if not sender:
-        raise RuntimeError('Missing sender email')
+    if not user:
+        raise RuntimeError('Missing SMTP username')
 
     msg = _build_message(subject, sender, recipient, text_body or '', html_body, from_name=from_name)
     msg['Reply-To'] = sender
@@ -363,7 +429,7 @@ def send_smtp_message(
             continue
 
     # Last resort on cPanel: local sendmail (same path webmail often uses)
-    allow_sendmail = _mail_bool('MAIL_USE_SENDMAIL', True)
+    allow_sendmail = _mail_bool('MAIL_USE_SENDMAIL', False)
     if allow_sendmail and (spam_hits or errors):
         try:
             endpoint = _send_via_sendmail(raw, envelope_from, recipient)

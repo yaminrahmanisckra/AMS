@@ -17,6 +17,7 @@ from blueprints.class_management.models import (
     ClassSplitInvite,
 )
 from role_utils import parse_roles, is_admin, get_teachers_excluding_head, role_required
+from utils.ownership import resolve_caller_teacher
 try:
     from utils.semester_utils import filter_by_active_semester
 except ImportError:
@@ -428,7 +429,10 @@ def _delete_class_students_from_sessions(sessions, student_ids_list, window_id=N
             removed_count += 1
 
             try:
-                if hasattr(session, 'split_group_id') and session.split_group_id:
+                # Remove from split peers: same split_group_id AND/OR same offering
+                # (course_code/year/term) so drifted groups still get cleaned up.
+                peer_sessions = {}
+                if getattr(session, 'split_group_id', None):
                     peer_query = Session.query.filter_by(
                         split_group_id=session.split_group_id,
                         course_code=session.course_code,
@@ -439,31 +443,52 @@ def _delete_class_students_from_sessions(sessions, student_ids_list, window_id=N
                     if window_id is not None and hasattr(Session, 'window_id'):
                         peer_query = peer_query.filter(_window_rows_filter(Session, window_id))
                     for peer_session in peer_query.all():
-                        peer_class_student = ClassStudent.query.filter_by(
-                            session_id=peer_session.id,
-                            student_id=class_student.student_id
-                        ).first()
-                        if peer_class_student:
-                            try:
-                                from error_handler import (
-                                    class_student_has_marks,
-                                    class_student_mark_snapshot,
-                                    log_data_event as log_peer_event,
+                        peer_sessions[peer_session.id] = peer_session
+
+                offering_query = Session.query.filter_by(
+                    course_code=session.course_code,
+                    year=session.year,
+                    term=session.term,
+                ).filter(Session.id != session.id)
+                if session.academic_session:
+                    offering_query = offering_query.filter(
+                        Session.academic_session == session.academic_session
+                    )
+                else:
+                    offering_query = offering_query.filter(
+                        or_(Session.academic_session.is_(None), Session.academic_session == '')
+                    )
+                if window_id is not None and hasattr(Session, 'window_id'):
+                    offering_query = offering_query.filter(_window_rows_filter(Session, window_id))
+                for peer_session in offering_query.all():
+                    peer_sessions[peer_session.id] = peer_session
+
+                for peer_session in peer_sessions.values():
+                    peer_class_student = ClassStudent.query.filter_by(
+                        session_id=peer_session.id,
+                        student_id=class_student.student_id
+                    ).first()
+                    if peer_class_student:
+                        try:
+                            from error_handler import (
+                                class_student_has_marks,
+                                class_student_mark_snapshot,
+                                log_data_event as log_peer_event,
+                            )
+                            if class_student_has_marks(peer_class_student):
+                                log_peer_event(
+                                    'CLASS_STUDENT_DELETE',
+                                    'Deleting peer ClassStudent row that has assessment marks',
+                                    level='WARNING',
+                                    course_code=getattr(peer_session, 'course_code', None),
+                                    session_id=peer_session.id,
+                                    window_id=getattr(peer_session, 'window_id', None),
+                                    marks_before=class_student_mark_snapshot(peer_class_student),
                                 )
-                                if class_student_has_marks(peer_class_student):
-                                    log_peer_event(
-                                        'CLASS_STUDENT_DELETE',
-                                        'Deleting peer ClassStudent row that has assessment marks',
-                                        level='WARNING',
-                                        course_code=getattr(peer_session, 'course_code', None),
-                                        session_id=peer_session.id,
-                                        window_id=getattr(peer_session, 'window_id', None),
-                                        marks_before=class_student_mark_snapshot(peer_class_student),
-                                    )
-                            except Exception:
-                                pass
-                            db.session.delete(peer_class_student)
-                            removed_count += 1
+                        except Exception:
+                            pass
+                        db.session.delete(peer_class_student)
+                        removed_count += 1
             except Exception as replicate_error:
                 current_app.logger.warning(
                     'Error removing student from peers for %s: %s',
@@ -2459,12 +2484,9 @@ def download_registration_pdf():
         # Right: Student photo
         photo_cell = ''
         if current_user.photo:
-            # Try to get student photo
-            # photo path is stored as "/static/uploads/user_photos/filename.jpg"
-            # Need to convert to absolute path
-            photo_rel_path = current_user.photo.lstrip('/')
-            student_photo_path = os.path.join(current_app.root_path, photo_rel_path)
-            if os.path.exists(student_photo_path):
+            from utils.safe_files import confined_existing_file
+            student_photo_path = confined_existing_file(current_user.photo)
+            if student_photo_path:
                 try:
                     # Resize photo to fit in the box (30mm x 30mm)
                     student_photo = Image(student_photo_path, width=30*mm, height=30*mm, kind='proportional')
@@ -2734,7 +2756,7 @@ def coordinator_registrations():
         return redirect(url_for('index'))
 
     # Get current teacher profile
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher:
         flash('Teacher profile not found.', 'warning')
         return redirect(url_for('index'))
@@ -3374,7 +3396,7 @@ def update_student_registration():
 
     reg_window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else None
 
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher:
         return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
@@ -3739,7 +3761,7 @@ def finalize_registration():
     if not student_id or not session_name or not year or not term:
         return jsonify({'success': False, 'message': 'Student ID, Session, Year, and Term are required'}), 400
 
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher:
         return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
@@ -3950,7 +3972,7 @@ def coordinator_save_student_registration():
         course_name = course.course_name
     
     # Get current teacher profile
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher:
         return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
     

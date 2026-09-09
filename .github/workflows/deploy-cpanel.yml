@@ -1,12 +1,13 @@
+# CONF-02/03: disabled. Used password SSH into /public_html and copied create_admin.py.
+# Do not re-enable until TLS verify, SSH deploy keys, and a non-docroot target exist.
 name: Deploy to cPanel
 
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   deploy:
+    if: false
     runs-on: ubuntu-latest
     
     steps:

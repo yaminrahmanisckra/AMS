@@ -1,4 +1,4 @@
-"""Serve only files that live under the app's upload directories."""
+"""Serve only files that live under allowed upload directories (static + private)."""
 from __future__ import annotations
 
 import os
@@ -26,10 +26,18 @@ def upload_roots(app=None):
         os.path.join(parent, 'static', 'uploads'),
         os.path.join(parent, 'uploads'),
     ]
+    try:
+        from utils.private_uploads import get_private_upload_root
+        candidates.insert(0, get_private_upload_root(app))
+    except Exception:
+        pass
     roots = []
     seen = set()
     for item in candidates:
-        real = _realpath(item)
+        try:
+            real = _realpath(item)
+        except (OSError, ValueError):
+            continue
         if real not in seen:
             seen.add(real)
             roots.append(real)
@@ -69,6 +77,21 @@ def confined_existing_file(stored_path, app=None):
         os.path.join(os.getcwd(), raw.lstrip('/')),
         os.path.join(os.getcwd(), 'static', under_static),
     ])
+
+    # Dual-read: private root (new layout + copied legacy basenames).
+    try:
+        from utils.private_uploads import get_private_upload_root, legacy_static_prefix_to_relative
+        private_root = get_private_upload_root(app)
+        rel = legacy_static_prefix_to_relative(raw)
+        if rel:
+            candidates.append(os.path.join(private_root, *rel.split('/')))
+        # Also try raw as already-private relative path (user_photos/…)
+        stripped = raw.lstrip('/')
+        if not stripped.startswith('static/'):
+            candidates.append(os.path.join(private_root, *stripped.split('/')))
+    except Exception:
+        pass
+
     for candidate in candidates:
         if not candidate:
             continue
@@ -83,8 +106,32 @@ def confined_existing_file(stored_path, app=None):
 
 
 def send_confined_file(stored_path, **kwargs):
-    """send_file after confinement; 404 if the path is missing or outside uploads."""
+    """send_file after confinement; 404 if the path is missing or outside uploads.
+
+    Always sets ``X-Content-Type-Options: nosniff``. When ``as_attachment`` is
+    true (default for ``download_name`` alone is left to Flask), attachment
+    disposition is preferred for untrusted user uploads.
+    """
     path = confined_existing_file(stored_path)
     if not path:
         abort(404)
-    return send_file(path, **kwargs)
+    force_attachment = kwargs.pop('force_attachment', None)
+    if force_attachment:
+        kwargs['as_attachment'] = True
+    download_name = kwargs.get('download_name')
+    if download_name:
+        from utils.email_safety import safe_download_filename
+        kwargs['download_name'] = safe_download_filename(download_name)
+    response = send_file(path, **kwargs)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    if kwargs.get('as_attachment') or force_attachment:
+        from utils.uploads import apply_download_headers
+        from utils.email_safety import content_disposition_attachment
+        apply_download_headers(response, as_attachment=True)
+        # Prefer RFC 5987 disposition when we have a download name
+        name = kwargs.get('download_name')
+        if name:
+            response.headers['Content-Disposition'] = content_disposition_attachment(name)
+    else:
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    return response

@@ -101,18 +101,13 @@ def _common_form_context(form_title):
 
 
 def _get_leave_form_teacher_context():
-    """Internal teachers list and applicant designation for leave forms (from Teacher by current user name)."""
-    from blueprints.class_management.models import Teacher
+    """Internal teachers list and applicant designation (via users.teacher_id)."""
+    from utils.ownership import resolve_caller_teacher
     internal_teachers = get_teachers_excluding_head(external_only=False)
     applicant_designation = ''
-    if hasattr(current_user, 'full_name') and current_user.full_name and Teacher:
-        t = Teacher.query.filter(Teacher.name == current_user.full_name.strip()).first()
-        if not t:
-            t = Teacher.query.filter(db.func.lower(Teacher.name) == current_user.full_name.strip().lower()).first()
-        if not t and current_user.full_name:
-            t = Teacher.query.filter(db.func.lower(Teacher.name).like('%' + current_user.full_name.strip().lower() + '%')).first()
-        if t and getattr(t, 'designation', None):
-            applicant_designation = t.designation or ''
+    t = resolve_caller_teacher(current_user)
+    if t and getattr(t, 'designation', None):
+        applicant_designation = t.designation or ''
     return {'internal_teachers': internal_teachers, 'applicant_designation': applicant_designation}
 
 

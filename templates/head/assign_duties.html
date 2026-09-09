@@ -254,6 +254,9 @@ function updateDutyFieldVisibility() {
     setRequired(sessionSelect, false);
     setRequired(yearSelect, false);
     setRequired(termSelect, false);
+    if (courseSelect) {
+        courseSelect.required = false;
+    }
     
     switch (dutyType) {
         case 'course_coordinator':
@@ -274,7 +277,18 @@ function updateDutyFieldVisibility() {
             break;
         case 'teaching_assistant':
             toggleField(fieldWrappers.student, true);
+            toggleField(fieldWrappers.session, true);
+            toggleField(fieldWrappers.year, true);
+            toggleField(fieldWrappers.term, true);
+            toggleField(fieldWrappers.course, true);
             setRequired(studentSelect, true);
+            setRequired(sessionSelect, true);
+            setRequired(yearSelect, true);
+            setRequired(termSelect, true);
+            if (courseSelect) {
+                courseSelect.disabled = false;
+                courseSelect.required = true;
+            }
             break;
         case 'scrutinizer':
             toggleField(fieldWrappers.teacher, true);
@@ -350,6 +364,20 @@ document.getElementById('assignDutyForm').addEventListener('submit', function(e)
     if (dutyType === 'tabulator' && (!academicSession || !year || !term)) {
         alert('Academic Session, Year, and Term are required for Tabulator');
         return;
+    }
+    if (dutyType === 'teaching_assistant') {
+        if (!studentId) {
+            alert('Please select a student for Teaching Assistant duty.');
+            return;
+        }
+        if (!academicSession || !year || !term) {
+            alert('Academic Session, Year, and Term are required for Teaching Assistant.');
+            return;
+        }
+        if (!courseId && !selectedCourseIds.length) {
+            alert('Please select a course for Teaching Assistant duty.');
+            return;
+        }
     }
     if (dutyType === 'scrutinizer') {
         if (!academicSession || !year || !term || !batch) {
@@ -470,7 +498,7 @@ function removeAssignment(assignmentId) {
 
 function resetCourseOptions(message = 'Select Course(s)') {
     if (!courseSelect) return;
-    courseSelect.innerHTML = `<option value="">${message}</option>`;
+    courseSelect.innerHTML = `<option value="">${escapeHtml(message)}</option>`;
     courseSelect.disabled = true;
 }
 

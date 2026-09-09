@@ -45,7 +45,15 @@ def test_login_success_with_window_session(client, teacher_user, windows):
 
 def test_logout_clears_session(client, teacher_user, windows):
     login_client(client, teacher_user['username'], window_id=windows['w1_id'])
-    rv = client.get('/logout', follow_redirects=True)
+    rv = client.post('/logout', follow_redirects=True)
     assert rv.status_code == 200
     with client.session_transaction() as sess:
         assert '_user_id' not in sess
+
+
+def test_logout_get_does_not_clear_session(client, teacher_user, windows):
+    login_client(client, teacher_user['username'], window_id=windows['w1_id'])
+    rv = client.get('/logout')
+    assert rv.status_code == 405
+    with client.session_transaction() as sess:
+        assert sess.get('_user_id')

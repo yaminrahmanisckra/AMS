@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, send_file, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, send_file, current_app, abort
 from flask_login import login_required, current_user
 from utils.window_utils import (
     query_for_window,
@@ -8,7 +8,7 @@ from utils.window_utils import (
     DEFAULT_WINDOW_ID,
 )
 from sqlalchemy import or_, func, text, inspect
-from role_utils import is_admin, parse_roles, role_required
+from role_utils import is_admin, parse_roles, role_required, has_role
 from extensions import db
 from .models import Teacher, Room, AssignedCourse, Routine, SavedRoutine
 from blueprints.course_management.models import Course, DutyAssignment
@@ -16,6 +16,7 @@ from .forms import TeacherForm, RoomForm, AssignCourseForm
 from datetime import datetime
 from utils.timezone import format_bd
 from utils.tenant import current_tenant
+from utils.ownership import resolve_caller_teacher
 from collections import defaultdict
 from io import BytesIO
 from reportlab.lib import colors
@@ -829,6 +830,27 @@ def _current_window_id():
     return _routine_window_id()
 
 
+def _wants_json_auth_error():
+    if request.is_json:
+        return True
+    if (request.headers.get('X-Requested-With') or '').lower() == 'xmlhttprequest':
+        return True
+    return '/api/' in (request.path or '')
+
+
+@routine_management_bp.before_request
+def require_login_for_routine_management():
+    """Block anonymous access to every routine route (HTML, JSON, and PDFs)."""
+    endpoint = request.endpoint or ''
+    if endpoint.endswith('.static'):
+        return None
+    if current_user.is_authenticated:
+        return None
+    if _wants_json_auth_error():
+        return jsonify({'success': False, 'error': 'Authentication required'}), 401
+    return redirect(url_for('auth.login', next=request.path))
+
+
 # Main dashboard for routine management
 @routine_management_bp.route('/')
 @login_required
@@ -1106,7 +1128,9 @@ def delete_room(id):
 
 # Course Assignment
 @routine_management_bp.route('/assign_course', methods=['GET', 'POST'])
+@login_required
 def assign_course():
+    _require_course_assignment_manager()
     form = AssignCourseForm()
     form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in get_teachers_for_routine_window()]
 
@@ -1185,7 +1209,9 @@ def assign_course():
 
 
 @routine_management_bp.route('/assignment/edit/<int:id>', methods=['GET', 'POST'])
+@login_required
 def edit_assignment(id):
+    _require_course_assignment_manager()
     assignment = get_or_404_for_window(AssignedCourse, id, admin_override=False)
     form = AssignCourseForm(obj=assignment)
     form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in get_teachers_for_routine_window()]
@@ -1231,6 +1257,7 @@ def edit_assignment(id):
 @login_required
 def delete_assignment(id):
     """Delete a course assignment"""
+    _require_course_assignment_manager()
     try:
         assignment = get_or_404_for_window(AssignedCourse, id, admin_override=False)
         course_code = assignment.course.course_code if assignment.course else 'Unknown'
@@ -1250,7 +1277,7 @@ def can_edit_routine():
         return False
     
     # Check if user has Routine Maker assignment (W1/legacy duties count in every window)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if teacher:
         from blueprints.course_management.models import DutyAssignment
         routine_maker = _query_shared_routine_resource(DutyAssignment).filter_by(
@@ -1263,6 +1290,21 @@ def can_edit_routine():
     
     # No Routine Maker assignment - user can only view, not edit
     return False
+
+
+def _can_manage_course_assignments():
+    if not current_user.is_authenticated:
+        return False
+    if is_admin(current_user) or has_role(current_user, 'admin', 'head', 'officer'):
+        return True
+    return can_edit_routine()
+
+
+def _require_course_assignment_manager():
+    if _can_manage_course_assignments():
+        return
+    flash('You do not have permission to perform that action.', 'danger')
+    abort(403)
 
 
 def _resolve_current_teacher():
@@ -1448,7 +1490,7 @@ def check_edit_permission():
     }
     
     try:
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not teacher:
             teacher = Teacher.query.filter(
                 func.lower(Teacher.name) == func.lower(current_user.full_name.strip())
@@ -1834,6 +1876,7 @@ def teacher_courses(teacher_id):
         return jsonify([])
 
 @routine_management_bp.route('/api/get_teachers')
+@login_required
 def get_teachers():
     teachers_list = get_teachers_for_routine_window()
     return jsonify([{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in teachers_list])
@@ -3159,6 +3202,7 @@ def save_time_slots():
         }), 500
 
 @routine_management_bp.route('/api/routine/load')
+@login_required
 def load_routine():
     routine_entries = _query_for_routine_window(Routine).all()
     all_rooms = {r.room_number: r.id for r in get_rooms_for_routine_window()}
@@ -3727,6 +3771,7 @@ def download_pdf():
         return jsonify({'error': str(e), 'details': error_msg}), 500
 
 @routine_management_bp.route('/download_teacher_wise_pdf')
+@login_required
 def download_teacher_wise_pdf():
     from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
@@ -3789,6 +3834,7 @@ def download_teacher_wise_pdf():
     return response
 
 @routine_management_bp.route('/download_course_wise_pdf')
+@login_required
 def download_course_wise_pdf():
     from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer

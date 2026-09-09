@@ -26,6 +26,18 @@ os.environ.setdefault('FLASK_ENV', 'production')
 os.environ.setdefault('CPANEL', '1')
 os.environ.setdefault('MYSQL', '1')
 
+# Secrets belong outside the document root (~/ams.env). Fall back to .env.
+try:
+    from dotenv import load_dotenv
+    _home_env = os.path.join(os.path.expanduser('~'), 'ams.env')
+    _docroot_env = os.path.join(BASE_DIR, '.env')
+    if os.path.isfile(_home_env):
+        load_dotenv(_home_env, override=False)
+    elif os.path.isfile(_docroot_env):
+        load_dotenv(_docroot_env, override=False)
+except ImportError:
+    pass
+
 # Prefer private log dir outside document root (create on host: /home/<user>/ams_logs)
 _home = os.path.expanduser('~')
 _default_log_dir = os.path.join(_home, 'ams_logs')

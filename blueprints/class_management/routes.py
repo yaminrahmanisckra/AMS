@@ -1,4 +1,5 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app, Response, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app, Response, jsonify, abort
+from werkzeug.exceptions import HTTPException
 from flask_login import login_required, current_user
 from utils.timezone import format_bd
 from utils.tenant import current_tenant, year_is_postgraduate, course_year_digit_is_pg
@@ -75,8 +76,14 @@ from reportlab.pdfbase.ttfonts import TTFont
 # from docx.oxml import OxmlElement
 # from docx.enum.text import WD_ALIGN_PARAGRAPH
 from uuid import uuid4
-from role_utils import has_teacher_privileges, is_admin, parse_roles, is_head
-from utils.ownership import user_owns_class_session
+from role_utils import has_teacher_privileges, is_admin, parse_roles, is_head, has_role, is_teaching_assistant
+from utils.ownership import (
+    user_owns_class_session,
+    user_can_operate_class_session,
+    user_is_ta_for_session,
+    sessions_for_ta,
+    resolve_caller_teacher,
+)
 try:
     from utils.semester_utils import filter_by_active_semester
 except ImportError:
@@ -133,6 +140,57 @@ def _class_students_for_sessions(session_ids, order=True):
     if order:
         q = q.order_by(ClassStudent.student_id)
     return q.all()
+
+
+def _active_enrollment_public_ids(session, related_sessions=None):
+    """Public student_ids that should appear on attendance roster / badge / PDF.
+
+    Prefer finalized course registration (source of truth after deregister). Fall
+    back to ClassStudent rows on non-archived related sessions for external
+    courses or when no finalized registrations exist for the offering.
+    """
+    if not session:
+        return set()
+
+    def _class_student_active_ids():
+        active_sessions = _resolve_attendance_related_sessions(session, include_archived=False)
+        active_ids = [s.id for s in active_sessions if s]
+        if not active_ids and related_sessions:
+            active_ids = [session.id]
+        enrolled = _class_students_for_sessions(active_ids, order=False)
+        return {stu.student_id for stu in enrolled}
+
+    # 1) Registration-based roster (deregister deletes the registration row)
+    if (
+        StudentCourseRegistration
+        and Student
+        and not getattr(session, 'is_external_course', False)
+        and session.course_code
+        and session.academic_session
+        and session.year
+        and session.term
+    ):
+        from sqlalchemy import func
+
+        course_key = str(session.course_code or '').strip().replace(' ', '').lower()
+        collapsed = func.replace(func.lower(StudentCourseRegistration.course_code), ' ', '')
+        reg_q = StudentCourseRegistration.query.filter(
+            collapsed == course_key,
+            StudentCourseRegistration.academic_session == session.academic_session,
+            StudentCourseRegistration.year == session.year,
+            StudentCourseRegistration.term == session.term,
+            StudentCourseRegistration.status == 'finalized',
+        ).filter(_registration_window_clause(session))
+        student_pks = [row.student_id for row in reg_q.with_entities(StudentCourseRegistration.student_id).all()]
+        if student_pks:
+            return {
+                sid
+                for (sid,) in db.session.query(Student.student_id).filter(Student.id.in_(student_pks)).all()
+                if sid
+            }
+
+    # 2) Fallback: ClassStudent on non-archived related sessions
+    return _class_student_active_ids()
 
 
 def _window_id_for_session(session_id):
@@ -1794,12 +1852,27 @@ def restrict_to_teaching_roles():
         'class_management.student_notification_read',
         'class_management.student_notifications_page',
         'class_management.student_notifications_mark_all_read',
+        'class_management.my_invitations',
     ]
     if request.endpoint in student_routes:
         return
     
     if has_teacher_privileges(current_user):
         return
+
+    # AUTHZ-08: TAs may only enter attendance / marks routes (+ index listing)
+    ta_routes = {
+        'class_management.index',
+        'class_management.take_attendance',
+        'class_management.take_attendance_roster',
+        'class_management.view_attendance',
+        'class_management.assessment',
+        'class_management.auto_save_assessment',
+        'class_management.save_attendance_marks_manual',
+    }
+    if is_teaching_assistant(current_user) and request.endpoint in ta_routes:
+        return
+
     # Students: redirect to their dashboard without showing the "teaching staff" message
     if parse_roles(current_user.role) and 'student' in parse_roles(current_user.role):
         return redirect(url_for('student_dashboard'))
@@ -1808,25 +1881,94 @@ def restrict_to_teaching_roles():
 
 
 def _ensure_current_teacher():
-    """Return a Teacher instance for the logged-in user, creating one if needed."""
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    """Return the Teacher linked via ``current_user.teacher_id``.
+
+    AUTHZ-07: never adopt a Teacher row by matching ``full_name``.
+    AUTHZ-08: Teaching Assistants must not mint Teacher rows.
+    If the account has teaching privileges but no ``teacher_id``, create a new
+    Teacher only when that name is unused, then set ``teacher_id``.
+    """
+    if not has_teacher_privileges(current_user):
+        abort(403)
+
+    teacher = resolve_caller_teacher(current_user)
     if teacher:
         return teacher
 
-    base = (current_user.full_name or 'teacher').split(' ')[0].lower()
+    # Linked id missing/broken — do not fall back to name.
+    if getattr(current_user, 'teacher_id', None):
+        flash('Your account is not linked to a valid teacher record. Contact an administrator.', 'danger')
+        abort(403)
+
+    full_name = (current_user.full_name or '').strip()
+    if not full_name:
+        flash('Your profile has no full name; cannot create a teacher record.', 'danger')
+        abort(403)
+
+    # Name already on the roster: admin must link teacher_id (never steal by name).
+    if Teacher.query.filter_by(name=full_name).first():
+        flash(
+            'A teacher roster entry already exists for your name, but your account is not linked. '
+            'Ask an administrator to set your teacher link.',
+            'danger',
+        )
+        abort(403)
+
+    base = full_name.split(' ')[0].lower()
     base = ''.join(ch for ch in base if ch.isalnum()) or 'teacher'
     base = base[:10]
     candidate = base
     counter = 1
     while Teacher.query.filter_by(short_name=candidate).first():
         suffix = str(counter)
-        candidate = f"{base[:10-len(suffix)]}{suffix}"
+        candidate = f"{base[:10 - len(suffix)]}{suffix}"
         counter += 1
 
-    teacher = Teacher(name=current_user.full_name, short_name=candidate, institute=current_tenant().institute_label)
+    teacher = Teacher(name=full_name, short_name=candidate, institute=current_tenant().institute_label)
     db.session.add(teacher)
+    db.session.flush()
+    current_user.teacher_id = teacher.id
     db.session.commit()
     return teacher
+
+
+def _user_can_access_class_session(user, session_obj):
+    """Owner teacher, administrator, head, or dean may manage a class session."""
+    if user_owns_class_session(user, session_obj):
+        return True
+    return bool(user) and (is_head(user) or has_role(user, 'dean'))
+
+
+def _require_session_access(session_obj, *, json_on_fail=False):
+    """Return a 403 response when the caller cannot manage ``session_obj``."""
+    if _user_can_access_class_session(current_user, session_obj):
+        return None
+    if (
+        json_on_fail
+        or request.is_json
+        or (request.headers.get('X-Requested-With') or '').lower() == 'xmlhttprequest'
+    ):
+        return jsonify({
+            'success': False,
+            'ok': False,
+            'error': 'unauthorized',
+            'message': 'You are not authorized to manage this class.',
+        }), 403
+    flash('You are not authorized to manage this class.', 'danger')
+    return redirect(url_for('class_management.index'))
+
+
+def _session_for_access(session_id, **kwargs):
+    session_obj = get_or_404_for_window(Session, session_id)
+    denied = _require_session_access(session_obj, **kwargs)
+    return session_obj, denied
+
+
+def _class_student_for_access(student_id, **kwargs):
+    student = ClassStudent.query.get_or_404(student_id)
+    session_obj = get_or_404_for_window(Session, student.session_id)
+    denied = _require_session_access(session_obj, **kwargs)
+    return student, session_obj, denied
 
 
 def _get_related_sessions(session, include_archived=False):
@@ -2424,7 +2566,12 @@ def _calculate_attendance_mark_from_percentage(percentage):
 
 
 def _build_attendance_summary(session, include_archived=False):
-    """Aggregate attendance across split sessions."""
+    """Aggregate attendance across split sessions.
+
+    Enrollment (who appears in counts/PDF) comes from non-archived related
+    sessions only. Historical attendance rows from archived peers still count
+    toward marks for those currently enrolled students.
+    """
     related_sessions = _resolve_attendance_related_sessions(session, include_archived=include_archived)
     session_ids = [s.id for s in related_sessions if s]
     if not session_ids:
@@ -2436,11 +2583,18 @@ def _build_attendance_summary(session, include_archived=False):
             'related_sessions': related_sessions,
         }
 
+    enrollment_ids = _active_enrollment_public_ids(session, related_sessions=related_sessions)
+
     attendance_records = ClassAttendance.query.filter(
         ClassAttendance.session_id.in_(session_ids)
     ).order_by(ClassAttendance.date.asc(), ClassAttendance.id.asc()).all()
 
-    students = _class_students_for_sessions(session_ids)
+    # Map ClassAttendance.student_id (ClassStudent PK) → public id for all related rows,
+    # but only keep currently enrolled public ids.
+    students = [
+        stu for stu in _class_students_for_sessions(session_ids)
+        if stu.student_id in enrollment_ids
+    ]
     student_lookup = {stu.id: stu for stu in students}
 
     per_student_counts = defaultdict(lambda: {'present': 0, 'skip': 0})
@@ -2463,10 +2617,10 @@ def _build_attendance_summary(session, include_archived=False):
                 continue
             per_student_date_slot_seen[slot_key].add(fallback_slot)
 
-        per_session_date_counts[(record.session_id, record.date)][record.student_id] += 1
         student = student_lookup.get(record.student_id)
         if not student:
             continue
+        per_session_date_counts[(record.session_id, record.date)][record.student_id] += 1
         record_status = _attendance_status_from_record(record)
         if record_status == ClassAttendance.STATUS_PRESENT:
             per_student_counts[student.student_id]['present'] += 1
@@ -2490,8 +2644,14 @@ def _build_attendance_summary(session, include_archived=False):
         if student.student_id not in students_by_id:
             students_by_id[student.student_id] = []
         students_by_id[student.student_id].append(student)
+
+    # Ensure every currently enrolled student appears even with zero attendance rows
+    for public_id in enrollment_ids:
+        students_by_id.setdefault(public_id, [])
     
     for student_id, student_list in students_by_id.items():
+        if student_id not in enrollment_ids:
+            continue
         stats = per_student_counts.get(student_id, {'present': 0, 'skip': 0, 'records': 0})
         effective_total_classes = max(total_classes - stats.get('skip', 0), 0)
         percentage = (stats['present'] / effective_total_classes * 100) if effective_total_classes else 0
@@ -2525,6 +2685,7 @@ def _build_attendance_summary(session, include_archived=False):
         'per_student_per_session': {
             public_id: {session_id: dict(counts) for session_id, counts in sessions.items()}
             for public_id, sessions in per_student_session_counts.items()
+            if public_id in enrollment_ids
         },
         'related_sessions': related_sessions
     }
@@ -2628,29 +2789,37 @@ def _get_qa_upload_dir(thread_id):
 
 
 def _save_qa_attachments(files, thread_id):
-    """Save attachments and return metadata list."""
+    """Save validated Q&A attachments. Returns (saved_list, error_message_or_None)."""
+    from utils.uploads import QA_PURPOSE, UploadError, validate_upload
+
     saved = []
     if not files:
-        return saved
+        return saved, None
     upload_dir = _get_qa_upload_dir(thread_id)
     for file in files:
         if not file or not file.filename:
             continue
-        safe_name = secure_filename(file.filename)
-        if not safe_name:
-            continue
-        unique_name = f"{uuid4().hex}_{safe_name}"
+        try:
+            validated = validate_upload(file, QA_PURPOSE)
+        except UploadError as exc:
+            return [], exc.message
+        unique_name = f"{uuid4().hex}_{validated.original_name}"
+        # Keep original extension from validation (normalized)
+        stem, _dot, _old = unique_name.rpartition('.')
+        if not stem:
+            stem = unique_name
+        unique_name = f'{stem}.{validated.ext}'
         file_path = os.path.join(upload_dir, unique_name)
-        file.save(file_path)
+        with open(file_path, 'wb') as fh:
+            fh.write(validated.data)
         file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
-        file_type = file.mimetype or os.path.splitext(safe_name)[1].lstrip('.')
         saved.append({
-            'file_name': safe_name,
+            'file_name': validated.original_name,
             'file_path': file_path,
             'file_size': file_size,
-            'file_type': file_type
+            'file_type': validated.kind or validated.ext,
         })
-    return saved
+    return saved, None
 
 
 def _delete_qa_attachments(attachments):
@@ -2666,6 +2835,13 @@ def _delete_qa_attachments(attachments):
 @login_required
 def index():
     """Main dashboard for class management"""
+    if is_teaching_assistant(current_user) and not has_teacher_privileges(current_user):
+        sessions = sessions_for_ta(current_user)
+        return render_template(
+            'class_management/ta_index.html',
+            sessions=sessions,
+        )
+
     teacher = _ensure_current_teacher()
     
     # Start with base query
@@ -3644,9 +3820,11 @@ def decline_split_invite(invite_id):
 @login_required
 def upload_students(session_id):
     """Upload students from Excel file"""
-    teacher = _ensure_current_teacher()
     return_to = (request.form.get('return_to') or '').strip()
-    session = get_or_404_for_window(Session, session_id)
+    session, denied = _session_for_access(session_id)
+    if denied:
+        return denied
+    teacher = _ensure_current_teacher()
 
     if 'file' not in request.files:
         flash('No file uploaded!', 'error')
@@ -3692,7 +3870,7 @@ def take_attendance(session_id):
     session = get_or_404_for_window(Session, session_id)
     students = _class_students_for_session(session_id)
 
-    if not user_owns_class_session(current_user, session):
+    if not user_can_operate_class_session(current_user, session):
         if request.method == 'POST' and _attendance_offline_wants_json():
             return jsonify({'ok': False, 'error': 'unauthorized'}), 403
         flash('You are not authorized to manage attendance for this session.', 'danger')
@@ -3795,7 +3973,7 @@ def take_attendance(session_id):
 def take_attendance_roster(session_id):
     """Roster snapshot for offline take-attendance (same ownership as the take page)."""
     session = get_or_404_for_window(Session, session_id)
-    if not user_owns_class_session(current_user, session):
+    if not user_can_operate_class_session(current_user, session):
         return jsonify({'success': False, 'error': 'unauthorized'}), 403
 
     students = _class_students_for_session(session_id)
@@ -3831,18 +4009,15 @@ def view_attendance(session_id):
     """View attendance for a session and display a detailed report."""
     session = get_or_404_for_window(Session, session_id)
     
-    # Check user permissions: admin/head can view any session, regular teachers only their own
+    # Check user permissions: admin/head can view any session, owners and assigned TAs their sessions
     user_roles = set(parse_roles(getattr(current_user, 'role', '')))
     if getattr(current_user, 'active_role', None):
         user_roles = set(parse_roles(current_user.active_role))
     can_view_all = is_admin(current_user) or 'head' in user_roles or 'dean' in user_roles
     
-    # If not admin/head, check if this session belongs to the current teacher
-    if not can_view_all:
-        current_teacher = _ensure_current_teacher()
-        if not current_teacher or session.teacher_id != current_teacher.id:
-            flash('You do not have permission to view attendance for this session.', 'danger')
-            return redirect(url_for('class_management.index'))
+    if not can_view_all and not user_can_operate_class_session(current_user, session):
+        flash('You do not have permission to view attendance for this session.', 'danger')
+        return redirect(url_for('class_management.index'))
     
     attendance_summary = _build_attendance_summary(session, include_archived=True)
     part_total_classes = None
@@ -3866,14 +4041,18 @@ def view_attendance(session_id):
             user_roles = set(parse_roles(current_user.active_role))
         can_view_all = is_admin(current_user) or 'head' in user_roles or 'dean' in user_roles
         
-        # Get current teacher if not admin/head
+        # Get current teacher if not admin/head (TAs operate without a Teacher row)
         current_teacher = None
-        if not can_view_all:
+        if not can_view_all and has_teacher_privileges(current_user):
             current_teacher = _ensure_current_teacher()
         
-        # Get all students from all related sessions (for marks calculation; exclude deleted students)
+        # Get all students from all related sessions (for marks calculation; exclude deleted / deregistered)
         all_session_ids = [s.id for s in related_sessions]
-        all_students = _class_students_for_sessions(all_session_ids)
+        enrollment_ids = _active_enrollment_public_ids(session, related_sessions=related_sessions)
+        all_students = [
+            stu for stu in _class_students_for_sessions(all_session_ids)
+            if stu.student_id in enrollment_ids
+        ]
         students_by_session = defaultdict(list)
         for stu in all_students:
             students_by_session[stu.session_id].append(stu)
@@ -3887,7 +4066,10 @@ def view_attendance(session_id):
         for related_session in related_sessions:
             # Skip if user doesn't have permission to view this session
             if not can_view_all:
-                if not current_teacher or related_session.teacher_id != current_teacher.id:
+                if current_teacher:
+                    if related_session.teacher_id != current_teacher.id:
+                        continue
+                elif not user_can_operate_class_session(current_user, related_session):
                     continue
             key = (related_session.teacher_id, related_session.course_scope)
             grouped_sessions.setdefault(key, []).append(related_session)
@@ -4321,8 +4503,7 @@ def create_attendance_record(session_id):
 def save_attendance_marks_manual(session_id):
     """Save manual attendance marks override for students"""
     session = get_or_404_for_window(Session, session_id)
-    teacher = _ensure_current_teacher()
-    if session.teacher_id != teacher.id:
+    if not user_can_operate_class_session(current_user, session):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
     
     try:
@@ -4387,7 +4568,9 @@ def save_attendance_marks_manual(session_id):
 @login_required
 def students_list(session_id):
     """View students list for a session"""
-    session = get_or_404_for_window(Session, session_id)
+    session, denied = _session_for_access(session_id)
+    if denied:
+        return denied
     students = _class_students_for_session(session_id)
     
     # Get all batches for filter dropdown
@@ -4627,7 +4810,9 @@ def get_academic_sessions():
 @login_required
 def add_student(session_id):
     """Add students to a session from Students Management"""
-    session = get_or_404_for_window(Session, session_id)
+    session, denied = _session_for_access(session_id)
+    if denied:
+        return denied
     teacher = _ensure_current_teacher()
     
     # Handle AJAX request (multiple students)
@@ -4732,8 +4917,9 @@ def add_student(session_id):
 @login_required
 def edit_student(student_id):
     """Edit a student"""
-    student = ClassStudent.query.get_or_404(student_id)
-    session = student.session
+    student, session, denied = _class_student_for_access(student_id)
+    if denied:
+        return denied
     old_identifier = student.student_id
     student.student_id = request.form.get('student_id')
     student.name = request.form.get('name')
@@ -4747,9 +4933,10 @@ def edit_student(student_id):
 def delete_student(student_id):
     """Delete a student from a session"""
     try:
-        student = ClassStudent.query.get_or_404(student_id)
+        student, session, denied = _class_student_for_access(student_id)
+        if denied:
+            return denied
         session_id = student.session_id
-        session = student.session
         student_identifier = student.student_id
         
         # Delete student from peer sessions (split courses)
@@ -4759,6 +4946,8 @@ def delete_student(student_id):
         db.session.delete(student)
         db.session.commit()
         flash('Student deleted successfully!', 'success')
+    except HTTPException:
+        raise
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting student {student_id}: {e}', exc_info=True)
@@ -4861,7 +5050,7 @@ def delete_session(session_id):
 def course_file(session_id):
     """Course file management page"""
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     
     # Get shared course outline (split Part A/B partners share one outline)
     course_outline = None
@@ -4909,7 +5098,7 @@ def save_course_outline(session_id):
     """Save course outline data"""
     try:
         session = get_or_404_for_window(Session, session_id)
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         
         if not _is_course_outline_authorized(session, teacher):
             if request.is_json:
@@ -5163,7 +5352,7 @@ def upload_course_file(session_id):
         from blueprints.class_management.models import CourseFileUpload
         
         session = get_or_404_for_window(Session, session_id)
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         
         if not teacher:
             flash('Teacher not found.', 'error')
@@ -5269,7 +5458,7 @@ def download_course_file(file_id):
         
         uploaded_file = CourseFileUpload.query.get_or_404(file_id)
         session = get_or_404_for_window(Session, uploaded_file.session_id)
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         
         # Check authorization
         if not teacher or teacher.id != session.teacher_id:
@@ -5304,7 +5493,7 @@ def delete_course_file(file_id):
         
         uploaded_file = CourseFileUpload.query.get_or_404(file_id)
         session = get_or_404_for_window(Session, uploaded_file.session_id)
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         
         # Check authorization
         if not teacher or teacher.id != session.teacher_id:
@@ -5493,9 +5682,16 @@ def _ai_outline_calendar_and_course(session):
 def generate_full_outline_ai(session_id):
     """Generate Course Outline using AI (sync or async job)."""
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not _is_course_outline_authorized(session, teacher):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    from utils.rate_limit import AI_USER, reject_if_user_limited
+    limited = reject_if_user_limited(
+        'ai.user', AI_USER, json_message='Too many AI requests. Try again later.',
+    )
+    if limited:
+        return limited
 
     try:
         from utils.ai.client import AIClientError, get_active_provider_setting
@@ -5577,9 +5773,16 @@ def generate_full_outline_ai(session_id):
 def patch_outline_section_ai(session_id):
     """Patch one outline section from a one-line teacher instruction."""
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not _is_course_outline_authorized(session, teacher):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    from utils.rate_limit import AI_USER, reject_if_user_limited
+    limited = reject_if_user_limited(
+        'ai.user', AI_USER, json_message='Too many AI requests. Try again later.',
+    )
+    if limited:
+        return limited
 
     try:
         from utils.ai.client import AIClientError, get_active_provider_setting
@@ -5628,7 +5831,7 @@ def patch_outline_section_ai(session_id):
 def tick_outline_ai_job(session_id, job_id):
     """Process one part of an async outline generation job (poll from browser)."""
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not _is_course_outline_authorized(session, teacher):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
 
@@ -5683,6 +5886,14 @@ def batch_generate_outlines():
     """Start async outline jobs for all sessions in a semester (admin/head)."""
     if not _can_batch_generate_ai_outline():
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    from utils.rate_limit import AI_BATCH, first_blocked, reject_too_many
+    blocked = first_blocked(('ai.batch', str(current_user.id), *AI_BATCH))
+    if blocked:
+        return reject_too_many(
+            blocked,
+            json_body={'success': False, 'message': 'Too many batch AI requests. Try again later.'},
+        )
 
     try:
         from utils.ai.batch_service import batch_job_to_response, create_batch_outline_jobs
@@ -5804,10 +6015,17 @@ def generate_weekly_plan_ai(session_id):
     from datetime import timedelta
     
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     
     if not _is_course_outline_authorized(session, teacher):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    from utils.rate_limit import AI_USER, reject_if_user_limited
+    limited = reject_if_user_limited(
+        'ai.user', AI_USER, json_message='Too many AI requests. Try again later.',
+    )
+    if limited:
+        return limited
     
     data = request.get_json()
     course_content_summary = data.get('course_content_summary', '')  # JSON string from section 14
@@ -6420,7 +6638,7 @@ def _generate_rule_based_plan(session, credit, course_contents, week_groups, hol
 def edit_course_outline(session_id):
     """Edit course outline page"""
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     
     if not _is_course_outline_authorized(session, teacher):
         flash('You are not authorized to edit this course outline.', 'danger')
@@ -6643,7 +6861,7 @@ def edit_course_outline(session_id):
 def _generate_course_outline_docx(session_id):
     """Generate course outline as DOCX document"""
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     
     if not _is_course_outline_authorized(session, teacher):
         flash('You are not authorized to download this course outline.', 'danger')
@@ -6808,7 +7026,7 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
     
     # Skip authorization check if requested (for student downloads)
     if not skip_auth_check:
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
         if not _is_course_outline_authorized(session, teacher):
             flash('You are not authorized to download this course outline.', 'danger')
             return redirect(url_for('class_management.course_file', session_id=session_id))
@@ -6986,13 +7204,19 @@ def download_course_outline_docx(session_id):
 @login_required
 def download_course_outline_pdf(session_id):
     """Download course outline as PDF"""
+    from utils.rate_limit import PDF_EXPORT, reject_if_user_limited
+    limited = reject_if_user_limited('pdf.export', PDF_EXPORT)
+    if limited:
+        return limited
     return _generate_course_outline_pdf(session_id)
 
 @class_management_bp.route('/archive_session/<int:session_id>', methods=['POST'])
 @login_required
 def archive_session(session_id):
     """Archive a session"""
-    session = get_or_404_for_window(Session, session_id)
+    session, denied = _session_for_access(session_id)
+    if denied:
+        return denied
     session.archived = True
     db.session.commit()
     flash('Session archived successfully!', 'success')
@@ -7002,7 +7226,9 @@ def archive_session(session_id):
 @login_required
 def unarchive_session(session_id):
     """Unarchive a session"""
-    session = get_or_404_for_window(Session, session_id)
+    session, denied = _session_for_access(session_id)
+    if denied:
+        return denied
     session.archived = False
     db.session.commit()
     flash('Session unarchived successfully!', 'success')
@@ -7012,7 +7238,9 @@ def unarchive_session(session_id):
 @login_required
 def edit_session(session_id):
     """Edit a session"""
-    session = get_or_404_for_window(Session, session_id)
+    session, denied = _session_for_access(session_id)
+    if denied:
+        return denied
     
     if request.method == 'POST':
         try:
@@ -7073,7 +7301,7 @@ def edit_session(session_id):
 def archive():
     """View archived sessions"""
     # Get or create teacher for current user
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher:
         teacher = Teacher(name=current_user.full_name, institute=current_tenant().institute_label)
         db.session.add(teacher)
@@ -7432,6 +7660,10 @@ def download_attendance_excel(session_id):
 @login_required
 def download_pdf_report(session_id):
     """Generate and download a PDF summary report with headers and page numbers."""
+    from utils.rate_limit import PDF_EXPORT, reject_if_user_limited
+    limited = reject_if_user_limited('pdf.export', PDF_EXPORT)
+    if limited:
+        return limited
     try:
         # Import error handler for detailed logging
         from error_handler import log_error
@@ -7648,11 +7880,15 @@ def download_attendance_sheet(session_id):
 
         related_sessions = _resolve_attendance_related_sessions(session, include_archived=True)
         session_ids = [s.id for s in related_sessions if s]
+        enrollment_ids = _active_enrollment_public_ids(session, related_sessions=related_sessions)
         attendance_records = ClassAttendance.query.filter(
             ClassAttendance.session_id.in_(session_ids)
         ).order_by(ClassAttendance.date.asc(), ClassAttendance.id.asc()).all()
 
-        all_students = _class_students_for_sessions(session_ids)
+        all_students = [
+            stu for stu in _class_students_for_sessions(session_ids)
+            if stu.student_id in enrollment_ids
+        ]
         class_student_to_public = {stu.id: stu.student_id for stu in all_students}
         students_by_public = {}
         for stu in all_students:
@@ -7947,11 +8183,15 @@ def download_attendance_sheet_weasyprint(session_id):
         # Get related sessions for split courses
         related_sessions = _resolve_attendance_related_sessions(session, include_archived=True)
         session_ids = [s.id for s in related_sessions if s]
+        enrollment_ids = _active_enrollment_public_ids(session, related_sessions=related_sessions)
         attendance_records = ClassAttendance.query.filter(
             ClassAttendance.session_id.in_(session_ids)
         ).order_by(ClassAttendance.date.asc(), ClassAttendance.id.asc()).all()
 
-        all_students = _class_students_for_sessions(session_ids)
+        all_students = [
+            stu for stu in _class_students_for_sessions(session_ids)
+            if stu.student_id in enrollment_ids
+        ]
         class_student_to_public = {stu.id: stu.student_id for stu in all_students}
         students_by_public = {}
         for stu in all_students:
@@ -8204,7 +8444,7 @@ def assessment(session_id):
     try:
         session = get_or_404_for_window(Session, session_id)
 
-        if not user_owns_class_session(current_user, session):
+        if not user_can_operate_class_session(current_user, session):
             if request.method == 'POST' and _attendance_offline_wants_json():
                 return jsonify({'ok': False, 'success': False, 'error': 'unauthorized'}), 403
             flash('You are not authorized to manage assessment for this session.', 'danger')
@@ -8214,7 +8454,12 @@ def assessment(session_id):
         is_split_theory = session.course_type == 'theory' and session.course_scope in SPLIT_PARTS
         editable_indices = _get_editable_assessment_indices(session)
         editable_sessional_fields = _get_editable_sessional_fields(session)
-        current_teacher = _ensure_current_teacher()
+        # Reveal keys are stored per course teacher; TAs must not mint Teacher rows.
+        reveal_teacher_id = session.teacher_id
+        if has_teacher_privileges(current_user):
+            current_teacher = _ensure_current_teacher()
+            if current_teacher:
+                reveal_teacher_id = current_teacher.id
         
         # Load reveal status
         import json
@@ -8224,14 +8469,14 @@ def assessment(session_id):
                 reveal_status = json.loads(session.assessment_revealed)
             except:
                 reveal_status = {}
-        current_teacher_reveals = reveal_status.get(str(current_teacher.id), {})
+        current_teacher_reveals = reveal_status.get(str(reveal_teacher_id), {})
         
         # Default attendance marks to revealed if not set
         if 'attendance' not in current_teacher_reveals:
             current_teacher_reveals['attendance'] = True
             # Save the default if session doesn't have reveal status yet
-            if str(current_teacher.id) not in reveal_status:
-                reveal_status[str(current_teacher.id)] = current_teacher_reveals
+            if str(reveal_teacher_id) not in reveal_status:
+                reveal_status[str(reveal_teacher_id)] = current_teacher_reveals
                 session.assessment_revealed = json.dumps(reveal_status)
                 db.session.commit()
         
@@ -8461,7 +8706,7 @@ def assessment(session_id):
             external_total_column_label=external_total_column_label,
             sessional_display_map=sessional_display_map,
             absent_status_map=absent_status_map,
-            current_teacher_id=current_teacher.id,
+            current_teacher_id=reveal_teacher_id,
             reveal_status=current_teacher_reveals,
             assessment_slot_count=len(editable_indices),
             round_assessment_total=_session_rounds_assessment_total(session),
@@ -8637,7 +8882,7 @@ def auto_save_assessment(session_id):
         import json
         session = get_or_404_for_window(Session, session_id)
 
-        if not user_owns_class_session(current_user, session):
+        if not user_can_operate_class_session(current_user, session):
             return jsonify({'success': False, 'message': 'You are not authorized to manage assessment for this session.'}), 403
 
         students = _class_students_for_session(session_id)
@@ -9209,7 +9454,11 @@ def student_create_course_question(session_id):
         db.session.add(message)
         db.session.flush()
 
-        saved_attachments = _save_qa_attachments(files, thread.id)
+        saved_attachments, attach_err = _save_qa_attachments(files, thread.id)
+        if attach_err:
+            db.session.rollback()
+            flash(attach_err, 'error')
+            return redirect(url_for('class_management.student_view_scores'))
         for attachment in saved_attachments:
             db.session.add(CourseQuestionAttachment(
                 message_id=message.id,
@@ -9261,7 +9510,11 @@ def student_reply_course_question(thread_id):
         db.session.add(message)
         db.session.flush()
 
-        saved_attachments = _save_qa_attachments(files, thread.id)
+        saved_attachments, attach_err = _save_qa_attachments(files, thread.id)
+        if attach_err:
+            db.session.rollback()
+            flash(attach_err, 'error')
+            return redirect(url_for('class_management.student_view_scores'))
         for attachment in saved_attachments:
             db.session.add(CourseQuestionAttachment(
                 message_id=message.id,
@@ -9364,7 +9617,11 @@ def teacher_reply_course_question(thread_id):
         db.session.add(message)
         db.session.flush()
 
-        saved_attachments = _save_qa_attachments(files, thread.id)
+        saved_attachments, attach_err = _save_qa_attachments(files, thread.id)
+        if attach_err:
+            db.session.rollback()
+            flash(attach_err, 'error')
+            return redirect(url_for('class_management.course_questions', session_id=session_obj.id))
         for attachment in saved_attachments:
             db.session.add(CourseQuestionAttachment(
                 message_id=message.id,
@@ -9638,7 +9895,7 @@ def download_course_question_attachment(attachment_id):
         session_obj = get_or_404_for_window(Session, thread.session_id)
 
         student_id = current_user.username if hasattr(current_user, 'username') else None
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        teacher = resolve_caller_teacher(current_user)
 
         is_student_allowed = bool(student_id and thread.student_id == student_id)
         is_teacher_allowed = bool(teacher and teacher.id == session_obj.teacher_id)
@@ -9654,6 +9911,7 @@ def download_course_question_attachment(attachment_id):
         return send_confined_file(
             attachment.file_path,
             as_attachment=True,
+            force_attachment=True,
             download_name=attachment.file_name
         )
     except Exception as e:
@@ -9669,7 +9927,7 @@ def delete_course_question_thread(thread_id):
     thread = CourseQuestionThread.query.get_or_404(thread_id)
     session_obj = get_or_404_for_window(Session, thread.session_id)
     student_id = current_user.username if hasattr(current_user, 'username') else None
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
 
     is_student_owner = bool(student_id and thread.student_id == student_id)
     is_teacher_owner = bool(teacher and teacher.id == session_obj.teacher_id)
@@ -9702,7 +9960,7 @@ def delete_course_question_message(message_id):
     thread = CourseQuestionThread.query.get_or_404(message.thread_id)
     session_obj = get_or_404_for_window(Session, thread.session_id)
     student_id = current_user.username if hasattr(current_user, 'username') else None
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
 
     is_student_owner = bool(student_id and thread.student_id == student_id and message.sender_role == 'student')
     is_teacher_owner = bool(teacher and message.sender_role == 'teacher' and message.sender_user_id == teacher.id)
@@ -10188,7 +10446,9 @@ def _sanitize_qa_body(raw):
 @login_required
 def evaluation(session_id):
     """Placeholder Evaluation page for a session. Forms will be added later."""
-    session = get_or_404_for_window(Session, session_id)
+    session, denied = _session_for_access(session_id)
+    if denied:
+        return denied
     students = _class_students_for_session(session_id)
     return render_template('class_management/evaluation.html', session=session, students=students)
 
@@ -10196,7 +10456,9 @@ def evaluation(session_id):
 @login_required
 def course_assessment(session_id):
     """Invite other teachers to evaluate this course; show existing invitations."""
-    session = get_or_404_for_window(Session, session_id)
+    session, denied = _session_for_access(session_id)
+    if denied:
+        return denied
     inviter_teacher = Teacher.query.filter_by(id=session.teacher_id).first()
 
     if request.method == 'POST':
@@ -10304,7 +10566,7 @@ def inject_invites_count():
     }
     try:
         if current_user.is_authenticated and has_teacher_privileges(current_user):
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            teacher = resolve_caller_teacher(current_user)
             if teacher:
                 count = query_for_window(EvaluationInvite).filter_by(
                     evaluator_teacher_id=teacher.id, status='invited'
@@ -10407,7 +10669,7 @@ def student_notifications_mark_all_read():
 @login_required
 def my_invitations():
     """List invitations for the logged-in teacher."""
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher:
         flash('No teacher profile found.', 'warning')
         return redirect(url_for('index'))
@@ -10464,7 +10726,7 @@ def my_invitations():
 @login_required
 def clear_cancelled_invitations():
     """Remove cancelled invitations from the current teacher's invitation list."""
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher:
         flash('No teacher profile found.', 'warning')
         return redirect(url_for('index'))
@@ -10505,13 +10767,13 @@ def course_assessment_form(session_id, invite_id):
         return redirect(url_for('index'))
 
     # Current user must be evaluator
-    evaluator = Teacher.query.filter_by(name=current_user.full_name).first()
+    evaluator = resolve_caller_teacher(current_user)
     if not evaluator or evaluator.id != invite.evaluator_teacher_id:
         flash('You are not authorized for this form.', 'danger')
         return redirect(url_for('index'))
 
     session = get_or_404_for_window(Session, session_id)
-    current_teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    current_teacher = resolve_caller_teacher(current_user)
     if not current_teacher or current_teacher.id not in {invite.inviter_teacher_id, invite.evaluator_teacher_id}:
         flash('You are not authorized to view this submission.', 'danger')
         return redirect(url_for('index'))
@@ -10628,7 +10890,7 @@ def course_assessment_form(session_id, invite_id):
 def student_feedback_manage(session_id):
     """Manage anonymous student feedback link and view submissions."""
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher or teacher.id != session.teacher_id:
         flash('শুধুমাত্র কোর্সটির শিক্ষকই ফিডব্যাক সেটআপ করতে পারবেন।', 'danger')
         return redirect(url_for('class_management.evaluation', session_id=session_id))
@@ -10739,7 +11001,7 @@ def student_feedback_manage(session_id):
 def mark_student_feedback_response_read(session_id, response_id):
     """Mark one student feedback response as read by the course teacher."""
     session_obj = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher or teacher.id != session_obj.teacher_id:
         return jsonify({'ok': False, 'message': 'Unauthorized'}), 403
 
@@ -10770,7 +11032,7 @@ def mark_student_feedback_response_read(session_id, response_id):
 def course_review_form(session_id):
     """Course teacher documents reflections and improvement plans."""
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
 
     if not teacher:
         flash('You must be registered as a teacher to access the course review form.', 'danger')
@@ -10917,7 +11179,7 @@ def course_review_form(session_id):
 @login_required
 def course_review_ai_summarize(session_id):
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher or session.teacher_id != teacher.id:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
     data = request.get_json(silent=True) or {}
@@ -10949,7 +11211,7 @@ def course_review_ai_summarize(session_id):
 def course_review_pdf(session_id):
     """Download the Faculty Course Review Report as a PDF."""
     session = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
 
     if not teacher or teacher.id != session.teacher_id:
         flash('Only the course teacher can download the course review PDF.', 'danger')
@@ -11218,7 +11480,7 @@ def course_assessment_view(session_id, invite_id):
         flash('Invalid invitation.', 'danger')
         return redirect(url_for('index'))
     session = get_or_404_for_window(Session, session_id)
-    current_teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    current_teacher = resolve_caller_teacher(current_user)
     if not current_teacher or current_teacher.id not in {invite.inviter_teacher_id, invite.evaluator_teacher_id}:
         flash('You are not authorized to view this submission.', 'danger')
         return redirect(url_for('index'))
@@ -11281,7 +11543,7 @@ def course_assessment_pdf(session_id, invite_id):
             flash('Invalid invitation.', 'danger')
             return redirect(url_for('index'))
         session = get_or_404_for_window(Session, session_id)
-        current_teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        current_teacher = resolve_caller_teacher(current_user)
         if not current_teacher or current_teacher.id not in {invite.inviter_teacher_id, invite.evaluator_teacher_id}:
             flash('You are not authorized to download this report.', 'danger')
             return redirect(url_for('index'))
@@ -11544,7 +11806,7 @@ def cancel_invitation(invite_id):
     invite = EvaluationInvite.query.get_or_404(invite_id)
 
     # Resolve current teacher for the logged-in user
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher:
         flash('No teacher profile found.', 'warning')
         return redirect(url_for('index'))
@@ -11618,7 +11880,7 @@ FEEDBACK_EFFORT_OPTIONS = [
 @login_required
 def student_feedback_responses_pdf(session_id):
     session_obj = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher or teacher.id != session_obj.teacher_id:
         flash('You are not authorized to access this download.', 'danger')
         return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
@@ -11868,7 +12130,7 @@ def student_feedback_responses_pdf_weasyprint(session_id):
         return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
     
     session_obj = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher or teacher.id != session_obj.teacher_id:
         flash('You are not authorized to access this download.', 'danger')
         return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
@@ -11989,7 +12251,7 @@ def student_feedback_responses_pdf_weasyprint(session_id):
 @login_required
 def student_feedback_responses_docx(session_id):
     session_obj = get_or_404_for_window(Session, session_id)
-    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    teacher = resolve_caller_teacher(current_user)
     if not teacher or teacher.id != session_obj.teacher_id:
         flash('You are not authorized to access this download.', 'danger')
         return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))

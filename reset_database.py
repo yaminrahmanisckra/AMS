@@ -11,8 +11,11 @@ import os
 import shutil
 from datetime import datetime
 
+from utils.security_config import refuse_destructive_in_production
+
 def reset_database():
     """Reset database to fix course_outline deletion issues"""
+    refuse_destructive_in_production(__file__)
     basedir = os.path.abspath(os.path.dirname(__file__))
     db_path = os.path.join(basedir, 'instance', 'academic_management.db')
     
@@ -70,6 +73,7 @@ def reset_database():
     print(f"Backup saved at: {backup_path}")
 
 if __name__ == '__main__':
+    refuse_destructive_in_production(__file__)
     print("=== Database Reset Script ===\n")
     response = input("This will backup and clean the database. Continue? (yes/no): ")
     if response.lower() == 'yes':

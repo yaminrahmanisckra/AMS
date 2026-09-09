@@ -133,7 +133,8 @@
                     </div>
                     <div class="mb-2">
                         <label class="form-label mb-1">Attachments (optional)</label>
-                        <input type="file" name="attachments" class="form-control form-control-sm" multiple>
+                        <input type="file" name="attachments" class="form-control form-control-sm" multiple
+                               accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.doc,.docx">
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-info qa-ai-draft" data-url="{{ url_for('class_management.course_question_ai_draft', thread_id=thread.id) }}">
                         <i class="fas fa-magic me-1"></i>এআই খসড়া

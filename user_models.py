@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from flask_login import UserMixin
 from extensions import db
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -27,4 +29,23 @@ class User(UserMixin, db.Model):
         return check_password_hash(self.password_hash, password)
 
     def __repr__(self):
-        return f"<User {self.username}>" 
+        return f"<User {self.username}>"
+
+
+class PasswordResetCode(db.Model):
+    """Server-side password-reset challenge. Never send code_hash to the client."""
+
+    __tablename__ = 'password_reset_code'
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    salt = db.Column(db.String(64), nullable=False)
+    code_hash = db.Column(db.String(64), nullable=False)
+    password_fingerprint = db.Column(db.String(16), nullable=False)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    used_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    user = db.relationship('User')

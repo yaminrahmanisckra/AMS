@@ -683,6 +683,19 @@
         top: 0.75rem;
         z-index: 5;
     }
+    .rem-page-head {
+        flex-wrap: wrap;
+        gap: 0.5rem 0.75rem;
+    }
+    .rem-actions {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+    .rem-actions .btn {
+        white-space: nowrap;
+        flex-shrink: 0;
+        flex-wrap: nowrap;
+    }
     .bank-declaration {
         border: 1px solid #000;
         padding: 0.75rem;
@@ -809,13 +822,16 @@
         </div>
         <div class="d-flex gap-2 rem-actions">
             <a href="{{ url_for('index') }}" class="btn btn-outline-secondary print-btn">
-                <i class="fas fa-arrow-left me-2"></i>Back<span class="rem-wide-label"> to Dashboard</span>
+                <i class="fas fa-arrow-left"></i>
+                <span>Back<span class="rem-wide-label"> to Dashboard</span></span>
             </a>
             <button class="btn btn-danger print-btn" onclick="exportToPdf()">
-                <i class="fas fa-file-pdf me-2"></i><span class="rem-wide-label">Download </span>PDF
+                <i class="fas fa-file-pdf"></i>
+                <span><span class="rem-wide-label">Download </span>PDF</span>
             </button>
             <button class="btn btn-success print-btn" onclick="openBulkDownloadModal()">
-                <i class="fas fa-download me-2"></i>Bulk<span class="rem-wide-label"> Download</span>
+                <i class="fas fa-download"></i>
+                <span>Bulk<span class="rem-wide-label"> Download</span></span>
             </button>
             <button type="button" class="btn btn-primary print-btn" data-bs-toggle="modal" data-bs-target="#teacherGrandTotalModal">
                 <i class="fas fa-calculator me-2"></i>মোট পারিতোষিক
@@ -1748,12 +1764,12 @@ async function loadTeachersForBulkDownload() {
             data.teachers.forEach((teacher, idx) => {
                 const cbId = `teacher_cb_${idx}`;
                 const extLabel = teacher.is_external ? ' <span class="badge bg-secondary ms-1">External</span>' : '';
-                const value = String(teacher.id).replace(/"/g, '&quot;');
+                const value = escapeHtml(String(teacher.id));
                 html += `
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" value="${value}" id="${cbId}" name="selected_teachers[]" checked>
                         <label class="form-check-label" for="${cbId}">
-                            ${teacher.name}${teacher.designation ? ' - ' + teacher.designation : ''}${extLabel}
+                            ${escapeHtml(teacher.name)}${teacher.designation ? ' - ' + escapeHtml(teacher.designation) : ''}${extLabel}
                         </label>
                     </div>
                 `;
@@ -1761,7 +1777,7 @@ async function loadTeachersForBulkDownload() {
             teacherCheckboxes.innerHTML = html;
         } else {
             const msg = data.message || 'এই পরীক্ষা কমিটির Statement-এ কোনো শিক্ষক/External Member-এর হিসাব পাওয়া যায়নি';
-            teacherCheckboxes.innerHTML = `<div class="text-muted">${msg}</div>`;
+            teacherCheckboxes.innerHTML = `<div class="text-muted">${escapeHtml(msg)}</div>`;
         }
     } catch (error) {
         console.error('Error loading teachers:', error);
