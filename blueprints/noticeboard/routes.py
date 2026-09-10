@@ -19,6 +19,7 @@ from flask_login import current_user, login_required
 from markupsafe import Markup
 from sqlalchemy import or_
 from utils.outline_richtext import html_is_empty, sanitize_outline_html
+from utils.public_errors import flash_exception
 
 from extensions import db
 from role_utils import parse_roles
@@ -267,7 +268,7 @@ def _render_notice_pdf(notice: Notice):
         pdf_data = pdf_buffer.getvalue()
     except Exception as e:
         current_app.logger.error('Notice PDF error: %s', e, exc_info=True)
-        flash(f'Could not generate PDF: {e}', 'danger')
+        flash_exception(e, 'Could not generate PDF', 'danger')
         return redirect(url_for('noticeboard.notice_detail', notice_id=notice.id))
 
     safe_title = re.sub(r'[^\w\-]+', '_', (notice.title or 'notice'))[:60]
@@ -412,7 +413,7 @@ def create():
             except Exception as e:
                 db.session.rollback()
                 current_app.logger.error('Notice create failed: %s', e, exc_info=True)
-                flash(f'Could not save notice: {e}', 'danger')
+                flash_exception(e, 'Could not save notice', 'danger')
                 return render_template(
                     'noticeboard/compose.html',
                     mode='create',
@@ -506,7 +507,7 @@ def edit(notice_id):
                 return redirect(url_for('noticeboard.index'))
             except Exception as e:
                 db.session.rollback()
-                flash(f'Could not update notice: {e}', 'danger')
+                flash_exception(e, 'Could not update notice', 'danger')
 
         selected = raw_targets
         return render_template(

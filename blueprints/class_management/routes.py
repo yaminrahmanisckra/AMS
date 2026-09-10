@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app, Response, jsonify, abort
+from utils.public_errors import api_error, flash_exception, client_message
 from werkzeug.exceptions import HTTPException
 from flask_login import login_required, current_user
 from utils.timezone import format_bd
@@ -3664,7 +3665,7 @@ def create_session():
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error creating session: {str(e)}', exc_info=True)
-        flash(f'Error creating session: {str(e)}', 'error')
+        flash_exception(e, 'Error creating session', 'error')
         return redirect(url_for('class_management.index'))
 
 
@@ -3742,7 +3743,7 @@ def create_external_session():
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error creating external session: {e}', exc_info=True)
-        flash(f'Error creating external course: {str(e)}', 'error')
+        flash_exception(e, 'Error creating external course', 'error')
         return redirect(url_for('class_management.index'))
 
 
@@ -3851,7 +3852,7 @@ def upload_students(session_id):
             flash(message, 'success')
     except Exception as e:
         db.session.rollback()
-        flash(f'Error uploading students: {str(e)}', 'error')
+        flash_exception(e, 'Error uploading students', 'error')
 
     return _student_upload_redirect(session_id, return_to=return_to)
 
@@ -3923,8 +3924,8 @@ def take_attendance(session_id):
             db.session.rollback()
             current_app.logger.error(f"Error saving attendance for session {session_id}: {e}")
             if wants_json:
-                return jsonify({'ok': False, 'error': str(e)}), 400
-            flash(f'Error saving attendance: {str(e)}', 'error')
+                return api_error(e, status=400, extra={'ok': False})
+            flash_exception(e, 'Error saving attendance', 'error')
             return redirect(url_for('class_management.take_attendance', session_id=session_id, date=request.form.get('date')))
 
     # GET request logic
@@ -3964,7 +3965,7 @@ def take_attendance(session_id):
                                 split_meta=_build_split_context(session))
     except Exception as e:
         current_app.logger.error(f"Error loading attendance page for session {session_id}: {e}")
-        flash(f'Error loading attendance page: {str(e)}', 'error')
+        flash_exception(e, 'Error loading attendance page', 'error')
         return redirect(url_for('class_management.index'))
 
 
@@ -4496,7 +4497,7 @@ def create_attendance_record(session_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error creating attendance record: {e}", exc_info=True)
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return api_error(e)
 
 @class_management_bp.route('/save_attendance_marks_manual/<int:session_id>', methods=['POST'])
 @login_required
@@ -4562,7 +4563,7 @@ def save_attendance_marks_manual(session_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error saving manual attendance marks: {e}", exc_info=True)
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return api_error(e)
 
 @class_management_bp.route('/students/<int:session_id>')
 @login_required
@@ -4632,7 +4633,7 @@ def get_students_for_selection():
         })
     except Exception as e:
         current_app.logger.error(f'Error in get_students_for_selection: {str(e)}', exc_info=True)
-        return jsonify({'success': False, 'message': f'Error loading students: {str(e)}'}), 500
+        return api_error(e, 'Error loading students')
 
 @class_management_bp.route('/api/curricula', methods=['GET'])
 @login_required
@@ -4686,11 +4687,7 @@ def get_curricula_by_batch():
         })
     except Exception as e:
         current_app.logger.error(f'Error in get_curricula_by_batch: {str(e)}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error fetching curricula: {str(e)}',
-            'error': str(e)
-        }), 500
+        return api_error(e, 'Could not load curricula.')
 
 @class_management_bp.route('/api/curriculum/<int:curriculum_id>/years-terms', methods=['GET'])
 @login_required
@@ -4879,7 +4876,7 @@ def add_student(session_id):
             return jsonify({'success': True, 'message': message})
         except Exception as e:
             db.session.rollback()
-            return jsonify({'success': False, 'message': f'Error adding students: {str(e)}'}), 500
+            return api_error(e, 'Error adding students')
     
     # Handle form submission (backward compatibility)
     return_to = (request.form.get('return_to') or '').strip()
@@ -4951,7 +4948,7 @@ def delete_student(student_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting student {student_id}: {e}', exc_info=True)
-        flash(f'Error deleting student: {str(e)}', 'danger')
+        flash_exception(e, 'Error deleting student', 'danger')
         # Try to get session_id for redirect even if deletion failed
         try:
             student = ClassStudent.query.get(student_id)
@@ -5036,12 +5033,12 @@ def delete_session(session_id):
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'Error deleting session {session_id}: {e}', exc_info=True)
-            flash(f'Error deleting session: {str(e)}', 'danger')
+            flash_exception(e, 'Error deleting session', 'danger')
             
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting session {session_id}: {e}', exc_info=True)
-        flash(f'Error deleting session: {str(e)}', 'danger')
+        flash_exception(e, 'Error deleting session', 'danger')
     
     return redirect(url_for('class_management.index'))
 
@@ -5326,15 +5323,15 @@ def save_course_outline(session_id):
             db.session.rollback()
             current_app.logger.error(f"Error committing course outline for session {session_id}: {e}", exc_info=True)
             if request.is_json:
-                return jsonify({'success': False, 'message': f'Database error: {str(e)}'}), 500
-            flash(f'Error saving course outline: {str(e)}', 'error')
+                return api_error(e, 'Database error')
+            flash_exception(e, 'Error saving course outline', 'error')
             return redirect(url_for('class_management.course_file', session_id=session_id))
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error saving course outline for session {session_id}: {e}", exc_info=True)
         if request.is_json:
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
-        flash(f'Error saving course outline: {str(e)}', 'error')
+            return api_error(e)
+        flash_exception(e, 'Error saving course outline', 'error')
         return redirect(url_for('class_management.course_file', session_id=session_id))
     
     if request.is_json:
@@ -5444,7 +5441,7 @@ def upload_course_file(session_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error uploading course file for session {session_id}: {e}", exc_info=True)
-        flash(f'Error uploading file: {str(e)}', 'error')
+        flash_exception(e, 'Error uploading file', 'error')
         return redirect(url_for('class_management.course_file', session_id=session_id))
 
 @class_management_bp.route('/course_file/<int:file_id>/download')
@@ -5478,7 +5475,7 @@ def download_course_file(file_id):
         )
     except Exception as e:
         current_app.logger.error(f"Error downloading course file {file_id}: {e}", exc_info=True)
-        flash(f'Error downloading file: {str(e)}', 'error')
+        flash_exception(e, 'Error downloading file', 'error')
         if 'uploaded_file' in locals():
             return redirect(url_for('class_management.course_file', session_id=uploaded_file.session_id))
         return redirect(url_for('class_management.index'))
@@ -5517,7 +5514,7 @@ def delete_course_file(file_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error deleting course file {file_id}: {e}", exc_info=True)
-        flash(f'Error deleting file: {str(e)}', 'error')
+        flash_exception(e, 'Error deleting file', 'error')
         if 'uploaded_file' in locals():
             return redirect(url_for('class_management.course_file', session_id=uploaded_file.session_id))
         return redirect(url_for('class_management.index'))
@@ -5757,7 +5754,7 @@ def generate_full_outline_ai(session_id):
             'parts': parts,
         })
     except AIClientError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except Exception as exc:
         current_app.logger.error(f'AI full outline generation failed for session {session_id}: {exc}', exc_info=True)
         from utils.ai.client import user_facing_generation_error
@@ -5807,14 +5804,14 @@ def patch_outline_section_ai(session_id):
             'changed': info.get('changed') or 0,
         })
     except ValueError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except json.JSONDecodeError:
         return jsonify({
             'success': False,
             'message': 'এআই-এর উত্তর অসম্পূর্ণ ছিল। নির্দেশনা আরও ছোট করে আবার প্রয়োগ চাপুন।',
         }), 400
     except AIClientError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except Exception as exc:
         current_app.logger.error(f'AI outline patch failed for session {session_id}: {exc}', exc_info=True)
         from utils.ai.client import user_facing_generation_error
@@ -5940,7 +5937,7 @@ def batch_generate_outlines():
         return jsonify(response)
     except Exception as exc:
         current_app.logger.error(f'Batch outline generation failed: {exc}', exc_info=True)
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return api_error(exc, 'Could not start batch outline generation.', status=400)
 
 
 @class_management_bp.route('/outline/batch-job/<int:batch_job_id>', methods=['GET'])
@@ -6005,7 +6002,7 @@ def batch_outline_job_tick_next(batch_job_id):
         return jsonify(batch_job_to_response(batch_job))
     except Exception as exc:
         current_app.logger.error(f'Batch tick failed for {batch_job_id}: {exc}', exc_info=True)
-        return jsonify({'success': False, 'message': str(exc)}), 500
+        return api_error(exc)
 
 
 @class_management_bp.route('/course_file/<int:session_id>/outline/generate-ai', methods=['POST'])
@@ -6424,10 +6421,7 @@ def generate_weekly_plan_ai(session_id):
         })
     except Exception as e:
         current_app.logger.error(f"Error generating AI plan: {e}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error generating plan: {str(e)}'
-        }), 500
+        return api_error(e, 'Could not generate the lesson plan.')
 
 
 def _build_lesson_plan_from_topic_slots_and_dates(slot_dates_with_week, topic_slots):
@@ -7286,7 +7280,7 @@ def edit_session(session_id):
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Error updating session {session_id}: {e}")
-            flash(f'Error updating session: {str(e)}', 'error')
+            flash_exception(e, 'Error updating session', 'error')
             return redirect(url_for('class_management.edit_session', session_id=session_id))
     
     session_credit = _resolve_session_credit(session)
@@ -7383,7 +7377,7 @@ def delete_attendance_by_date(session_id, date_str):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error deleting attendance for session {session_id} on date {date_str}: {str(e)}")
-        flash(f'Error deleting attendance: {str(e)}', 'danger')
+        flash_exception(e, 'Error deleting attendance', 'danger')
         
     return redirect(url_for('class_management.view_attendance', session_id=session_id))
 
@@ -7405,7 +7399,7 @@ def download_attendance_excel(session_id):
             current_app.logger.info("Required modules available for Excel")
         except ImportError as e:
             current_app.logger.error(f"Missing required module for Excel: {e}")
-            flash(f'Missing required module for Excel: {e}', 'error')
+            flash_exception(e, 'Missing required module for Excel', 'error')
             return redirect(url_for('class_management.index'))
             
         session = get_or_404_for_window(Session, session_id)
@@ -7653,7 +7647,7 @@ def download_attendance_excel(session_id):
         })
         
         current_app.logger.error(f"Error generating Excel for session {session_id}: {e}")
-        flash(f'Error generating Excel: {str(e)}', 'error')
+        flash_exception(e, 'Error generating Excel', 'error')
         return redirect(url_for('class_management.index'))
 
 @class_management_bp.route('/download_pdf_report/<int:session_id>')
@@ -7678,7 +7672,7 @@ def download_pdf_report(session_id):
             current_app.logger.info("Required modules available")
         except ImportError as e:
             current_app.logger.error(f"Missing required module: {e}")
-            flash(f'Missing required module: {e}', 'error')
+            flash_exception(e, 'Missing required module', 'error')
             return redirect(url_for('class_management.index'))
         session = get_or_404_for_window(Session, session_id)
         students = _class_students_for_session(session_id)
@@ -7862,7 +7856,7 @@ def download_pdf_report(session_id):
         })
         
         current_app.logger.error(f"Error generating PDF for session {session_id}: {e}")
-        flash(f'Error generating PDF: {str(e)}', 'error')
+        flash_exception(e, 'Error generating PDF', 'error')
         return redirect(url_for('class_management.index'))
 
 
@@ -8155,7 +8149,7 @@ def download_attendance_sheet(session_id):
             'user': current_user.username if current_user.is_authenticated else 'Anonymous'
         })
         current_app.logger.error(f"Error generating attendance sheet PDF for session {session_id}: {e}")
-        flash(f'Error generating PDF: {str(e)}', 'error')
+        flash_exception(e, 'Error generating PDF', 'error')
         return redirect(url_for('class_management.view_attendance', session_id=session_id))
 
 @class_management_bp.route('/download_attendance_sheet_weasyprint/<int:session_id>')
@@ -8412,7 +8406,7 @@ def download_attendance_sheet_weasyprint(session_id):
             pdf_buffer.seek(0)
         except Exception as e:
             current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}", exc_info=True)
-            flash(f'Error generating PDF: {str(e)}', 'error')
+            flash_exception(e, 'Error generating PDF', 'error')
             return redirect(url_for('class_management.view_attendance', session_id=session_id))
         
         filename = f"attendance_sheet_{course_code or session.id}.pdf"
@@ -8434,7 +8428,7 @@ def download_attendance_sheet_weasyprint(session_id):
             'user': current_user.username if current_user.is_authenticated else 'Anonymous'
         })
         current_app.logger.error(f"Error generating WeasyPrint attendance sheet PDF for session {session_id}: {e}", exc_info=True)
-        flash(f'Error generating PDF: {str(e)}', 'error')
+        flash_exception(e, 'Error generating PDF', 'error')
         return redirect(url_for('class_management.view_attendance', session_id=session_id))
 
 @class_management_bp.route('/assessment/<int:session_id>', methods=['GET', 'POST'])
@@ -8600,8 +8594,8 @@ def assessment(session_id):
             except Exception as e:
                 db.session.rollback()
                 if _attendance_offline_wants_json():
-                    return jsonify({'ok': False, 'success': False, 'error': str(e)}), 400
-                flash(f'Error saving assessment: {str(e)}', 'error')
+                    return api_error(e, status=400, extra={'ok': False})
+                flash_exception(e, 'Error saving assessment', 'error')
                 return redirect(url_for('class_management.assessment', session_id=session_id))
         
         # Build combined assessment values from all related sessions (for split courses)
@@ -8713,7 +8707,7 @@ def assessment(session_id):
         )
         
     except Exception as e:
-        flash(f'Error loading assessment page: {str(e)}', 'error')
+        flash_exception(e, 'Error loading assessment page', 'error')
         return redirect(url_for('class_management.index'))
 
 @class_management_bp.route('/assessment/<int:session_id>/toggle-reveal', methods=['POST'])
@@ -8783,7 +8777,7 @@ def toggle_assessment_reveal(session_id):
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return api_error(e)
 
 @class_management_bp.route('/assessment/<int:session_id>/toggle-round-total', methods=['POST'])
 @login_required
@@ -8834,7 +8828,7 @@ def toggle_round_assessment_total(session_id):
         })
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return api_error(e)
 
 
 @class_management_bp.route('/assessment/<int:session_id>/set-external-mode', methods=['POST'])
@@ -8872,7 +8866,7 @@ def set_external_assessment_mode(session_id):
         })
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return api_error(e)
 
 @class_management_bp.route('/assessment/<int:session_id>/auto-save', methods=['POST'])
 @login_required
@@ -8943,7 +8937,7 @@ def auto_save_assessment(session_id):
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Error auto-saving assessment for session {session_id}: {e}", exc_info=True)
-            return jsonify({'success': False, 'message': f'Error saving: {str(e)}'}), 500
+            return api_error(e, 'Error saving')
             
     except Exception as e:
         current_app.logger.error(f"Error in auto_save_assessment for session {session_id}: {e}", exc_info=True)
@@ -9388,7 +9382,7 @@ def student_view_scores():
         
     except Exception as e:
         current_app.logger.error(f"Error loading student view scores: {e}", exc_info=True)
-        flash(f'Error loading scores: {str(e)}', 'error')
+        flash_exception(e, 'Error loading scores', 'error')
         return redirect(url_for('index'))
 
 
@@ -9845,9 +9839,9 @@ def course_question_ai_draft(thread_id):
             }), 400
         if code == 'marks_or_attendance':
             return jsonify({'success': False, 'message': 'মার্ক বা উপস্থিতি নিয়ে এআই উত্তর দেবে না।'}), 400
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except AIClientError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except Exception as exc:
         current_app.logger.error(f'QA AI draft failed for thread {thread_id}: {exc}', exc_info=True)
         from utils.ai.client import user_facing_generation_error
@@ -10151,7 +10145,7 @@ def download_assessment_excel(session_id):
         )
         
     except Exception as e:
-        flash(f'Error downloading assessment Excel: {str(e)}', 'error')
+        flash_exception(e, 'Error downloading assessment Excel', 'error')
         return redirect(url_for('class_management.assessment', session_id=session_id))
 
 @class_management_bp.route('/download_assessment_pdf/<int:session_id>')
@@ -10406,7 +10400,7 @@ def download_assessment_pdf(session_id):
         
     except Exception as e:
         current_app.logger.error(f"Error generating assessment PDF for session {session_id}: {e}", exc_info=True)
-        flash(f'Error generating assessment PDF: {str(e)}', 'error')
+        flash_exception(e, 'Error generating assessment PDF', 'error')
         return redirect(url_for('class_management.assessment', session_id=session_id))
 
 # Template filter for dynamic attribute access
@@ -10502,7 +10496,7 @@ def course_assessment(session_id):
                 flash('Invitation created successfully.', 'success')
         except Exception as e:
             db.session.rollback()
-            flash(f'Error creating invitation: {str(e)}', 'danger')
+            flash_exception(e, 'Error creating invitation', 'danger')
         return redirect(url_for('class_management.course_assessment', session_id=session_id))
 
     # List of other teachers to invite (exclude self, head, and teaching assistants)
@@ -10753,7 +10747,7 @@ def clear_cancelled_invitations():
             flash('No cancelled invitations found to clear.', 'info')
     except Exception as e:
         db.session.rollback()
-        flash(f'Error clearing cancelled invitations: {str(e)}', 'danger')
+        flash_exception(e, 'Error clearing cancelled invitations', 'danger')
 
     return redirect(url_for('class_management.my_invitations'))
 
@@ -10867,7 +10861,7 @@ def course_assessment_form(session_id, invite_id):
             return redirect(url_for('class_management.my_invitations'))
         except Exception as e:
             db.session.rollback()
-            flash(f'Error submitting form: {str(e)}', 'danger')
+            flash_exception(e, 'Error submitting form', 'danger')
 
     _bd = bd_now()
     current_date_str = _bd.date().isoformat()
@@ -10952,7 +10946,7 @@ def student_feedback_manage(session_id):
                 flash('অজানা অ্যাকশন।', 'danger')
         except Exception as exc:
             db.session.rollback()
-            flash(f'ফিডব্যাক সেটআপ পরিবর্তন ব্যর্থ: {exc}', 'danger')
+            flash_exception(exc, 'ফিডব্যাক সেটআপ পরিবর্তন ব্যর্থ', 'danger')
 
         return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
 
@@ -11161,7 +11155,7 @@ def course_review_form(session_id):
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Error saving course review for session {session_id}: {e}")
-            flash(f'Error saving course review: {str(e)}', 'danger')
+            flash_exception(e, 'Error saving course review', 'danger')
 
     has_saved_review = bool(review and review.data)
 
@@ -11195,9 +11189,9 @@ def course_review_ai_summarize(session_id):
         reset_db_session()
         return jsonify({'success': True, 'fields': fields})
     except ValueError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except AIClientError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except Exception as exc:
         current_app.logger.error(f'Course review AI summary failed for {session_id}: {exc}', exc_info=True)
         from utils.ai.client import user_facing_generation_error
@@ -11522,7 +11516,7 @@ def course_assessment_view(session_id, invite_id):
             flash("Presenter's comments updated.", 'success')
         except Exception as e:
             db.session.rollback()
-            flash(f'Error updating comments: {str(e)}', 'danger')
+            flash_exception(e, 'Error updating comments', 'danger')
         return redirect(url_for('class_management.course_assessment_view', session_id=session_id, invite_id=invite_id))
 
     return render_template('class_management/evaluation_course_assessment_view.html', session=session, invite=invite, submission=submission, general_data=general_data, score_data=score_data, section_totals=section_totals, can_edit_presenter=can_edit_presenter)
@@ -11796,7 +11790,7 @@ def course_assessment_pdf(session_id, invite_id):
             }
         )
     except Exception as e:
-        flash(f'Error generating PDF: {str(e)}', 'danger')
+        flash_exception(e, 'Error generating PDF', 'danger')
         return redirect(url_for('class_management.course_assessment', session_id=session_id))
 
 @class_management_bp.route('/invitation/<int:invite_id>/cancel', methods=['POST'])
@@ -11822,7 +11816,7 @@ def cancel_invitation(invite_id):
         flash('Invitation has been cancelled.', 'success')
     except Exception as e:
         db.session.rollback()
-        flash(f'Error cancelling invitation: {str(e)}', 'danger')
+        flash_exception(e, 'Error cancelling invitation', 'danger')
 
     # Redirect back to sensible page
     if teacher.id == invite.inviter_teacher_id:
@@ -12222,7 +12216,7 @@ def student_feedback_responses_pdf_weasyprint(session_id):
             pdf_buffer.seek(0)
         except Exception as e:
             current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}", exc_info=True)
-            flash(f'Error generating PDF: {str(e)}', 'error')
+            flash_exception(e, 'Error generating PDF', 'error')
             return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
         
         filename = f"student_feedback_responses_{session_obj.course_code or 'course'}.pdf"
@@ -12244,7 +12238,7 @@ def student_feedback_responses_pdf_weasyprint(session_id):
             'user': current_user.username if current_user.is_authenticated else 'Anonymous'
         })
         current_app.logger.error(f"Error generating WeasyPrint student feedback PDF for session {session_id}: {e}", exc_info=True)
-        flash(f'Error generating PDF: {str(e)}', 'error')
+        flash_exception(e, 'Error generating PDF', 'error')
         return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
 
 @class_management_bp.route('/evaluation/<int:session_id>/student-feedback/responses/docx')
@@ -13415,10 +13409,10 @@ def analyze_question_bank_file(file_id):
         return jsonify({'success': True, 'analysis': payload, 'course_code': course_code})
     except AIClientError as exc:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except ValueError as exc:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Question bank analysis failed for {file_id}: {exc}', exc_info=True)
@@ -13486,10 +13480,10 @@ def question_bank_file_questions(file_id):
         })
     except AIClientError as exc:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except ValueError as exc:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Question list failed for {file_id}: {exc}', exc_info=True)
@@ -13578,10 +13572,10 @@ def question_bank_model_answers(file_id):
         })
     except AIClientError as exc:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except ValueError as exc:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Model answer generation failed for {file_id}: {exc}', exc_info=True)

@@ -436,15 +436,27 @@ def get_system_info():
 
 def create_error_response(error, status_code=500):
     """Create a redacted error response (no exception text or raw path reflection)."""
+    from utils.public_errors import DEFAULT_PUBLIC_MESSAGE, new_error_id
+
     safe_path = html.escape(request.path if request else 'Unknown')
     timestamp = datetime.now().isoformat()
+    error_id = new_error_id()
 
-    log_error(error, {'status_code': status_code})
+    log_error(error, {'status_code': status_code, 'error_id': error_id})
+
+    if status_code >= 500:
+        public_text = f'{DEFAULT_PUBLIC_MESSAGE} (ref: {error_id})'
+    elif status_code == 404:
+        public_text = 'The requested resource was not found.'
+    else:
+        public_text = 'Request could not be completed.'
 
     public = {
-        'error': 'An unexpected error occurred.' if status_code >= 500 else 'The requested resource was not found.' if status_code == 404 else 'Request could not be completed.',
+        'error': public_text,
+        'message': public_text,
         'status': status_code,
         'timestamp': timestamp,
+        'error_id': error_id if status_code >= 500 else None,
     }
 
     if request and (

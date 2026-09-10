@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, Response, current_app, jsonify, abort
+from utils.public_errors import api_error, flash_exception, report_exception
 from werkzeug.exceptions import HTTPException
 from flask_login import login_required, current_user
 from utils.academic_rules import assessment_cfg, calculate_grade as tenant_calculate_grade
@@ -47,7 +48,6 @@ import zipfile
 
 result_management_bp = Blueprint('result_management', __name__, template_folder='templates/result_management')
 
-
 def _append_registration_window_filter(filters, session=None, window_id=None):
     """Append StudentCourseRegistration window isolation to a filter list."""
     if window_id is None and session is not None:
@@ -58,7 +58,6 @@ def _append_registration_window_filter(filters, session=None, window_id=None):
         filters.append(window_rows_clause(StudentCourseRegistration, window_id))
     return filters
 
-
 def _class_session_query_for_result(session, **filters):
     """ClassSession query locked to a result session's operational window."""
     q = ClassSession.query.filter_by(**filters) if filters else ClassSession.query
@@ -67,19 +66,16 @@ def _class_session_query_for_result(session, **filters):
         window_id = get_effective_window_id(admin_override=False)
     return filter_query_by_window_id(q, ClassSession, window_id)
 
-
 def _is_head_user():
     if not current_user.is_authenticated:
         return False
     roles = parse_roles(current_user.role)
     return 'head' in roles or 'dean' in roles
 
-
 def _current_teacher():
     if not current_user.is_authenticated:
         return None
     return resolve_caller_teacher(current_user)
-
 
 def _is_tabulator_user():
     teacher = _current_teacher()
@@ -101,7 +97,6 @@ def _get_tabulator_assignments():
         duty_type='tabulator',
         status='active'
     ).all()
-
 
 def _normalize_year_term(value):
     """Normalize common Year/Term formats for reliable matching."""
@@ -135,20 +130,17 @@ def _normalize_year_term(value):
     }
     return mapping.get(v, v)
 
-
 def _normalize_session_name(value):
     """Normalize academic session label for robust matching."""
     if not value:
         return ''
     return ' '.join(str(value).strip().lower().split())
 
-
 def _normalize_year_label(value):
     """Normalize year label without collapsing LLM-specific years."""
     if not value:
         return ''
     return ' '.join(str(value).strip().lower().replace('-', ' ').replace('_', ' ').split())
-
 
 def _normalize_term_label(value):
     """Normalize term label to first/second etc."""
@@ -161,7 +153,6 @@ def _normalize_term_label(value):
         return 'second'
     return v
 
-
 def _canonical_year_label(value):
     """Canonical year label for cross-module matching (LLM <-> Fifth, etc.)."""
     y = _normalize_year_label(value)
@@ -173,30 +164,94 @@ def _canonical_year_label(value):
         return 'llm'
     return _normalize_year_term(value) or y
 
-
 def _years_match(year_a, year_b):
     if not year_a or not year_b:
         return True
     return _canonical_year_label(year_a) == _canonical_year_label(year_b)
-
 
 def _terms_match(term_a, term_b):
     if not term_a or not term_b:
         return True
     return _normalize_term_label(term_a) == _normalize_term_label(term_b)
 
-
 def _sessions_match(session_a, session_b):
     if not session_a or not session_b:
         return True
     return _normalize_session_name(session_a) == _normalize_session_name(session_b)
+
+_RESULT_REGISTRATION_STATUSES = ('finalized', 'pending', 'archived')
+
+
+def _registration_matches_result_session(reg, session):
+    if not _sessions_match(reg.academic_session, session.name):
+        return False
+    if session.year and not _years_match(reg.year, session.year):
+        return False
+    if session.term and not _terms_match(reg.term, session.term):
+        return False
+    return True
+
+
+def _registered_student_profile_ids_for_result_session(session):
+    """Student.id values with a course registration in this result session's window."""
+    if not session:
+        return set()
+    filters = [
+        StudentCourseRegistration.academic_session.isnot(None),
+        StudentCourseRegistration.status.in_(_RESULT_REGISTRATION_STATUSES),
+    ]
+    _append_registration_window_filter(filters, session=session)
+    profile_ids = set()
+    for reg in StudentCourseRegistration.query.filter(*filters).all():
+        if reg.student_id and _registration_matches_result_session(reg, session):
+            profile_ids.add(reg.student_id)
+    return profile_ids
+
+
+def _ensure_rstudents_from_course_registrations(session):
+    """Create missing RStudent rows for course-registered students.
+
+    Returns ``(public_ids, added_count)``.
+    """
+    profile_ids = _registered_student_profile_ids_for_result_session(session)
+    if not profile_ids:
+        return set(), 0
+    profiles = StudentProfile.query.filter(StudentProfile.id.in_(list(profile_ids))).all()
+    public_ids = {profile.student_id for profile in profiles if profile.student_id}
+    existing = {
+        row.student_id
+        for row in RStudent.query.filter_by(session_id=session.id).all()
+    }
+    to_add = []
+    for profile in profiles:
+        if not profile.student_id or profile.student_id in existing:
+            continue
+        to_add.append(RStudent(
+            student_id=profile.student_id,
+            name=profile.name,
+            session_id=session.id,
+            year=profile.batch or None,
+        ))
+        existing.add(profile.student_id)
+    if to_add:
+        db.session.bulk_save_objects(to_add)
+        db.session.commit()
+    return public_ids, len(to_add)
+
+
+def _registered_rstudents_for_session(session):
+    """RStudent rows that have a matching Course Management registration."""
+    public_ids, added = _ensure_rstudents_from_course_registrations(session)
+    if not public_ids:
+        return [], added
+    students = RStudent.query.filter_by(session_id=session.id).order_by(RStudent.student_id).all()
+    return [student for student in students if student.student_id in public_ids], added
 
 
 def _normalize_student_public_id(value):
     if value is None:
         return ''
     return ' '.join(str(value).strip().upper().split())
-
 
 def _class_session_matches_result(class_session, session_name=None, year=None, term=None):
     if not class_session:
@@ -208,7 +263,6 @@ def _class_session_matches_result(class_session, session_name=None, year=None, t
     if term and not _terms_match(class_session.term, term):
         return False
     return True
-
 
 def _find_class_sessions_for_result(course_code, session_name=None, year=None, term=None, window_id=None):
     """Find Class Management sessions for a result subject context."""
@@ -248,7 +302,6 @@ def _find_class_sessions_for_result(course_code, session_name=None, year=None, t
 
     return candidates
 
-
 def _find_class_student_for_result(student_public_id, course_code, session_name=None, year=None, term=None, window_id=None):
     """Find a ClassStudent row and its session using robust ID/year matching."""
     from blueprints.class_management.models import Session as ClassSession, ClassStudent
@@ -282,7 +335,6 @@ def _find_class_student_for_result(student_public_id, course_code, session_name=
 
     return None, None
 
-
 def _get_attendance_marks_for_student(class_session, student_public_id):
     """Return attendance marks from Class Management summary for one student."""
     if not class_session:
@@ -305,7 +357,6 @@ def _get_attendance_marks_for_student(class_session, student_public_id):
         )
     return None
 
-
 def _round_result_mark(value):
     """Round a mark component to the nearest whole number."""
     if value is None:
@@ -315,14 +366,12 @@ def _round_result_mark(value):
     except (TypeError, ValueError):
         return None
 
-
 def _format_result_mark_for_display(value):
     """Format a mark value as a whole number for UI/PDF display."""
     rounded = _round_result_mark(value)
     if rounded is None:
         return ''
     return str(int(rounded))
-
 
 def _round_theory_component_marks(mark):
     """Round Theory mark components (Attendance, CA, Part A, Part B) to whole numbers."""
@@ -332,7 +381,6 @@ def _round_theory_component_marks(mark):
         val = getattr(mark, field, None)
         if val is not None:
             setattr(mark, field, _round_result_mark(val))
-
 
 def _get_continuous_assessment_from_class_student(class_student):
     """Extract continuous assessment from a ClassStudent row, scaled to PG CA if needed."""
@@ -349,7 +397,6 @@ def _get_continuous_assessment_from_class_student(class_student):
             return _round_result_mark(assessment_total)
         return _round_result_mark(min(pg_out, (assessment_total / ug_out) * pg_out))
     return None
-
 
 def _populate_class_management_marks(mark, student, selected_subject, result_session, refresh=False):
     """
@@ -401,7 +448,6 @@ def _populate_class_management_marks(mark, student, selected_subject, result_ses
 
     return updated
 
-
 def _year_registration_variants(year):
     if not year:
         return []
@@ -419,7 +465,6 @@ def _year_registration_variants(year):
         variants.update({'Fourth', 'fourth', '4', '4th', 'Fourth Year'})
     return list(variants)
 
-
 def _term_registration_variants(term):
     if not term:
         return []
@@ -431,19 +476,16 @@ def _term_registration_variants(term):
         variants.update({'Second', 'second', '2', '2nd', 'Second Term', 'Second Semester'})
     return list(variants)
 
-
 def _require_result_session_access(session):
     """Abort 403 unless the caller may manage this result session."""
     if not _can_access_session(session):
         abort(403)
     return session
 
-
 def _get_rsession_or_404(session_id):
     """Load a result session in the active window that the caller may access."""
     session = get_or_404_for_window(RSession, session_id)
     return _require_result_session_access(session)
-
 
 def _find_exam_entry_for_result_subject(result_session, subject):
     """
@@ -483,7 +525,6 @@ def _find_exam_entry_for_result_subject(result_session, subject):
         ).order_by(ExamPaperEvaluation.id.desc()).first()
     return None
 
-
 def _get_rstudent_or_404(student_id, session_id=None):
     """Load a result student only if the caller may access its parent session."""
     student = RStudent.query.get_or_404(student_id)
@@ -492,7 +533,6 @@ def _get_rstudent_or_404(student_id, session_id=None):
         abort(404)
     return student
 
-
 def _get_rsubject_or_404(subject_id, session_id=None):
     """Load a result subject only if the caller may access its parent session."""
     subject = RSubject.query.get_or_404(subject_id)
@@ -500,7 +540,6 @@ def _get_rsubject_or_404(subject_id, session_id=None):
     if session_id is not None and int(subject.session_id) != int(session_id):
         abort(404)
     return subject
-
 
 def _build_original_course_registration_filters(student_profile_ids, subject_code, session_name=None, year=None, term=None, statuses=None, window_id=None, result_session=None):
     """Build strict filters anchored to original course_code context only."""
@@ -530,13 +569,10 @@ def _build_original_course_registration_filters(student_profile_ids, subject_cod
     _append_registration_window_filter(filters, session=result_session, window_id=window_id)
     return filters
 
-
 _RETACKE_REMARKS = {'retake', 're-retake', 're retake', 'reretake'}
-
 
 def _is_retake_remark(remark):
     return (remark or '').strip().lower() in _RETACKE_REMARKS
-
 
 def _build_rstudent_profile_id_map(rstudents):
     """Return (profile_id -> rstudent_id, rstudent_id -> profile_id) maps."""
@@ -561,7 +597,6 @@ def _build_rstudent_profile_id_map(rstudents):
         if rstudent_id
     }
     return profile_id_to_rstudent_id, rstudent_id_to_profile_id
-
 
 def _load_course_management_retake_lookup(session, subject_codes, rstudents):
     """Map (subject_code, rstudent_id) -> is_retake from Course Management remarks."""
@@ -607,7 +642,6 @@ def _load_course_management_retake_lookup(session, subject_codes, rstudents):
         lookup[(reg.course_code, rstudent_id)] = _is_retake_remark(reg.remark)
     return lookup
 
-
 def _load_course_management_retake_map(session, subject_code, rstudents):
     """Map rstudent_id -> is_retake for one subject."""
     lookup = _load_course_management_retake_lookup(session, [subject_code], rstudents)
@@ -616,7 +650,6 @@ def _load_course_management_retake_map(session, subject_code, rstudents):
         for rstudent_id in {rs.id for rs in rstudents}
         if (subject_code, rstudent_id) in lookup
     }
-
 
 def _load_course_management_remark_lookup(session, subject_codes, rstudents):
     """Map (subject_code, rstudent_id) -> registration remark from Course Management."""
@@ -662,7 +695,6 @@ def _load_course_management_remark_lookup(session, subject_codes, rstudents):
         lookup[(reg.course_code, rstudent_id)] = (reg.remark or 'Regular').strip()
     return lookup
 
-
 def _pdf_remark_from_registration(remark=None, is_retake=False):
     """Format remark text for PDF output without affecting grade logic."""
     normalized = (remark or '').strip()
@@ -670,11 +702,9 @@ def _pdf_remark_from_registration(remark=None, is_retake=False):
         return 'Retake' if is_retake else ''
     return normalized
 
-
 def _student_pdf_remark(subject_code, rstudent_id, remark_lookup, is_retake=False):
     remark = remark_lookup.get((subject_code, rstudent_id)) if remark_lookup else None
     return _pdf_remark_from_registration(remark, is_retake=is_retake)
-
 
 def _remark_map_for_course_pdf(session, subject):
     rstudents = RStudent.query.filter_by(session_id=subject.session_id).all()
@@ -684,7 +714,6 @@ def _remark_map_for_course_pdf(session, subject):
         for rs in rstudents
         if rs.student_id
     }
-
 
 def _resolve_is_retake(session, subject, rstudent_id, course_mgmt_retake_map=None):
     """Resolve retake status using Course Management first, then Result registration."""
@@ -696,7 +725,6 @@ def _resolve_is_retake(session, subject, rstudent_id, course_mgmt_retake_map=Non
     if rc_reg is not None:
         return bool(rc_reg.is_retake)
     return False
-
 
 def _subject_component_fields(subject):
     if subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
@@ -715,10 +743,8 @@ def _subject_component_fields(subject):
         return ['viva']
     return []
 
-
 def _has_any_component_marks(mark, subject):
     return any(getattr(mark, field, None) is not None for field in _subject_component_fields(subject))
-
 
 def _calculate_total_marks_for_subject(mark, subject):
     if subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
@@ -740,12 +766,10 @@ def _calculate_total_marks_for_subject(mark, subject):
         return mark.viva or 0
     return mark.total_marks
 
-
 def _resolve_mark_total_marks(mark, subject):
     if _has_any_component_marks(mark, subject):
         return _calculate_total_marks_for_subject(mark, subject)
     return mark.total_marks
-
 
 def _apply_retake_grade_to_mark(mark, subject, is_retake):
     """Sync retake flag and recalculate grade from stored/component marks."""
@@ -767,7 +791,6 @@ def _apply_retake_grade_to_mark(mark, subject, is_retake):
             changed = True
     return changed
 
-
 def _sync_subject_marks_retake_grades(session, subject):
     """Ensure all marks for a subject use Course Management retake rules."""
     rstudents = RStudent.query.filter_by(session_id=session.id).all()
@@ -780,7 +803,6 @@ def _sync_subject_marks_retake_grades(session, subject):
             changed = True
     if changed:
         db.session.commit()
-
 
 def _sync_student_marks_retake_grades(session, rstudent):
     """Ensure all marks for one student use Course Management retake rules."""
@@ -806,7 +828,6 @@ def _sync_student_marks_retake_grades(session, rstudent):
     if changed:
         db.session.commit()
 
-
 def _session_subject_codes(session_id):
     return [
         code for (code,) in db.session.query(RSubject.code).filter(
@@ -816,7 +837,6 @@ def _session_subject_codes(session_id):
         ).all()
         if code
     ]
-
 
 def _course_management_session_registration_filters(session, profile_ids, subject_codes):
     """Filters for Course Management registrations relevant to a result session."""
@@ -864,7 +884,6 @@ def _course_management_session_registration_filters(session, profile_ids, subjec
         filters.append(window_rows_clause(StudentCourseRegistration, window_id))
     return filters
 
-
 def _rstudent_ids_from_course_management(session, rstudents, subject_codes):
     profile_id_to_rstudent_id, _ = _build_rstudent_profile_id_map(rstudents)
     filters = _course_management_session_registration_filters(
@@ -879,7 +898,6 @@ def _rstudent_ids_from_course_management(session, rstudents, subject_codes):
         if rstudent_id:
             registered_ids.add(rstudent_id)
     return registered_ids
-
 
 def _subject_codes_for_student_in_session(session, student, subject_codes):
     """Subject codes this student is registered for in the running result session."""
@@ -924,7 +942,6 @@ def _subject_codes_for_student_in_session(session, student, subject_codes):
 
     return sorted(codes)
 
-
 def _get_registered_students_for_session(session_id):
     """Students registered for at least one subject in this result session."""
     session = RSession.query.get(session_id)
@@ -965,7 +982,6 @@ def _get_registered_students_for_session(session_id):
     registered_students.sort(key=lambda student: id_order.get(student.id, 10**9))
     return registered_students
 
-
 def _student_has_course_registrations(session_id, student_id):
     session = RSession.query.get(session_id)
     student = RStudent.query.get(student_id)
@@ -973,7 +989,6 @@ def _student_has_course_registrations(session_id, student_id):
         return False
     subject_codes = _session_subject_codes(session_id)
     return bool(_subject_codes_for_student_in_session(session, student, subject_codes))
-
 
 def _query_student_result_rows(session_id, student_id):
     """Fetch registered courses (with optional marks) for one student."""
@@ -1001,7 +1016,6 @@ def _query_student_result_rows(session_id, student_id):
      .filter(RSubject.session_id == session_id)\
      .filter(RSubject.code.in_(subject_codes))\
      .order_by(RSubject.code).all()
-
 
 def _process_student_result_rows(session, student, results):
     """Build student-wise tabulation rows and term assessment totals."""
@@ -1045,12 +1059,10 @@ def _process_student_result_rows(session, student, results):
     }
     return processed_results, term_assessment
 
-
 def _student_result_zip_entry_name(student):
     """Unique, filesystem-safe ZIP entry name per student."""
     roll = _sanitize_zip_entry_name(student.student_id or 'unknown')
     return f'Student_{student.id}_{roll}_Tabulation.pdf'
-
 
 def _can_access_session(session):
     """Check if current user can access a specific result session"""
@@ -1087,7 +1099,6 @@ def _can_access_session(session):
     
     return False
 
-
 def _has_result_access():
     if not current_user.is_authenticated:
         return False
@@ -1097,12 +1108,10 @@ def _has_result_access():
         return True
     return _is_tabulator_user()
 
-
 def _can_manage_sessions():
     if not current_user.is_authenticated:
         return False
     return is_admin(current_user) or _is_head_user()
-
 
 @result_management_bp.before_request
 def restrict_result_module():
@@ -1411,12 +1420,11 @@ def add_student(session_id):
                     db.session.commit()
                     flash(f'Successfully added {added_count} new students. Skipped {skipped_count} existing students.', 'success')
                 except Exception as e:
-                    flash(f'Error processing Excel file: {e}', 'danger')
+                    flash_exception(e, 'Error processing Excel file', 'danger')
                 return redirect(url_for('result_management.add_student', session_id=session_id))
             else:
                 flash('Invalid file type. Please upload a .xlsx file.', 'danger')
         elif request.is_json:
-            # Handle AJAX request for batch or ID-based addition
             data = request.get_json()
             student_ids = data.get('student_ids', [])
             
@@ -1424,41 +1432,45 @@ def add_student(session_id):
                 return jsonify({'success': False, 'message': 'No students selected!'}), 400
             
             try:
-                from blueprints.student_management.models import Student
-                if not Student:
-                    return jsonify({'success': False, 'message': 'Students Management module not available'}), 503
-                
+                allowed_ids = _registered_student_profile_ids_for_result_session(session)
                 added_count = 0
                 skipped_count = 0
-                
-                # Get existing student IDs for this session
                 existing_student_ids = {s.student_id for s in RStudent.query.filter_by(session_id=session_id).all()}
                 
                 for student_db_id in student_ids:
-                    student = Student.query.get(student_db_id)
-                    if student:
-                        if student.student_id in existing_student_ids:
-                            skipped_count += 1
-                            continue
-                        
-                        r_student = RStudent(
-                            student_id=student.student_id,
-                            name=student.name,
-                            session_id=session_id
-                        )
-                        db.session.add(r_student)
-                        existing_student_ids.add(student.student_id)
-                        added_count += 1
+                    try:
+                        student_db_id = int(student_db_id)
+                    except (TypeError, ValueError):
+                        skipped_count += 1
+                        continue
+                    if student_db_id not in allowed_ids:
+                        skipped_count += 1
+                        continue
+                    student = StudentProfile.query.get(student_db_id)
+                    if not student:
+                        skipped_count += 1
+                        continue
+                    if student.student_id in existing_student_ids:
+                        skipped_count += 1
+                        continue
+                    db.session.add(RStudent(
+                        student_id=student.student_id,
+                        name=student.name,
+                        session_id=session_id,
+                        year=student.batch or None,
+                    ))
+                    existing_student_ids.add(student.student_id)
+                    added_count += 1
                 
                 db.session.commit()
-                message = f'Successfully added {added_count} student(s).'
+                message = f'Successfully added {added_count} registered student(s).'
                 if skipped_count > 0:
-                    message += f' Skipped {skipped_count} existing student(s).'
+                    message += f' Skipped {skipped_count} student(s).'
                 return jsonify({'success': True, 'message': message})
             except Exception as e:
                 db.session.rollback()
                 current_app.logger.error(f"Error adding students to result session {session_id}: {e}", exc_info=True)
-                return jsonify({'success': False, 'message': f'Error adding students: {str(e)}'}), 500
+                return api_error(e, 'Error adding students')
         else:
             student_id = request.form.get('student_id')
             name = request.form.get('name')
@@ -1479,140 +1491,18 @@ def add_student(session_id):
     
     session = _get_rsession_or_404(session_id)
     
-    # Auto-load students from Class Management and Course Registration based on session/year/term
     try:
-        from blueprints.class_management.models import Session as ClassSession, ClassStudent
-        from blueprints.student_management.models import Student
-        
-        # Find candidate ClassSessions, then robust-match academic session/year/term in Python.
-        # This handles formatting differences and stray spaces/case mismatches.
-        candidate_class_sessions = filter_query_by_window_id(
-            ClassSession.query.filter(ClassSession.academic_session.isnot(None)),
-            ClassSession,
-            getattr(session, 'window_id', None) or get_effective_window_id(admin_override=False),
-        ).all()
-
-        target_session = _normalize_session_name(session.name)
-        target_year = _normalize_year_label(session.year)
-        target_term = _normalize_term_label(session.term)
-
-        matching_class_sessions = []
-        for cs in candidate_class_sessions:
-            if getattr(cs, 'archived', False):
-                continue
-            cs_session = _normalize_session_name(cs.academic_session)
-            if cs_session != target_session:
-                continue
-            cs_year = _normalize_year_label(cs.year)
-            cs_term = _normalize_term_label(cs.term)
-            year_match = (not target_year) or _years_match(cs.year, session.year)
-            term_match = (not target_term) or (cs_term == target_term)
-            if year_match and term_match:
-                matching_class_sessions.append(cs)
-        
-        auto_added_from_class = 0
-        if matching_class_sessions:
-            class_session_ids = [cs.id for cs in matching_class_sessions]
-            # Get all student_ids from those class sessions
-            class_students = ClassStudent.query.filter(
-                ClassStudent.session_id.in_(class_session_ids)
-            ).all()
-            
-            # Get existing RStudent IDs for this session
-            existing_rstudent_ids = {s.student_id for s in RStudent.query.filter_by(session_id=session_id).all()}
-            
-            # Auto-add students that don't exist in RStudent
-            students_to_add = []
-            for cs in class_students:
-                if cs.student_id not in existing_rstudent_ids:
-                    # Get student details from Student Management if available
-                    student_detail = None
-                    if Student:
-                        student_detail = Student.query.filter_by(student_id=cs.student_id).first()
-                    
-                    r_student = RStudent(
-                        student_id=cs.student_id,
-                        name=cs.name,
-                        session_id=session_id,
-                        year=student_detail.batch if student_detail and student_detail.batch else None,
-                        discipline=None,
-                        school=None
-                    )
-                    students_to_add.append(r_student)
-                    existing_rstudent_ids.add(cs.student_id)
-            
-            if students_to_add:
-                db.session.bulk_save_objects(students_to_add)
-                db.session.commit()
-                auto_added_from_class = len(students_to_add)
-
-        auto_added_from_registration = 0
-        # Fallback/extension: also pull from student course registrations for matching term.
-        reg_filters = [
-            StudentCourseRegistration.academic_session.isnot(None),
-            StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
-        ]
-        _append_registration_window_filter(reg_filters, session=session)
-        registration_rows = StudentCourseRegistration.query.filter(*reg_filters).all()
-        matching_profile_ids = set()
-        for reg in registration_rows:
-            reg_session = _normalize_session_name(reg.academic_session)
-            reg_year = _normalize_year_label(reg.year)
-            reg_term = _normalize_term_label(reg.term)
-            if reg_session != target_session:
-                continue
-            if target_year and not _years_match(reg.year, session.year):
-                continue
-            if target_term and reg_term != target_term:
-                continue
-            if reg.student_id:
-                matching_profile_ids.add(reg.student_id)
-
-        if matching_profile_ids:
-            existing_rstudent_ids = {s.student_id for s in RStudent.query.filter_by(session_id=session_id).all()}
-            profile_students = Student.query.filter(Student.id.in_(list(matching_profile_ids))).all()
-            students_to_add = []
-            for profile in profile_students:
-                if not profile.student_id or profile.student_id in existing_rstudent_ids:
-                    continue
-                students_to_add.append(RStudent(
-                    student_id=profile.student_id,
-                    name=profile.name,
-                    session_id=session_id,
-                    year=profile.batch if profile.batch else None,
-                    discipline=None,
-                    school=None
-                ))
-                existing_rstudent_ids.add(profile.student_id)
-
-            if students_to_add:
-                db.session.bulk_save_objects(students_to_add)
-                db.session.commit()
-                auto_added_from_registration = len(students_to_add)
-
-        total_auto_added = auto_added_from_class + auto_added_from_registration
-        if total_auto_added:
-            flash(
-                f'Auto-loaded {total_auto_added} student(s) '
-                f'({auto_added_from_class} from Class Management, {auto_added_from_registration} from Course Registration).',
-                'success'
-            )
+        students, added = _registered_rstudents_for_session(session)
+        if added:
+            flash(f'Loaded {added} registered student(s) from Course Registration.', 'success')
     except Exception as e:
-        current_app.logger.error(f'Error auto-loading students: {str(e)}', exc_info=True)
-        # Don't show error to user, just log it
-    
-    students = RStudent.query.filter_by(session_id=session_id).order_by(RStudent.student_id).all()
-    
-    # Get batches for dropdown
-    batches = []
-    try:
-        from blueprints.student_management.models import Student
-        if Student:
-            all_batches = db.session.query(Student.batch).distinct().filter(Student.batch.isnot(None)).order_by(Student.batch.desc()).all()
-            batches = [batch[0] for batch in all_batches]
-    except:
-        batches = []
-    
+        current_app.logger.error(f'Error auto-loading registered students: {str(e)}', exc_info=True)
+        students = []
+
+    batches = sorted({
+        student.year for student in students if student.year
+    }, reverse=True)
+
     return render_template('rm_add_student.html', session=session, students=students, batches=batches)
 
 @result_management_bp.route('/edit_student/<int:student_id>', methods=['GET', 'POST'])
@@ -1649,7 +1539,7 @@ def delete_student(student_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting result student {student_id}: {e}', exc_info=True)
-        flash(f'Error deleting student: {str(e)}', 'danger')
+        flash_exception(e, 'Error deleting student', 'danger')
         # Try to get session_id for redirect even if deletion failed
         try:
             student = RStudent.query.get(student_id)
@@ -1664,75 +1554,41 @@ def delete_student(student_id):
 @result_management_bp.route('/api/students', methods=['GET'])
 @login_required
 def get_students_for_result():
-    """Get students from Students Management for selection (AJAX)"""
+    """List course-registered students for a result session (AJAX picker)."""
     try:
-        from blueprints.student_management.models import Student
-        from blueprints.class_management.models import Session as ClassSession, ClassStudent
         from sqlalchemy import or_
-        
-        if not Student:
-            return jsonify({'success': False, 'message': 'Students Management module not available'}), 503
-        
+
         batch_filter = request.args.get('batch', '').strip()
         search = request.args.get('search', '').strip()
         session_id = request.args.get('session_id', type=int)
-        
-        # If session_id is provided, filter students by that session's academic_session, year, and term
-        student_ids_from_class_sessions = None
-        if session_id:
-            session = get_for_window(RSession, session_id)
-            
-            if session:
-                # Find all ClassSessions matching the result session's academic_session, year, and term
-                query_class_sessions = ClassSession.query.filter(
-                    ClassSession.academic_session == session.name,
-                    ClassSession.term == session.term
-                )
-                # Only filter by year if it's provided in the result session
-                if session.year:
-                    query_class_sessions = query_class_sessions.filter(ClassSession.year == session.year)
-                query_class_sessions = filter_query_by_window_id(
-                    query_class_sessions,
-                    ClassSession,
-                    getattr(session, 'window_id', None) or get_effective_window_id(admin_override=False),
-                )
-                
-                matching_class_sessions = query_class_sessions.all()
-                
-                if matching_class_sessions:
-                    class_session_ids = [cs.id for cs in matching_class_sessions]
-                    # Get all student_ids from those class sessions
-                    class_students = ClassStudent.query.filter(
-                        ClassStudent.session_id.in_(class_session_ids)
-                    ).all()
-                    student_ids_from_class_sessions = {cs.student_id for cs in class_students}
-        
-        query = Student.query
-        
-        # Filter by student_ids from class sessions if available
-        if student_ids_from_class_sessions:
-            query = query.filter(Student.student_id.in_(student_ids_from_class_sessions))
-        elif session_id:
-            # If session_id provided but no matching class sessions, return empty result
+        if not session_id:
+            return jsonify({'success': True, 'students': [], 'message': 'Session is required.'})
+
+        session = get_for_window(RSession, session_id)
+        if not session:
+            return jsonify({'success': False, 'message': 'Session not found.'}), 404
+        if not _can_access_session(session):
+            return jsonify({'success': False, 'message': 'You do not have access to this session.'}), 403
+
+        profile_ids = _registered_student_profile_ids_for_result_session(session)
+        if not profile_ids:
             return jsonify({
                 'success': True,
                 'students': [],
-                'message': 'No students found for this session. Please ensure class sessions exist for this academic session, year, and term.'
+                'message': 'No registered students found for this session.',
             })
-        
+
+        query = StudentProfile.query.filter(StudentProfile.id.in_(list(profile_ids)))
         if batch_filter:
-            query = query.filter(Student.batch == batch_filter)
-        
+            query = query.filter(StudentProfile.batch == batch_filter)
         if search:
             query = query.filter(
                 or_(
-                    Student.name.ilike(f'%{search}%'),
-                    Student.student_id.ilike(f'%{search}%')
+                    StudentProfile.name.ilike(f'%{search}%'),
+                    StudentProfile.student_id.ilike(f'%{search}%'),
                 )
             )
-        
-        students = query.order_by(Student.student_id.asc()).limit(500).all()
-        
+        students = query.order_by(StudentProfile.student_id.asc()).limit(500).all()
         return jsonify({
             'success': True,
             'students': [{
@@ -1741,12 +1597,12 @@ def get_students_for_result():
                 'name': s.name,
                 'batch': s.batch,
                 'email': s.email,
-                'phone': s.phone
-            } for s in students]
+                'phone': s.phone,
+            } for s in students],
         })
     except Exception as e:
         current_app.logger.error(f'Error in get_students_for_result: {str(e)}', exc_info=True)
-        return jsonify({'success': False, 'message': f'Error loading students: {str(e)}'}), 500
+        return api_error(e, 'Error loading students')
 
 @result_management_bp.route('/add_subject/<int:session_id>', methods=['GET', 'POST'])
 @login_required
@@ -1841,7 +1697,7 @@ def add_subject(session_id):
                 except Exception as e:
                     db.session.rollback()
                     current_app.logger.error(f"Error auto-loading courses: {e}", exc_info=True)
-                    return jsonify({'success': False, 'message': f'Error loading courses: {str(e)}'}), 500
+                    return api_error(e, 'Error loading courses')
             
             return jsonify({'success': False, 'message': 'Batch and curriculum are required'}), 400
         
@@ -2131,7 +1987,7 @@ def get_curricula_for_batch():
         })
     except Exception as e:
         current_app.logger.error(f"Error fetching curricula for batch: {e}", exc_info=True)
-        return jsonify({'success': False, 'message': f'Error loading curricula: {str(e)}'}), 500
+        return api_error(e, 'Error loading curricula')
 
 @result_management_bp.route('/refresh_marks/<int:session_id>', methods=['POST'])
 @login_required
@@ -2410,10 +2266,7 @@ def refresh_marks(session_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error refreshing marks: {e}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error refreshing marks: {str(e)}'
-        }), 500
+        return api_error(e, 'Could not refresh marks.')
 
 @result_management_bp.route('/delete_subject/<int:subject_id>', methods=['POST'])
 @login_required
@@ -2434,7 +2287,7 @@ def delete_subject(subject_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting subject {subject_id}: {e}', exc_info=True)
-        flash(f'Error deleting subject: {str(e)}', 'danger')
+        flash_exception(e, 'Error deleting subject', 'danger')
         # Try to get session_id for redirect even if deletion failed
         try:
             subject = RSubject.query.get(subject_id)
@@ -2445,7 +2298,6 @@ def delete_subject(subject_id):
     if session_id:
         return redirect(url_for('result_management.add_subject', session_id=session_id))
     return redirect(url_for('result_management.index'))
-
 
 def clear_exam_marks_from_result_management(exam_entry_id):
     """
@@ -2458,13 +2310,6 @@ def clear_exam_marks_from_result_management(exam_entry_id):
     Returns:
         dict: {'success': bool, 'message': str, 'marks_cleared': int, 'errors': list}
     """
-    # #region agent log
-    import json as json_module
-    try:
-        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-            f.write(json_module.dumps({'location': 'clear_exam_marks_from_result_management:entry', 'message': 'Clear function called', 'data': {'exam_entry_id': exam_entry_id}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'M'}) + '\n')
-    except: pass
-    # #endregion
     
     result = {
         'success': False,
@@ -2477,12 +2322,6 @@ def clear_exam_marks_from_result_management(exam_entry_id):
         # Get the exam entry
         exam_entry = get_for_window(ExamPaperEvaluation, exam_entry_id)
         
-        # #region agent log
-        try:
-            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                f.write(json_module.dumps({'location': 'clear_exam_marks_from_result_management:exam_entry', 'message': 'Exam entry fetched', 'data': {'found': exam_entry is not None, 'academic_session': exam_entry.academic_session if exam_entry else None, 'year': exam_entry.year if exam_entry else None, 'term': exam_entry.term if exam_entry else None, 'course_code': exam_entry.course_code if exam_entry else None, 'section': exam_entry.section if exam_entry else None}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'M'}) + '\n')
-        except: pass
-        # #endregion
         
         if not exam_entry:
             result['message'] = f'Exam entry {exam_entry_id} not found'
@@ -2523,12 +2362,6 @@ def clear_exam_marks_from_result_management(exam_entry_id):
             result['errors'].append(result['message'])
             return result
         
-        # #region agent log
-        try:
-            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                f.write(json_module.dumps({'location': 'clear_exam_marks_from_result_management:clear_strategy', 'message': 'Clear strategy determined', 'data': {'section': exam_entry.section, 'clear_part_a': clear_part_a, 'clear_part_b': clear_part_b}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'M'}) + '\n')
-        except: pass
-        # #endregion
         
         # Find the corresponding RSession
         r_session = query_for_window(RSession).filter_by(
@@ -2577,29 +2410,15 @@ def clear_exam_marks_from_result_management(exam_entry_id):
         result['success'] = True
         result['message'] = f'Successfully cleared marks: {result["marks_cleared"]} marks cleared'
         
-        # #region agent log
-        try:
-            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                f.write(json_module.dumps({'location': 'clear_exam_marks_from_result_management:commit', 'message': 'Changes committed', 'data': {'marks_cleared': result['marks_cleared']}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'M'}) + '\n')
-        except: pass
-        # #endregion
         
     except Exception as e:
         db.session.rollback()
-        error_msg = f'Error clearing marks for exam_entry {exam_entry_id}: {str(e)}'
-        result['message'] = error_msg
-        result['errors'].append(error_msg)
-        current_app.logger.error(error_msg, exc_info=True)
+        _, public_text = report_exception(e, 'Could not clear marks in Result Management.')
+        result['message'] = public_text
+        result['errors'].append(public_text)
         
-        # #region agent log
-        try:
-            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                f.write(json_module.dumps({'location': 'clear_exam_marks_from_result_management:error', 'message': 'Error occurred', 'data': {'error': str(e)}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'M'}) + '\n')
-        except: pass
-        # #endregion
     
     return result
-
 
 def sync_exam_marks_to_result_management(exam_entry_id):
     """
@@ -2613,13 +2432,6 @@ def sync_exam_marks_to_result_management(exam_entry_id):
         dict: {'success': bool, 'message': str, 'session_created': bool, 'subject_created': bool, 
                'students_created': int, 'marks_updated': int, 'errors': list}
     """
-    # #region agent log
-    import json as json_module
-    try:
-        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-            f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:entry', 'message': 'Sync function called', 'data': {'exam_entry_id': exam_entry_id}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A'}) + '\n')
-    except: pass
-    # #endregion
     
     result = {
         'success': False,
@@ -2635,12 +2447,6 @@ def sync_exam_marks_to_result_management(exam_entry_id):
         # Get the exam entry
         exam_entry = get_for_window(ExamPaperEvaluation, exam_entry_id)
         
-        # #region agent log
-        try:
-            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:exam_entry', 'message': 'Exam entry fetched', 'data': {'found': exam_entry is not None, 'academic_session': exam_entry.academic_session if exam_entry else None, 'year': exam_entry.year if exam_entry else None, 'term': exam_entry.term if exam_entry else None, 'course_code': exam_entry.course_code if exam_entry else None, 'section': exam_entry.section if exam_entry else None, 'has_marks_data': bool(exam_entry.marks_data) if exam_entry else False}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run3', 'hypothesisId': 'B'}) + '\n')
-        except: pass
-        # #endregion
         if not exam_entry:
             result['message'] = f'Exam entry {exam_entry_id} not found'
             result['errors'].append(result['message'])
@@ -2673,12 +2479,6 @@ def sync_exam_marks_to_result_management(exam_entry_id):
             query = query.filter(RSession.year.is_(None))
         r_session = query.first()
         
-        # #region agent log
-        try:
-            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:rsession', 'message': 'RSession lookup', 'data': {'found': r_session is not None, 'session_id': r_session.id if r_session else None, 'search_name': exam_entry.academic_session, 'search_year': exam_entry.year, 'search_term': exam_entry.term}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'C'}) + '\n')
-        except: pass
-        # #endregion
         
         if not r_session:
             # Auto-create RSession if Head of Discipline hasn't created it
@@ -2702,12 +2502,6 @@ def sync_exam_marks_to_result_management(exam_entry_id):
             session_id=r_session.id
         ).first()
         
-        # #region agent log
-        try:
-            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:rsubject', 'message': 'RSubject lookup', 'data': {'found': r_subject is not None, 'subject_id': r_subject.id if r_subject else None, 'search_code': exam_entry.course_code, 'session_id': r_session.id}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'D'}) + '\n')
-        except: pass
-        # #endregion
         
         if not r_subject:
             # Try to get credit from Course model
@@ -2745,14 +2539,8 @@ def sync_exam_marks_to_result_management(exam_entry_id):
             questions = exam_marks.get('questions', [])
             rows = exam_marks.get('rows', [])
             
-            # #region agent log
-            try:
-                with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                    f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:parse_json', 'message': 'JSON parsed', 'data': {'questions_count': len(questions), 'rows_count': len(rows), 'question_labels': [q.get('label', '') for q in questions[:5]]}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'E'}) + '\n')
-            except: pass
-            # #endregion
         except json.JSONDecodeError as e:
-            result['message'] = f'Error parsing marks_data JSON: {str(e)}'
+            result['message'] = 'Could not read the saved marks data.'
             result['errors'].append(result['message'])
             return result
         
@@ -2769,12 +2557,6 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                     # Skip rows without student_id
                     continue
                 
-                # #region agent log
-                try:
-                    with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                        f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:student_row', 'message': 'Processing student row', 'data': {'row_idx': row_idx, 'student_id': student_id_str, 'has_marks': 'marks' in row, 'marks_keys': list(row.get('marks', {}).keys()) if isinstance(row.get('marks'), dict) else None}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'F'}) + '\n')
-                except: pass
-                # #endregion
                 
                 # Find or create RStudent
                 r_student = RStudent.query.filter_by(
@@ -2820,12 +2602,6 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                 existing_part_a = r_mark.part_a
                 existing_part_b = r_mark.part_b
                 
-                # #region agent log
-                try:
-                    with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                        f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:existing_marks', 'message': 'Existing marks before sync', 'data': {'student_id': student_id_str, 'existing_part_a': existing_part_a, 'existing_part_b': existing_part_b}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run7', 'hypothesisId': 'L'}) + '\n')
-                except: pass
-                # #endregion
                 
                 # Extract Part A and Part B marks (reuse logic from refresh_marks)
                 marks_dict = row.get('marks', {})
@@ -2839,12 +2615,6 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                 if exam_entry.section:
                     section_lower = str(exam_entry.section).lower().strip()
                     
-                    # #region agent log
-                    try:
-                        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                            f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:section_check', 'message': 'Checking section field', 'data': {'student_id': student_id_str, 'section_original': exam_entry.section, 'section_lower': section_lower}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run4', 'hypothesisId': 'I'}) + '\n')
-                    except: pass
-                    # #endregion
                     
                     # Use strict matching: check for "part a" or "parta" (not just 'a' which matches both A and B)
                     if 'part a' in section_lower or section_lower == 'a' or section_lower.startswith('a '):
@@ -2878,12 +2648,6 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                             section_a_found = True
                             section_field_assigned = True
                             
-                            # #region agent log
-                            try:
-                                with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                                    f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:part_a_assigned', 'message': 'Part A assigned from section', 'data': {'student_id': student_id_str, 'section': exam_entry.section, 'part_a_total': part_a_total, 'part_a_final': r_mark.part_a, 'preserved_part_b': r_mark.part_b}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run4', 'hypothesisId': 'I'}) + '\n')
-                            except: pass
-                            # #endregion
                     # Use strict matching: check for "part b" or "partb" (not just 'b' which might match other things)
                     elif 'part b' in section_lower or section_lower == 'b' or section_lower.startswith('b '):
                         # All questions in this entry are Part B marks
@@ -2916,49 +2680,11 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                             section_b_found = True
                             section_field_assigned = True
                             
-                            # #region agent log
-                            try:
-                                with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                                    f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:part_b_assigned', 'message': 'Part B assigned from section', 'data': {'student_id': student_id_str, 'section': exam_entry.section, 'part_b_total': part_b_total, 'part_b_final': r_mark.part_b, 'preserved_part_a': r_mark.part_a}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run4', 'hypothesisId': 'I'}) + '\n')
-                            except: pass
-                            # #endregion
                 
-                # #region agent log
-                try:
-                    # Log detailed structure of questions and marks
-                    questions_detail = []
-                    for q in questions:
-                        q_detail = {'label': q.get('label', ''), 'parts': []}
-                        if 'parts' in q:
-                            for p in q.get('parts', []):
-                                q_detail['parts'].append({'label': p.get('label', '')})
-                        questions_detail.append(q_detail)
-                    
-                    marks_detail = {}
-                    for k, v in marks_dict.items():
-                        if isinstance(v, dict):
-                            marks_detail[k] = {'type': 'dict', 'keys': list(v.keys()), 'sample_values': {k2: v2 for k2, v2 in list(v.items())[:2]}}
-                        else:
-                            marks_detail[k] = {'type': type(v).__name__, 'value': str(v)[:50]}
-                    
-                    with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                        f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:marks_extraction_start', 'message': 'Starting marks extraction with detailed structure', 'data': {'student_id': student_id_str, 'questions_detail': questions_detail, 'marks_detail': marks_detail, 'total': row.get('total')}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run2', 'hypothesisId': 'G'}) + '\n')
-                except Exception as log_err:
-                    try:
-                        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                            f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:marks_extraction_start', 'message': 'Logging error', 'data': {'error': str(log_err)}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run2', 'hypothesisId': 'G'}) + '\n')
-                    except: pass
-                # #endregion
                 
                 # Check question labels for Section A/B (ONLY if section field didn't assign anything)
                 # CRITICAL: Skip this entire section if section field already assigned Part A or Part B
                 if not section_field_assigned:
-                    # #region agent log
-                    try:
-                        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                            f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:check_question_labels', 'message': 'Checking question labels (section_field_assigned=False)', 'data': {'student_id': student_id_str, 'section_field_assigned': section_field_assigned}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run6', 'hypothesisId': 'K'}) + '\n')
-                    except: pass
-                    # #endregion
                     for question in questions:
                         question_label = question.get('label', '').lower()
                         
@@ -2969,21 +2695,9 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                                 if section_a_total > 0:
                                     r_mark.part_a = min(25.0, section_a_total)
                                     section_a_found = True
-                                    # #region agent log
-                                    try:
-                                        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                                            f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:part_a_from_labels', 'message': 'Part A assigned from question labels', 'data': {'student_id': student_id_str, 'question_label': question.get('label'), 'part_a': r_mark.part_a}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run6', 'hypothesisId': 'K'}) + '\n')
-                                    except: pass
-                                    # #endregion
                             elif isinstance(question_marks, (int, float)):
                                 r_mark.part_a = min(25.0, float(question_marks))
                                 section_a_found = True
-                                # #region agent log
-                                try:
-                                    with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                                        f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:part_a_from_labels', 'message': 'Part A assigned from question labels', 'data': {'student_id': student_id_str, 'question_label': question.get('label'), 'part_a': r_mark.part_a}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run6', 'hypothesisId': 'K'}) + '\n')
-                                except: pass
-                                # #endregion
                         
                         elif ('section b' in question_label or 'part b' in question_label) and not section_b_found:
                             question_marks = marks_dict.get(question.get('label', ''), {})
@@ -2992,29 +2706,10 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                                 if section_b_total > 0:
                                     r_mark.part_b = min(25.0, section_b_total)
                                     section_b_found = True
-                                    # #region agent log
-                                    try:
-                                        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                                            f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:part_b_from_labels', 'message': 'Part B assigned from question labels', 'data': {'student_id': student_id_str, 'question_label': question.get('label'), 'part_b': r_mark.part_b}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run6', 'hypothesisId': 'K'}) + '\n')
-                                    except: pass
-                                    # #endregion
                             elif isinstance(question_marks, (int, float)):
                                 r_mark.part_b = min(25.0, float(question_marks))
                                 section_b_found = True
-                                # #region agent log
-                                try:
-                                    with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                                        f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:part_b_from_labels', 'message': 'Part B assigned from question labels', 'data': {'student_id': student_id_str, 'question_label': question.get('label'), 'part_b': r_mark.part_b}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run6', 'hypothesisId': 'K'}) + '\n')
-                                except: pass
-                                # #endregion
-                else:
-                    # #region agent log
-                    try:
-                        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                            f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:skip_question_labels', 'message': 'Skipping question labels check (section_field_assigned=True)', 'data': {'student_id': student_id_str, 'section_field_assigned': section_field_assigned}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run6', 'hypothesisId': 'K'}) + '\n')
-                    except: pass
-                    # #endregion
-                
+
                 # Alternative patterns (only if section field didn't assign anything)
                 # Skip if section field already assigned Part A or Part B
                 if not section_field_assigned and (not section_a_found or not section_b_found):
@@ -3055,12 +2750,6 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                 # IMPORTANT: Only execute if section field didn't assign anything
                 # If section field assigned Part A or Part B, don't use fallback strategies
                 
-                # #region agent log
-                try:
-                    with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                        f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:fallback_check', 'message': 'Checking fallback strategy conditions', 'data': {'student_id': student_id_str, 'section_field_assigned': section_field_assigned, 'section_a_found': section_a_found, 'section_b_found': section_b_found, 'will_execute_fallback': not section_field_assigned and not section_a_found and not section_b_found}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run5', 'hypothesisId': 'J'}) + '\n')
-                except: pass
-                # #endregion
                 
                 if not section_field_assigned and not section_a_found and not section_b_found:
                     # Strategy 1: If 2 questions, split total equally
@@ -3077,12 +2766,6 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                                 pass
                     # Strategy 2: If 4 questions, assume Questions 1-2 = Part A, Questions 3-4 = Part B
                     elif len(questions) == 4:
-                        # #region agent log
-                        try:
-                            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                                f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:fallback_4q', 'message': 'Executing 4-question fallback strategy', 'data': {'student_id': student_id_str}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run5', 'hypothesisId': 'J'}) + '\n')
-                        except: pass
-                        # #endregion
                         try:
                             part_a_total = 0.0
                             part_b_total = 0.0
@@ -3141,31 +2824,25 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                 # The section field might indicate which part this entry represents,
                 # but we still sync all available marks
                 
-                # #region agent log
-                try:
-                    with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                        f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:marks_extraction_end', 'message': 'Marks extraction completed', 'data': {'student_id': student_id_str, 'part_a': r_mark.part_a, 'part_b': r_mark.part_b, 'section_a_found': section_a_found, 'section_b_found': section_b_found}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'G'}) + '\n')
-                except: pass
-                # #endregion
                 
                 result['marks_updated'] += 1
                 _round_theory_component_marks(r_mark)
                 
             except Exception as e:
-                error_msg = f'Error processing student row {row.get("student_id", "unknown")}: {str(e)}'
-                result['errors'].append(error_msg)
-                current_app.logger.error(error_msg, exc_info=True)
+                current_app.logger.error(
+                    'Error processing student row %s: %s',
+                    row.get('student_id', 'unknown'),
+                    e,
+                    exc_info=True,
+                )
+                result['errors'].append(
+                    f'Could not sync marks for student {row.get("student_id", "unknown")}.'
+                )
                 continue
         
         # Commit all changes
         db.session.commit()
         
-        # #region agent log
-        try:
-            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                f.write(json_module.dumps({'location': 'sync_exam_marks_to_result_management:commit', 'message': 'Changes committed', 'data': {'marks_updated': result['marks_updated'], 'students_created': result['students_created'], 'session_created': result['session_created'], 'subject_created': result['subject_created']}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'H'}) + '\n')
-        except: pass
-        # #endregion
         
         result['success'] = True
         result['message'] = f'Successfully synced marks: {result["marks_updated"]} marks updated'
@@ -3180,9 +2857,9 @@ def sync_exam_marks_to_result_management(exam_entry_id):
         
     except Exception as e:
         db.session.rollback()
-        result['message'] = f'Error syncing exam marks: {str(e)}'
-        result['errors'].append(result['message'])
-        current_app.logger.error(f'Error syncing exam marks for entry {exam_entry_id}: {str(e)}', exc_info=True)
+        _, public_text = report_exception(e, 'Could not sync exam marks to Result Management.')
+        result['message'] = public_text
+        result['errors'].append(public_text)
     
     return result
 
@@ -3982,10 +3659,7 @@ def auto_save_marks(session_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error auto-saving marks: {e}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error auto-saving marks: {str(e)}'
-        }), 500
+        return api_error(e, 'Could not auto-save marks.')
 
 @result_management_bp.route('/view_results/<int:session_id>')
 @login_required
@@ -4105,7 +3779,6 @@ def student_wise_result(session_id):
                            selected_student=selected_student,
                            results=results,
                            term_assessment=term_assessment)
-
 
 @result_management_bp.route('/course_registration/<int:session_id>', methods=['GET', 'POST'])
 @login_required
@@ -4227,7 +3900,6 @@ def course_registration(session_id):
                            auto_registered_student_ids=auto_registered_student_ids,
                            auto_retake_student_ids=auto_retake_student_ids)
 
-
 @result_management_bp.route('/delete_session/<int:session_id>', methods=['POST'])
 @login_required
 def delete_session(session_id):
@@ -4249,10 +3921,9 @@ def delete_session(session_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting result session {session_id}: {e}', exc_info=True)
-        flash(f'Error deleting session: {str(e)}', 'danger')
+        flash_exception(e, 'Error deleting session', 'danger')
     
     return redirect(url_for('result_management.index'))
-
 
 def _ensure_paragraph_style(styles, name, **kwargs):
     """Register a custom paragraph style once (bulk PDF generation reuses stylesheet)."""
@@ -4260,20 +3931,17 @@ def _ensure_paragraph_style(styles, name, **kwargs):
         return
     styles.add(ParagraphStyle(name=name, **kwargs))
 
-
 def _build_pdf_document(pdf_instance, elements):
     """Build a ReportLab PDF into the instance buffer and return bytes."""
     pdf_instance.doc.build(elements)
     pdf_instance.buffer.seek(0)
     return pdf_instance.buffer.getvalue()
 
-
 def _sanitize_zip_entry_name(name):
     """Make archive entry names safe across operating systems."""
     import re
     cleaned = re.sub(r'[\\/:*?"<>|]+', '_', str(name or '').strip())
     return cleaned or 'document.pdf'
-
 
 def _course_result_extra_columns(subject):
     """Return mark columns for course-wise result/PDF queries."""
@@ -4288,7 +3956,6 @@ def _course_result_extra_columns(subject):
     if subject.subject_type == 'Viva':
         return [RMark.viva]
     return []
-
 
 def _query_course_result_rows(session_id, subject):
     """Fetch course-wise result rows for PDF generation."""
@@ -4313,7 +3980,6 @@ def _query_course_result_rows(session_id, subject):
         .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == subject.id))\
         .filter(RStudent.session_id == session_id)\
         .order_by(RStudent.student_id).all()
-
 
 def _resolve_course_result_display(res, marks_data):
     """Return (total, grade_point, grade_letter) for a course-wise result row.
@@ -4344,20 +4010,17 @@ def _resolve_course_result_display(res, marks_data):
 
     return total_marks, grade_point, grade_letter
 
-
 def _build_course_result_pdf_bytes(subject, session, results, remark_by_roll=None):
     buffer = BytesIO()
     pdf = CourseTabulationPDF(buffer, subject, session, remark_by_roll=remark_by_roll)
     elements = pdf.generate_elements(results)
     return _build_pdf_document(pdf, elements)
 
-
 def _build_student_result_pdf_bytes(student, session, processed_results, term_assessment):
     buffer = BytesIO()
     pdf = StudentTabulationPDF(buffer, student, session)
     elements = pdf.generate_elements(processed_results, term_assessment)
     return _build_pdf_document(pdf, elements)
-
 
 class PDFGenerator:
     def __init__(self, buffer, pagesize):
@@ -4661,53 +4324,6 @@ class StudentTabulationPDF(PDFGenerator):
         elements.append(sig_table)
         return elements
 
-
-@result_management_bp.route('/test_download/<int:session_id>/<int:subject_id>')
-@login_required
-def test_download(session_id, subject_id):
-    """Simple test endpoint for debugging download issues"""
-    try:
-        current_app.logger.info(f"Testing download endpoint for session {session_id}, subject {subject_id}")
-        
-        # Check if subject and session exist
-        session = _get_rsession_or_404(session_id)
-        subject = _get_rsubject_or_404(subject_id, session_id=session_id)
-        
-        # Create a simple test PDF
-        from reportlab.lib.pagesizes import letter
-        from reportlab.platypus import SimpleDocTemplate, Paragraph
-        from reportlab.lib.styles import getSampleStyleSheet
-        
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter)
-        styles = getSampleStyleSheet()
-        
-        elements = []
-        elements.append(Paragraph(f"Test PDF for {subject.name}", styles['Title']))
-        elements.append(Paragraph(f"Session: {session.name}", styles['Normal']))
-        elements.append(Paragraph(f"Subject: {subject.code} - {subject.name}", styles['Normal']))
-        elements.append(Paragraph(f"Generated at: {datetime.now()}", styles['Normal']))
-        
-        doc.build(elements)
-        buffer.seek(0)
-        
-        current_app.logger.info(f"Test PDF generated successfully")
-        
-        return Response(
-            buffer.getvalue(),
-            mimetype='application/pdf',
-            headers={
-                'Content-Disposition': f'attachment; filename="test_{subject.code}.pdf"',
-                'Content-Length': str(len(buffer.getvalue()))
-            }
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        current_app.logger.error(f"Test download failed: {e}")
-        return f"Test failed: {str(e)}", 500
-
 @result_management_bp.route('/download/course_result/<int:session_id>/<int:subject_id>')
 @login_required
 def download_course_result(session_id, subject_id):
@@ -4720,7 +4336,7 @@ def download_course_result(session_id, subject_id):
             current_app.logger.info("Required modules available for PDF")
         except ImportError as e:
             current_app.logger.error(f"Missing required module for PDF: {e}")
-            flash(f'Missing required module for PDF: {e}', 'error')
+            flash_exception(e, 'Missing required module for PDF', 'error')
             return redirect(url_for('result_management.course_wise_result', session_id=session_id))
         
         session = _get_rsession_or_404(session_id)
@@ -4757,7 +4373,7 @@ def download_course_result(session_id, subject_id):
         # Simple error logging without error_handler dependency
         current_app.logger.error(f"Error generating course result PDF for session {session_id}, subject {subject_id}: {e}")
         current_app.logger.error(f"Error details: {str(e)}")
-        flash(f'Error generating PDF: {str(e)}', 'error')
+        flash_exception(e, 'Error generating PDF', 'error')
         return redirect(url_for('result_management.course_wise_result', session_id=session_id))
 
 @result_management_bp.route('/download/student_result/<int:session_id>/<int:student_id>')
@@ -4772,7 +4388,7 @@ def download_student_result(session_id, student_id):
             current_app.logger.info("Required modules available for PDF")
         except ImportError as e:
             current_app.logger.error(f"Missing required module for PDF: {e}")
-            flash(f'Missing required module for PDF: {e}', 'error')
+            flash_exception(e, 'Missing required module for PDF', 'error')
             return redirect(url_for('result_management.student_wise_result', session_id=session_id))
         
         session = _get_rsession_or_404(session_id)
@@ -4817,7 +4433,7 @@ def download_student_result(session_id, student_id):
         # Simple error logging without error_handler dependency
         current_app.logger.error(f"Error generating student result PDF for session {session_id}, student {student_id}: {e}")
         current_app.logger.error(f"Error details: {str(e)}")
-        flash(f'Error generating PDF: {str(e)}', 'error')
+        flash_exception(e, 'Error generating PDF', 'error')
         return redirect(url_for('result_management.student_wise_result', session_id=session_id))
 
 @result_management_bp.route('/download/student_result_docx/<int:session_id>/<int:student_id>')

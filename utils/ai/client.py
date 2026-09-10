@@ -484,7 +484,7 @@ def user_facing_generation_error(exc):
         or 'sqlalchemy' in lowered
     ):
         return 'ডাটাবেস সংযোগ বিচ্ছিন্ন হয়েছে। আবার Generate চাপুন।'
-    return (text[:400] if text else 'Generation failed.')
+    return 'Generation failed. Please try again.'
 
 
 def test_provider_connection(provider, api_key, model_name=None, api_base_url=None):

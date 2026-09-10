@@ -1,4 +1,5 @@
 from flask import render_template, request, redirect, url_for, flash, jsonify, current_app, session
+from utils.public_errors import api_error, flash_exception, report_exception
 from flask_login import login_required
 from sqlalchemy import or_
 import pandas as pd
@@ -221,7 +222,7 @@ def add_student():
         })
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': f'Error adding student: {str(e)}'}), 500
+        return api_error(e, 'Error adding student')
 
 @student_management_bp.route('/edit/<int:student_id>', methods=['GET', 'POST'])
 @login_required
@@ -267,7 +268,7 @@ def edit_student(student_id):
             return redirect(url_for('student_management.index', batch=session.get('student_management_batch', '')))
         except Exception as e:
             db.session.rollback()
-            flash(f'Error updating student: {str(e)}', 'error')
+            flash_exception(e, 'Error updating student', 'error')
             return redirect(url_for('student_management.edit_student', student_id=student_id))
     
     return render_template('student_management/edit_student.html', student=student)
@@ -306,7 +307,7 @@ def delete_student(student_id):
         flash(f'Student {name} ({student_id_val}) deleted successfully!', 'success')
     except Exception as e:
         db.session.rollback()
-        flash(f'Error deleting student: {str(e)}', 'error')
+        flash_exception(e, 'Error deleting student', 'error')
     
     return redirect(url_for('student_management.index', batch=session.get('student_management_batch', '')))
 
@@ -414,7 +415,8 @@ def bulk_upload():
                 existing_student_ids.add(student_id)  # Add to set to avoid duplicates in same upload
                 added_count += 1
             except Exception as e:
-                errors.append(f'Row {idx + 2}: {str(e)}')
+                _, text = report_exception(e, f'Row {idx + 2}: could not add this student.')
+                errors.append(text)
                 continue
         
         db.session.commit()
@@ -437,5 +439,5 @@ def bulk_upload():
         })
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': f'Error processing Excel file: {str(e)}'}), 500
+        return api_error(e, 'Error processing Excel file')
 

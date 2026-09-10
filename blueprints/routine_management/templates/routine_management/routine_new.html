@@ -1380,8 +1380,11 @@ body.fullscreen-active .routine-table {
             {% if current_saved_routine %}
             <span class="r-badge">{{ current_saved_routine.year }}{% if current_saved_routine.name and current_saved_routine.name != current_saved_routine.year %} {{ current_saved_routine.name }}{% endif %}</span>
             {% endif %}
-            <input type="text" id="routine-title" class="r-title" placeholder="Class Routine" value="Class Routine">
-            <input type="date" id="effective-date" class="r-date">
+            {% if not can_edit %}
+            <span class="r-badge">View only</span>
+            {% endif %}
+            <input type="text" id="routine-title" class="r-title" placeholder="Class Routine" value="Class Routine"{% if not can_edit %} readonly{% endif %}>
+            <input type="date" id="effective-date" class="r-date"{% if not can_edit %} readonly{% endif %}>
         </div>
         <div class="r-toolbar-right m-action-row">
             {% if can_edit %}
@@ -1400,7 +1403,7 @@ body.fullscreen-active .routine-table {
             </button>
             <button type="button" class="r-btn" id="btn-pdf" onclick="if(window.RoutineManager&&window.RoutineManager.downloadPDF){window.RoutineManager.downloadPDF();}else{alert('Please wait for page to load.');}"><i class="fas fa-file-pdf"></i> PDF</button>
             <button type="button" class="r-btn" id="btn-fullscreen" title="Fullscreen"><i class="fas fa-expand"></i></button>
-            <a href="{{ url_for('routine_management.index') if can_edit else url_for('routine_management.public_routines') }}" class="r-btn" title="Back"><i class="fas fa-arrow-left"></i> Back</a>
+            <a href="{{ url_for('routine_management.index') if (can_edit or is_routine_editor|default(false)) else url_for('routine_management.public_routines') }}" class="r-btn" title="Back"><i class="fas fa-arrow-left"></i> Back</a>
         </div>
     </header>
 

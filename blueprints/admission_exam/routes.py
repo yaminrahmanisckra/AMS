@@ -28,6 +28,7 @@ from flask import (
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from utils.safe_redirect import safe_redirect_target
+from utils.public_errors import flash_exception
 
 from extensions import db
 from role_utils import is_admin, has_role, parse_roles
@@ -3646,11 +3647,9 @@ def candidate_admit_card(cycle, candidate):
         pdf_bytes = _render_admit_card_pdf(candidate)
     except Exception as e:
         current_app.logger.exception('Admit card PDF failed for %s: %s', candidate.application_id, e)
-        # Surface short error so cPanel debugging is possible without log access
-        err = _rl_safe_text(str(e), 'unknown error')[:180]
-        flash(
-            f'Could not generate admit card ({type(e).__name__}: {err}). '
-            'Please try again or contact the committee.',
+        flash_exception(
+            e,
+            'Could not generate admit card. Please try again or contact the committee.',
             'danger',
         )
         return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))

@@ -8,6 +8,7 @@ from extensions import csrf
 from role_utils import parse_roles, get_teachers_excluding_head
 from utils.tenant import current_tenant, load_survey_pack
 from utils.window_utils import get_for_window, get_or_404_for_window, query_for_window, stamp_window_id, get_effective_window_id
+from utils.public_errors import api_error, client_message
 
 from . import self_assessment_bp
 from .models import PsacCommittee, PsacCommitteeMember, SurveyLink, SurveyResponse, AlumniSurveyResponse, SurveyInsightSnapshot
@@ -507,7 +508,7 @@ def public_survey_form_pdf(survey_type, code):
         pdf_data = pdf_buffer.getvalue()
     except Exception as e:
         current_app.logger.error(f"Form PDF error: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        return api_error(e)
     filename = f"{survey_type}_survey_form.pdf"
     resp = Response(pdf_data, mimetype='application/pdf')
     resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
@@ -822,7 +823,7 @@ def survey_insights(survey_type):
             snapshot = row
             flash('থিম সারাংশ তৈরি হয়েছে।', 'success')
         except AIClientError as exc:
-            flash(str(exc), 'danger')
+            flash(client_message(exc), 'danger')
         except Exception as exc:
             db.session.rollback()
             current_app.logger.error(f'SAR insight failed for {survey_type}: {exc}', exc_info=True)
@@ -975,7 +976,7 @@ def survey_responses_pdf(survey_type):
     except Exception as e:
         from flask import current_app
         current_app.logger.error(f"All responses PDF error: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        return api_error(e)
     filename = f"{survey_type}_survey_all_responses.pdf"
     resp = Response(pdf_data, mimetype='application/pdf')
     resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
@@ -1019,7 +1020,7 @@ def alumni_response_pdf(response_id):
         current_app.logger.error(f"Alumni response PDF error: {e}", exc_info=True)
         back_url = url_for('self_assessment.survey_responses_list', survey_type='alumni')
         if request.accept_mimetypes.best_match(['text/html', 'application/json']) == 'application/json':
-            return jsonify({'error': 'PDF generation failed', 'detail': str(e)}), 500
+            return api_error(e, 'PDF generation failed.')
         return _pdf_fallback_html('alumni', response_id, back_url), 503
 
 
@@ -1056,7 +1057,7 @@ def generic_response_pdf(survey_type, response_id):
         current_app.logger.error(f"Survey response PDF error: {e}", exc_info=True)
         back_url = url_for('self_assessment.survey_responses_list', survey_type=survey_type)
         if request.accept_mimetypes.best_match(['text/html', 'application/json']) == 'application/json':
-            return jsonify({'error': 'PDF generation failed', 'detail': str(e)}), 500
+            return api_error(e, 'PDF generation failed.')
         return _pdf_fallback_html(survey_type, response_id, back_url), 503
 
 

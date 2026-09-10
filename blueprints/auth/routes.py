@@ -51,18 +51,13 @@ def login():
     student_default_password = current_app.config.get('DEFAULT_STUDENT_PASSWORD', '')
     
     if request.method == 'POST':
-        # Clear any existing session before processing new login
-        # This prevents session cookie reuse issues (especially with ngrok)
         if current_user.is_authenticated:
-            current_app.logger.debug("Clearing existing session before login")
             logout_user()
         session.clear()
         
         username = request.form.get('username')
         password = request.form.get('password')
         selected_role = request.form.get('active_role') or default_login_role
-        
-        current_app.logger.debug("Login attempt, role: %s", selected_role)
         
         def render_form():
             return render_template(
@@ -138,21 +133,6 @@ def login():
         response.headers['Expires'] = '0'
         
         return response
-    
-    # GET request handling
-    # If already authenticated via ngrok, clear session to prevent cookie reuse
-    if current_user.is_authenticated:
-        # Check if user wants to force logout (via query parameter)
-        if request.args.get('force_logout') == '1':
-            logout_user()
-            session.clear()
-            flash('Session cleared. Please login again.', 'info')
-        else:
-            # If accessing via ngrok, always clear session to prevent cookie reuse
-            host = request.host
-            if 'ngrok' in host.lower() or 'ngrok.io' in host.lower():
-                logout_user()
-                session.clear()
     
     return render_template(
         'auth/login.html',

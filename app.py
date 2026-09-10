@@ -55,6 +55,7 @@ from utils.ownership import resolve_caller_teacher
 from utils.timezone import format_bd, bd_now
 from utils.tenant import current_tenant, init_tenant, public_app_url, year_is_postgraduate, course_year_digit_is_pg
 from utils.security_config import apply_proxy_fix, is_production, resolve_secret_key, session_lifetime_seconds
+from utils.public_errors import api_error, flash_exception, client_message
 
 try:
     from openpyxl import Workbook
@@ -233,8 +234,7 @@ def create_app():
     app.config['WTF_CSRF_ENABLED'] = True
     app.config['CSRF_ENABLED'] = os.getenv('CSRF_ENABLED', _csrf_default).lower() in ('1', 'true', 'yes')
     
-    # Session cookie configuration for ngrok compatibility
-    # Don't set domain to allow cookies to work with any domain (including ngrok)
+    # Session cookies are host-only (no Domain=) so they stay on this site.
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'false').lower() in ('1', 'true', 'yes')
@@ -2023,7 +2023,7 @@ def create_app():
                 flash('Entry archived successfully.', 'success')
         except Exception as exc:
             db.session.rollback()
-            flash(f'Failed to update archive status: {exc}', 'danger')
+            flash_exception(exc, 'Failed to update archive status', 'danger')
         return redirect(url_for('exam_evaluation'))
     
     def _find_duplicate_mark_field_values(rows, field_key):
@@ -2737,7 +2737,7 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Error auto-saving exam marks for entry {entry_id}: {e}")
-            return jsonify({'success': False, 'message': f'Error saving: {str(e)}'}), 500
+            return api_error(e, 'Error saving')
 
     @app.route('/exam-evaluation/<int:entry_id>/scrutinizer', methods=['GET', 'POST'])
     @login_required
@@ -2807,7 +2807,7 @@ def create_app():
                     flash('Assigned scrutinizer removed.', 'info')
             except Exception as exc:
                 db.session.rollback()
-                flash(f'Failed to process request: {exc}', 'danger')
+                flash_exception(exc, 'Failed to process request', 'danger')
             return redirect(url_for('exam_assign_scrutinizer', entry_id=entry_id))
 
         invites = query_for_window(ExamScrutinizerInvite).filter_by(exam_entry_id=entry.id).order_by(ExamScrutinizerInvite.created_at.desc()).all()
@@ -2886,24 +2886,10 @@ def create_app():
                 
                 # If marking as incomplete (was True, now False), clear marks from Result Management
                 if not invite.is_complete and was_complete:
-                    # #region agent log
-                    import json as json_module
-                    try:
-                        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                            f.write(json_module.dumps({'location': 'app.py:toggle_incomplete', 'message': 'Toggle incomplete triggered clear', 'data': {'invite_id': invite_id, 'exam_entry_id': invite.exam_entry_id, 'was_complete': was_complete, 'now_complete': False}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'M'}) + '\n')
-                    except: pass
-                    # #endregion
                     try:
                         from blueprints.result_management.routes import clear_exam_marks_from_result_management
                         clear_result = clear_exam_marks_from_result_management(invite.exam_entry_id)
-                        
-                        # #region agent log
-                        try:
-                            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                                f.write(json_module.dumps({'location': 'app.py:clear_result', 'message': 'Clear result received', 'data': {'success': clear_result.get('success'), 'marks_cleared': clear_result.get('marks_cleared'), 'message': clear_result.get('message'), 'errors': clear_result.get('errors', [])}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'M'}) + '\n')
-                        except: pass
-                        # #endregion
-                        
+
                         if clear_result['success']:
                             current_app.logger.info(f'Auto-clear successful for exam_entry {invite.exam_entry_id}: {clear_result["message"]}')
                             flash(f'Status updated to Incomplete. Marks cleared from Result Management. {clear_result["marks_cleared"]} marks cleared.', 'info')
@@ -2918,24 +2904,10 @@ def create_app():
                 
                 # If marking as complete (was False, now True), sync marks to Result Management
                 elif invite.is_complete and not was_complete:
-                    # #region agent log
-                    import json as json_module
-                    try:
-                        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                            f.write(json_module.dumps({'location': 'app.py:toggle_complete', 'message': 'Toggle complete triggered sync', 'data': {'invite_id': invite_id, 'exam_entry_id': invite.exam_entry_id, 'was_complete': was_complete, 'now_complete': True}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A'}) + '\n')
-                    except: pass
-                    # #endregion
                     try:
                         from blueprints.result_management.routes import sync_exam_marks_to_result_management
                         sync_result = sync_exam_marks_to_result_management(invite.exam_entry_id)
-                        
-                        # #region agent log
-                        try:
-                            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
-                                f.write(json_module.dumps({'location': 'app.py:sync_result', 'message': 'Sync result received', 'data': {'success': sync_result.get('success'), 'marks_updated': sync_result.get('marks_updated'), 'message': sync_result.get('message'), 'errors': sync_result.get('errors', [])}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A'}) + '\n')
-                        except: pass
-                        # #endregion
-                        
+
                         if sync_result['success']:
                             current_app.logger.info(f'Auto-sync successful for exam_entry {invite.exam_entry_id}: {sync_result["message"]}')
                             # Optionally add a flash message, but keep it brief
@@ -2956,7 +2928,7 @@ def create_app():
                 # Flash messages are already shown by sync/clear functions above
             except Exception as exc:
                 db.session.rollback()
-                flash(f'Failed to update status: {exc}', 'danger')
+                flash_exception(exc, 'Failed to update status', 'danger')
             # Redirect to next parameter or default to invitations page
             next_url = _safe_next_url(request.form.get('next') or request.args.get('next'))
             if next_url:
@@ -3001,7 +2973,7 @@ def create_app():
             flash('Invitation updated.', 'success')
         except Exception as exc:
             db.session.rollback()
-            flash(f'Failed to update invitation: {exc}', 'danger')
+            flash_exception(exc, 'Failed to update invitation', 'danger')
 
         return redirect(url_for('class_management.my_invitations'))
 
@@ -3487,7 +3459,7 @@ def create_app():
             })
         except Exception as e:
             current_app.logger.error(f'Error setting active semester: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+            return api_error(e)
 
     @app.route('/admin/active-semester/list', methods=['GET'])
     @login_required
@@ -3514,7 +3486,7 @@ def create_app():
             })
         except Exception as e:
             current_app.logger.error(f'Error listing active semesters: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+            return api_error(e)
 
     @app.route('/admin/active-semester/deactivate', methods=['POST'])
     @login_required
@@ -3565,7 +3537,7 @@ def create_app():
                 }), 404
         except Exception as e:
             current_app.logger.error(f'Error deactivating semester: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+            return api_error(e)
 
     @app.route('/admin/active-window')
     @login_required
@@ -3621,7 +3593,7 @@ def create_app():
             })
         except Exception as e:
             current_app.logger.error(f'Error creating operational window: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+            return api_error(e)
 
     @app.route('/admin/active-window/update', methods=['POST'])
     @login_required
@@ -3654,7 +3626,7 @@ def create_app():
             })
         except Exception as e:
             current_app.logger.error(f'Error updating operational window: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+            return api_error(e)
 
     @app.route('/admin/active-window/activate', methods=['POST'])
     @login_required
@@ -3680,7 +3652,7 @@ def create_app():
             })
         except Exception as e:
             current_app.logger.error(f'Error activating window: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+            return api_error(e)
 
     @app.route('/admin/active-window/deactivate', methods=['POST'])
     @login_required
@@ -3705,7 +3677,7 @@ def create_app():
             })
         except Exception as e:
             current_app.logger.error(f'Error deactivating window: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+            return api_error(e)
 
     @app.route('/admin/ai-settings', methods=['GET', 'POST'])
     @login_required
@@ -3795,7 +3767,7 @@ def create_app():
                     provider=setting.provider,
                 )
             except ValueError as exc:
-                flash(str(exc), 'danger')
+                flash(client_message(exc), 'danger')
                 session['ai_setup_draft'] = _setup_form_from_setting(setting)
                 redirect_target = url_for('admin_ai_settings', edit=setting.id) if setting.id else url_for('admin_ai_settings')
                 return redirect(redirect_target)
@@ -3837,10 +3809,10 @@ def create_app():
                         )
                         flash(msg + ' এখন অবশ্যই **সংরক্ষণ করুন** — না করলে Course Outline AI চালু হবে না।', 'success')
                     except AIClientError as exc:
-                        flash(str(exc), 'danger')
+                        flash(client_message(exc), 'danger')
                     except Exception as exc:
                         current_app.logger.error(f'AI settings test failed: {exc}', exc_info=True)
-                        flash(f'সংযোগ ব্যর্থ: {exc}', 'danger')
+                        flash_exception(exc, 'সংযোগ ব্যর্থ', 'danger')
                 session['ai_setup_draft'] = _setup_form_from_setting(setting)
                 redirect_target = url_for('admin_ai_settings', edit=setting.id) if setting.id else url_for('admin_ai_settings')
                 return redirect(redirect_target)
@@ -3948,7 +3920,7 @@ def create_app():
             try:
                 api_base_url = sanitize_ai_base_url(api_base_url, provider=provider)
             except AIURLSafetyError as exc:
-                return jsonify({'success': False, 'message': str(exc)}), 400
+                return jsonify({'success': False, 'message': client_message(exc)}), 400
         api_key = (data.get('api_key') or '').strip()
 
         if not api_key:
@@ -3964,10 +3936,10 @@ def create_app():
             message = test_provider_connection(provider, api_key, model_name=model_name, api_base_url=api_base_url)
             return jsonify({'success': True, 'message': message})
         except AIClientError as exc:
-            return jsonify({'success': False, 'message': str(exc)}), 400
+            return jsonify({'success': False, 'message': client_message(exc)}), 400
         except Exception as exc:
             current_app.logger.error(f'AI settings test failed: {exc}', exc_info=True)
-            return jsonify({'success': False, 'message': str(exc)}), 500
+            return api_error(exc)
 
     @app.route('/admin/ai-settings/<int:setting_id>/delete', methods=['POST'])
     @login_required
@@ -4420,7 +4392,7 @@ def create_app():
                 features=features,
             )
         except TenantConfigError as exc:
-            flash(str(exc), 'danger')
+            flash(client_message(exc), 'danger')
             return redirect(url_for('admin_disciplines'))
         except OSError:
             flash('Could not write the tenant folder. Check that tenants/ is writable on this server.', 'danger')
@@ -4670,7 +4642,7 @@ def create_app():
             })
         except Exception as e:
             current_app.logger.error(f'Error previewing deletion: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+            return api_error(e)
 
     @app.route('/admin/active-semester/delete-old-data', methods=['POST'])
     @login_required
@@ -4962,7 +4934,7 @@ def create_app():
                 
         except Exception as e:
             current_app.logger.error(f'Error deleting old semester data: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+            return api_error(e)
 
     @app.route('/student/dashboard')
     @login_required
@@ -5258,7 +5230,7 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'Error restoring committee: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error restoring committee: {str(e)}'}), 500
+            return api_error(e, 'Error restoring committee')
 
     @app.route('/head/session-archive')
     @login_required
@@ -5828,7 +5800,7 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'Error archiving session: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error archiving session: {str(e)}'}), 500
+            return api_error(e, 'Error archiving session')
 
     @app.route('/head/session-archive/api/delete/<int:archive_id>', methods=['DELETE'])
     @login_required
@@ -5861,7 +5833,7 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'Error deleting archive: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error deleting archive: {str(e)}'}), 500
+            return api_error(e, 'Error deleting archive')
 
     @app.route('/head/session-archive/api/details/<int:archive_id>', methods=['GET'])
     @login_required
@@ -5881,7 +5853,7 @@ def create_app():
                 archive_data = json.loads(archive.archive_data)
             except json.JSONDecodeError as e:
                 current_app.logger.error(f'Error parsing archive data: {e}')
-                return jsonify({'success': False, 'message': f'Error parsing archive data: {str(e)}'}), 500
+                return api_error(e, 'Error parsing archive data')
             
             # Get all teachers from archived sessions for dropdown
             teachers_map = {}
@@ -5956,7 +5928,7 @@ def create_app():
             
         except Exception as e:
             current_app.logger.error(f'Error getting archive details: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error loading archive details: {str(e)}'}), 500
+            return api_error(e, 'Error loading archive details')
 
     @app.route('/head/session-archive/api/restore', methods=['POST'])
     @login_required
@@ -6241,7 +6213,7 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'Error restoring session: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error restoring session: {str(e)}'}), 500
+            return api_error(e, 'Error restoring session')
 
     @app.route('/head/assign-duties')
     @login_required
@@ -6811,7 +6783,7 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'Error archiving exam committee: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error archiving exam committee: {str(e)}'}), 500
+            return api_error(e, 'Error archiving exam committee')
 
     @app.route('/head/assign-duties/api/remove/<int:assignment_id>', methods=['POST'])
     @login_required
@@ -8258,7 +8230,7 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'Error archiving committee members: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error archiving committee members: {str(e)}'}), 500
+            return api_error(e, 'Error archiving committee members')
 
     @app.route('/exam-committee-chief/restore-committee-members', methods=['POST'])
     @login_required
@@ -8415,7 +8387,7 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'Error restoring committee members: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error restoring committee members: {str(e)}'}), 500
+            return api_error(e, 'Error restoring committee members')
 
     @app.route('/exam-committee-chief/get-subjects-for-evaluator', methods=['GET'])
     @login_required
@@ -9426,10 +9398,7 @@ def create_app():
             })
         except Exception as exc:
             current_app.logger.error(f'Failed to get evaluator assignments: {exc}', exc_info=True)
-            return jsonify({
-                'success': False,
-                'message': f'Failed to get evaluator assignments: {str(exc)}'
-            }), 500
+            return api_error(exc, 'Could not load evaluator assignments.')
 
     @app.route('/exam-committee-chief/evaluator-assignments-pdf', methods=['GET'])
     @login_required
@@ -9854,10 +9823,7 @@ def create_app():
             })
         except Exception as exc:
             current_app.logger.error(f'Failed to get scrutinizers with scripts: {exc}', exc_info=True)
-            return jsonify({
-                'success': False,
-                'message': f'Failed to get scrutinizers with scripts: {str(exc)}'
-            }), 500
+            return api_error(exc, 'Could not load scrutinizer data.')
     
     @app.route('/exam-committee-chief/unassign-evaluator', methods=['POST'])
     @login_required
@@ -10460,7 +10426,7 @@ def create_app():
                 form_entry.form_data = form_data_json
             except Exception as json_error:
                 current_app.logger.error(f'Error serializing form data to JSON: {str(json_error)}')
-                return jsonify({'success': False, 'message': f'Error serializing data: {str(json_error)}'}), 500
+                return api_error(json_error, 'Error serializing data')
             
             # Commit to database
             try:
@@ -10469,7 +10435,7 @@ def create_app():
             except Exception as commit_error:
                 db.session.rollback()
                 current_app.logger.error(f'Error committing to database: {str(commit_error)}', exc_info=True)
-                return jsonify({'success': False, 'message': f'Database error: {str(commit_error)}'}), 500
+                return api_error(commit_error, 'Database error')
             
             return jsonify({
                 'success': True,
@@ -10700,7 +10666,7 @@ def create_app():
                 import traceback
                 current_app.logger.error(f'Full traceback: {traceback.format_exc()}')
                 db.session.rollback()
-                return jsonify({'success': False, 'message': f'Data format error: {str(e)}'}), 500
+                return api_error(e, 'Data format error')
             
             # Validate before commit
             if not form_entry.user_id:
@@ -10758,7 +10724,7 @@ def create_app():
         except json.JSONDecodeError as e:
             db.session.rollback()
             current_app.logger.error(f'JSON decode error: {str(e)}')
-            return jsonify({'success': False, 'message': f'Invalid JSON format: {str(e)}'}), 400
+            return api_error(e, 'Invalid JSON format', status=400)
         except Exception as e:
             db.session.rollback()
             error_msg = str(e)
@@ -10837,7 +10803,7 @@ def create_app():
                 
         except Exception as e:
             current_app.logger.error(f'Error loading custom remuneration form: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Failed to load form: {str(e)}'}), 500
+            return api_error(e, 'Failed to load form')
 
     @app.route('/exam-committee-chief/custom-remuneration/get-by-session', methods=['GET'])
     @login_required
@@ -11001,7 +10967,7 @@ def create_app():
                 
         except Exception as e:
             current_app.logger.error(f'Error getting custom remuneration form by session: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Failed to get form: {str(e)}'}), 500
+            return api_error(e, 'Failed to get form')
 
     @app.route('/exam-committee-chief/custom-remuneration/get-committee', methods=['GET'])
     @login_required
@@ -11148,7 +11114,7 @@ def create_app():
             
         except Exception as e:
             current_app.logger.error(f'Error getting committee data: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Failed to get committee data: {str(e)}'}), 500
+            return api_error(e, 'Failed to get committee data')
 
     @app.route('/exam-committee-chief/custom-remuneration/delete/<int:form_id>', methods=['POST'])
     @login_required
@@ -11204,7 +11170,7 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'Error deleting custom remuneration form: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Failed to delete form: {str(e)}'}), 500
+            return api_error(e, 'Failed to delete form')
 
     @app.route('/exam-committee-chief/custom-remuneration/export-pdf', methods=['POST'])
     @login_required
@@ -11646,7 +11612,6 @@ def create_app():
             )
             template_data['sections_list'] = sections_list
 
-
             # Generate PDF using WeasyPrint with HTML template
             from flask import render_template
             from weasyprint import HTML, CSS
@@ -11722,7 +11687,7 @@ def create_app():
             import traceback
             error_trace = traceback.format_exc()
             current_app.logger.error(f'Full traceback: {error_trace}')
-            return jsonify({'success': False, 'error': f'Failed to generate PDF: {str(e)}', 'message': str(e)}), 500
+            return api_error(e, 'Failed to generate PDF')
 
     @app.route('/exam-committee-chief/get-courses-with-assignments', methods=['GET'])
     @login_required
@@ -11992,7 +11957,7 @@ def create_app():
             })
         except Exception as e:
             current_app.logger.error(f'Error fetching courses with assignments: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error fetching courses: {str(e)}'}), 500
+            return api_error(e, 'Error fetching courses')
 
     def _count_direct_registered_students(
         course_code,
@@ -12140,7 +12105,7 @@ def create_app():
             return resp
         except Exception as e:
             current_app.logger.error(f'Student-count helper failed: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': str(e)}), 500
+            return api_error(e)
 
     @app.route('/exam-committee-chief/get-class-test-student-count', methods=['GET'])
     @login_required
@@ -12175,7 +12140,7 @@ def create_app():
             return resp
         except Exception as e:
             current_app.logger.error(f'Class Test student-count helper failed: {e}', exc_info=True)
-            return jsonify({'success': False, 'message': str(e)}), 500
+            return api_error(e)
 
     @app.route('/api/get-teacher-info/<int:teacher_id>', methods=['GET'])
     @login_required
@@ -14834,16 +14799,10 @@ def create_app():
                 from weasyprint import HTML, CSS
             except ImportError as import_err:
                 current_app.logger.error(f'WeasyPrint import error: {str(import_err)}', exc_info=True)
-                return jsonify({
-                    'error': 'PDF generation not available',
-                    'message': f'WeasyPrint is not installed or dependencies are missing: {str(import_err)}'
-                }), 500
+                return api_error(import_err, 'PDF generation is not available.')
             except Exception as weasy_err:
                 current_app.logger.error(f'WeasyPrint initialization error: {str(weasy_err)}', exc_info=True)
-                return jsonify({
-                    'error': 'PDF generation failed',
-                    'message': f'WeasyPrint initialization error: {str(weasy_err)}'
-                }), 500
+                return api_error(weasy_err, 'PDF generation failed.')
             
             import os
             
@@ -15566,10 +15525,7 @@ def create_app():
             current_app.logger.error(
                 f'Error generating teacher grand total PDF: {e}', exc_info=True
             )
-            return jsonify({
-                'success': False,
-                'message': f'PDF তৈরি করতে সমস্যা হয়েছে: {str(e)[:180]}',
-            }), 500
+            return api_error(e, 'PDF তৈরি করা যায়নি।')
 
     def _build_bulk_session_years_terms_map(all_configs=None):
         """
@@ -17960,20 +17916,14 @@ def create_app():
                 
             except Exception as e:
                 current_app.logger.error(f'Bulk download error: {str(e)}', exc_info=True)
-                return jsonify({
-                    'success': False,
-                    'message': f'বাল্ক ডাউনলোড ব্যর্থ: {str(e)}'
-                }), 500
+                return api_error(e, 'বাল্ক ডাউনলোড ব্যর্থ হয়েছে।')
             finally:
                 import gc
                 gc.collect()
         except Exception as outer_error:
             # Catch any errors that occur before the inner try block
             current_app.logger.error(f'Bulk download outer error: {str(outer_error)}', exc_info=True)
-            return jsonify({
-                'success': False,
-                'message': f'বাল্ক ডাউনলোড ব্যর্থ: {str(outer_error)}'
-            }), 500
+            return api_error(outer_error, 'বাল্ক ডাউনলোড ব্যর্থ হয়েছে।')
 
     @app.route('/admin/delete_user/<int:user_id>', methods=['POST'])
     @login_required
@@ -18252,7 +18202,7 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'Error creating user: {e}', exc_info=True)
-            flash(f'Error creating user: {str(e)}', 'danger')
+            flash_exception(e, 'Error creating user', 'danger')
         
         return redirect(url_for('admin_users'))
 

@@ -2,6 +2,7 @@
 import os
 import tempfile
 from flask import render_template, request, redirect, url_for, flash, jsonify, send_file, current_app
+from utils.public_errors import flash_exception, client_message
 from flask_login import login_required, current_user
 from io import BytesIO
 from datetime import datetime
@@ -483,7 +484,7 @@ def document_import():
         parsed = _parse_docx_for_import(f)
     except Exception as e:
         current_app.logger.exception('DOCX import parse failed')
-        flash('Could not parse DOCX: %s' % str(e), 'error')
+        flash_exception(e, 'Could not parse the document.', 'error')
         return redirect(url_for('curriculator.document_import'))
     name = (request.form.get('name') or '').strip() or parsed['name']
     batches = (request.form.get('applicable_batches') or '').strip() or None
@@ -1191,9 +1192,9 @@ def course_entry_ai_generate(entry_id):
         reset_db_session()
         return jsonify({'success': True, 'proposal': proposal})
     except AIClientError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except ValueError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except Exception as exc:
         from flask import current_app
         current_app.logger.error(f'Curriculator AI draft failed for entry {entry_id}: {exc}', exc_info=True)
@@ -1222,7 +1223,7 @@ def course_entry_push_to_course(entry_id):
         return jsonify({'success': True, 'course_id': course_id})
     except ValueError as exc:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
     except Exception as exc:
         db.session.rollback()
         from flask import current_app

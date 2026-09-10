@@ -1,4 +1,5 @@
 from flask import render_template, request, redirect, url_for, flash, jsonify, send_file, current_app, session
+from utils.public_errors import api_error, flash_exception
 from flask_login import login_required, current_user
 from extensions import db
 from . import course_management_bp
@@ -1446,7 +1447,7 @@ def edit_course(course_id):
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Error updating course {course_id}: {e}", exc_info=True)
-            flash(f'Error updating course: {str(e)}', 'error')
+            flash_exception(e, 'Error updating course', 'error')
         
         if curriculum_id:
             return redirect(url_for('course_management.view_curriculum', curriculum_id=curriculum_id))
@@ -1637,10 +1638,7 @@ def toggle_offered(course_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error toggling offered status for course {course_id}: {e}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error updating offered status: {str(e)}'
-        }), 500
+        return api_error(e, 'Could not update offered status.')
 
 @course_management_bp.route('/student/registration')
 @login_required
@@ -2626,7 +2624,7 @@ def download_registration_pdf():
         return response
     except Exception as e:
         current_app.logger.error(f"Error generating registration PDF: {e}", exc_info=True)
-        return jsonify({'success': False, 'message': f'Error generating PDF: {str(e)}'}), 500
+        return api_error(e, 'Error generating PDF')
 
 
 @course_management_bp.route('/student/registration/send-to-coordinator', methods=['POST'])
@@ -4464,7 +4462,7 @@ def get_students_for_course_registration():
             current_app.logger.error(f'Error building query: {query_error}', exc_info=True)
             import traceback
             current_app.logger.error(f'Query error traceback: {traceback.format_exc()}')
-            return jsonify({'success': False, 'message': f'Error building query: {str(query_error)}'}), 500
+            return api_error(query_error, 'Error building query')
         
         # Apply search filter
         if search:
@@ -4485,7 +4483,7 @@ def get_students_for_course_registration():
             current_app.logger.info(f'Found {len(students)} students for batch {batch}')
         except Exception as exec_error:
             current_app.logger.error(f'Error executing query: {exec_error}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error executing query: {str(exec_error)}'}), 500
+            return api_error(exec_error, 'Error executing query')
         
         # Get existing registrations for the selected course/session/year/term if provided
         course_code = request.args.get('course_code', '').strip()
@@ -4546,10 +4544,7 @@ def get_students_for_course_registration():
         import traceback
         error_trace = traceback.format_exc()
         current_app.logger.error(f'Full traceback: {error_trace}')
-        return jsonify({
-            'success': False, 
-            'message': f'Error loading students: {str(e)}. Please check server logs for details.'
-        }), 500
+        return api_error(e, 'Could not load students.')
 
 
 @course_management_bp.route('/curriculum/<int:curriculum_id>/year-term-config', methods=['POST'])
@@ -5376,10 +5371,7 @@ def assign_teacher_session():
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Failed to assign teacher and create session: {exc}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Failed to assign teacher: {str(exc)}'
-        }), 500
+        return api_error(exc, 'Could not assign the teacher.')
 
 
 @course_management_bp.route('/api/unassign-teacher-session', methods=['POST'])
@@ -5727,10 +5719,7 @@ def replace_teacher_session():
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Failed to replace/update teacher assignment: {exc}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'অ্যাসাইনমেন্ট আপডেট করতে ব্যর্থ হয়েছে: {str(exc)}'
-        }), 500
+        return api_error(exc, 'অ্যাসাইনমেন্ট আপডেট করা যায়নি।')
 
 
 @course_management_bp.route('/api/swap-assignment-parts', methods=['POST'])
@@ -5814,10 +5803,7 @@ def swap_assignment_parts():
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Failed to swap assignment parts: {exc}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'A/B অদলবদল ব্যর্থ: {str(exc)}'
-        }), 500
+        return api_error(exc, 'A/B অদলবদল করা যায়নি।')
 
 
 @course_management_bp.route('/api/course/<int:course_id>/assignments', methods=['GET'])

@@ -1,4 +1,5 @@
 from flask import render_template, request, redirect, url_for, flash, jsonify, current_app, Response
+from utils.public_errors import api_error, flash_exception
 from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta, time
 from sqlalchemy import or_, and_
@@ -506,7 +507,7 @@ def index():
                                  has_teacher_privileges=has_teacher_privileges)
         else:
             # For other errors, still try to show the calendar with empty data
-            flash(f'Error loading calendar: {str(e)[:100]}. Showing empty calendar.', 'warning')
+            flash_exception(e, 'Could not load the calendar. Showing an empty calendar.', 'warning')
             return render_template('academic_calendar/index.html', 
                                  year=datetime.now().year, 
                                  month=datetime.now().month,
@@ -692,7 +693,7 @@ def add_event():
                     current_app.logger.error(f"Failed to update table: {create_error}", exc_info=True)
                     flash('Database table needs update. Please run: python3 create_academic_calendar_table.py', 'error')
             else:
-                flash(f'Error adding event: {str(e)[:100]}. Please try again.', 'error')
+                flash_exception(e, 'Could not add the event. Please try again.', 'error')
             return redirect(url_for('academic_calendar.add_event'))
     
     return render_template('academic_calendar/add_event.html',
@@ -752,21 +753,11 @@ def api_sessions_years_terms():
             })
         except Exception as e:
             current_app.logger.error(f"Error fetching years/terms for sessions: {e}", exc_info=True)
-            return jsonify({
-                'success': False,
-                'message': f'Error: {str(e)}',
-                'years': [],
-                'terms': []
-            }), 500
+            return api_error(e, 'Could not load years and terms.', extra={'years': [], 'terms': []})
 
     except Exception as e:
         current_app.logger.error(f"Error in api_sessions_years_terms: {e}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error: {str(e)}',
-            'years': [],
-            'terms': []
-        }), 500
+        return api_error(e, 'Could not load years and terms.', extra={'years': [], 'terms': []})
 
 @academic_calendar_bp.route('/edit/<int:event_id>', methods=['GET', 'POST'])
 @login_required
@@ -1492,7 +1483,7 @@ def edit_batch_event(event_id):
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Error updating batch event: {e}", exc_info=True)
-            flash(f'Error updating event: {str(e)[:100]}. Please try again.', 'error')
+            flash_exception(e, 'Could not update the event. Please try again.', 'error')
             return redirect(url_for('academic_calendar.edit_batch_event', event_id=event_id))
     
     return render_template('academic_calendar/edit_batch_event.html', event=event)

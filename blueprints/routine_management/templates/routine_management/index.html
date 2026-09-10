@@ -438,6 +438,9 @@ html {
                                         </td>
                                         <td>{{ sr.updated_at_display if sr.updated_at_display else 'N/A' }}</td>
                                         <td>
+                                            <a href="{{ url_for('routine_management.view_routine', saved_routine_id=sr.id) }}" class="btn btn-sm btn-outline-secondary view-routine-btn" title="View routine">
+                                                <i class="fas fa-eye"></i> View
+                                            </a>
                                             <button class="btn btn-sm btn-outline-primary load-routine-btn" data-saved-routine-id="{{ sr.id }}" title="Load and Edit">
                                                 <i class="fas fa-edit"></i> Edit
                                             </button>

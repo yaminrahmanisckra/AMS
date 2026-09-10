@@ -1,5 +1,6 @@
 import os
 from flask import render_template, request, redirect, url_for, flash, jsonify, current_app
+from utils.public_errors import api_error
 from flask_login import login_required, current_user
 
 from extensions import db
@@ -73,7 +74,7 @@ def _render_leave_pdf(template_name, context, filename):
         pdf_data = pdf_buffer.getvalue()
     except Exception as e:
         current_app.logger.error(f"Leave Application PDF error: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        return api_error(e)
 
     resp = Response(pdf_data, mimetype='application/pdf')
     resp.headers['Content-Disposition'] = f'attachment; filename=\"{filename}\"'

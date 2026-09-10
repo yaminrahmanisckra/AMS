@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, send_file, current_app, abort
+from utils.public_errors import api_error, flash_exception
 from flask_login import login_required, current_user
 from utils.window_utils import (
     query_for_window,
@@ -1087,7 +1088,7 @@ def delete_teacher(id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting teacher {id}: {e}', exc_info=True)
-        flash(f'Error deleting teacher: {str(e)}', 'danger')
+        flash_exception(e, 'Error deleting teacher', 'danger')
     
     return redirect(url_for('routine_management.manage_teachers'))
 
@@ -1123,7 +1124,7 @@ def delete_room(id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting room {id}: {e}', exc_info=True)
-        flash(f'Error deleting room: {str(e)}', 'danger')
+        flash_exception(e, 'Error deleting room', 'danger')
     return redirect(url_for('routine_management.manage_rooms'))
 
 # Course Assignment
@@ -1268,7 +1269,7 @@ def delete_assignment(id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting assignment {id}: {e}', exc_info=True)
-        flash(f'Error deleting assignment: {str(e)}', 'danger')
+        flash_exception(e, 'Error deleting assignment', 'danger')
     return redirect(url_for('routine_management.assign_course'))
 
 def can_edit_routine():
@@ -1539,11 +1540,11 @@ def check_edit_permission():
     
     return jsonify(result)
 
-# View Routine (for students and view-only access)
+# View Routine (read-only for everyone, including routine editors)
 @routine_management_bp.route('/view_routine')
 @login_required
 def view_routine():
-    """View routine - accessible to all users, but only routine makers can edit"""
+    """View a saved routine without edit controls."""
     from utils.dashboard_settings import require_student_dashboard_card, require_officer_dashboard_card
     blocked = require_student_dashboard_card('class_routine')
     if blocked:
@@ -1554,13 +1555,14 @@ def view_routine():
     from blueprints.course_management.models import Curriculum
     from sqlalchemy import text, inspect
 
-    can_edit = can_edit_routine()
+    is_editor = can_edit_routine()
     
     # Get saved_routine_id from URL query params
     saved_routine_id = request.args.get('saved_routine_id', type=int)
     
-    # If no saved_routine_id provided and user can't edit, redirect to public routines
-    if not saved_routine_id and not can_edit:
+    if not saved_routine_id:
+        if is_editor:
+            return redirect(url_for('routine_management.index'))
         return redirect(url_for('routine_management.public_routines'))
     
     # Load saved routine if ID provided
@@ -1569,15 +1571,16 @@ def view_routine():
         current_saved_routine = _get_saved_routine_or_404(saved_routine_id)
         if not current_saved_routine:
             flash('Routine not found', 'error')
-            if can_edit:
+            if is_editor:
                 return redirect(url_for('routine_management.index'))
-            else:
-                return redirect(url_for('routine_management.public_routines'))
+            return redirect(url_for('routine_management.public_routines'))
         
         # For non-editors, check if the routine is revealed (public)
-        if not can_edit and not current_saved_routine.is_revealed:
+        if not is_editor and not current_saved_routine.is_revealed:
             flash('This routine is not available for viewing.', 'warning')
             return redirect(url_for('routine_management.public_routines'))
+
+    can_edit = False
     
     # Get all teachers (for display purposes)
     teachers_list = get_teachers_for_routine_window()
@@ -1626,12 +1629,13 @@ def view_routine():
         except Exception as e:
             current_app.logger.warning(f'Could not load saved routine meta for view_routine {saved_routine_id}: {e}')
 
-    # can_edit is already defined at the beginning of this function
+    # can_edit is always False on this route; editors still return to the dashboard
     viewer_filter = _get_viewer_course_filter_context()
     return render_template('routine_management/routine_new.html', 
                            teachers=teachers, rooms=rooms, days=days, 
                            time_slots=time_slots, curricula=curricula,
                            can_edit=can_edit,
+                           is_routine_editor=is_editor,
                            saved_routine_id=saved_routine_id,
                            current_saved_routine=current_saved_routine,
                            lunch_after_slot=lunch_after_slot,
@@ -1719,6 +1723,7 @@ def generate_routine():
                            teachers=teachers, rooms=rooms, days=days, 
                            time_slots=time_slots, curricula=curricula,
                            can_edit=can_edit,
+                           is_routine_editor=True,
                            saved_routine_id=saved_routine_id,
                            current_saved_routine=current_saved_routine,
                            lunch_after_slot=lunch_after_slot,
@@ -1902,12 +1907,7 @@ def get_batches():
 
     except Exception as e:
         current_app.logger.error(f'Error getting batches: {e}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error getting batches: {str(e)}',
-            'contexts': [],
-            'batches': []
-        }), 500
+        return api_error(e, 'Could not load batches.', extra={'contexts': [], 'batches': []})
 
 @routine_management_bp.route('/api/courses/batch-wise')
 @login_required
@@ -2167,11 +2167,7 @@ def get_courses_batch_wise():
 
     except Exception as e:
         current_app.logger.error(f'Error getting batch courses: {e}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error getting courses: {str(e)}',
-            'courses_by_batch': {}
-        }), 500
+        return api_error(e, 'Could not load courses.', extra={'courses_by_batch': {}})
 
 @routine_management_bp.route('/api/courses-by-batch')
 @login_required
@@ -2272,7 +2268,6 @@ def save_routine():
                 'success': False,
                 'message': 'Invalid JSON data',
                 'error_type': 'json_error',
-                'details': str(json_error)
             }), 400
         
         saved_routine_id = data.get('saved_routine_id')
@@ -2300,7 +2295,6 @@ def save_routine():
                 'success': False,
                 'message': 'Database schema error. Please contact administrator.',
                 'error_type': 'schema_error',
-                'details': str(schema_error)
             }), 500
         
         # 5. Validate and prepare entries
@@ -2388,12 +2382,7 @@ def save_routine():
         except Exception as delete_error:
             db.session.rollback()
             current_app.logger.error(f'Error deleting existing routines: {delete_error}', exc_info=True)
-            return jsonify({
-                'success': False,
-                'message': f'Failed to clear existing routine: {str(delete_error)}',
-                'error_type': 'delete_error',
-                'details': str(delete_error)
-            }), 500
+            return api_error(delete_error, 'Could not clear the existing routine.', extra={'error_type': 'delete_error'})
         
         # 7. If no entries to save, commit deletion and return
         if not validated_entries:
@@ -2408,11 +2397,7 @@ def save_routine():
             except Exception as commit_error:
                 db.session.rollback()
                 current_app.logger.error(f'Error committing clear: {commit_error}', exc_info=True)
-                return jsonify({
-                    'success': False,
-                    'message': f'Failed to clear routine: {str(commit_error)}',
-                    'error_type': 'commit_error'
-                }), 500
+                return api_error(commit_error, 'Could not clear the routine.', extra={'error_type': 'commit_error'})
         
         # 8. Insert new entries using RAW SQL (bypass ORM schema mismatch)
         saved_count = 0
@@ -2484,9 +2469,14 @@ def save_routine():
                 saved_count += 1
                 
             except Exception as entry_error:
-                error_msg = f"Error creating entry for {entry_data['day']} {entry_data['slot']}: {str(entry_error)}"
-                errors.append(error_msg)
-                current_app.logger.error(error_msg, exc_info=True)
+                current_app.logger.error(
+                    'Error creating routine entry for %s %s: %s',
+                    entry_data['day'], entry_data['slot'], entry_error,
+                    exc_info=True,
+                )
+                errors.append(
+                    f"Could not save the slot for {entry_data['day']} {entry_data['slot']}."
+                )
                 # Continue with other entries
         
         # 9. Commit transaction
@@ -2521,32 +2511,26 @@ def save_routine():
             current_app.logger.error(f'Error committing routine save: {commit_error}', exc_info=True)
             
             # Provide helpful error message
-            error_msg = str(commit_error)
-            if 'no such column' in error_msg.lower() or 'Unknown column' in error_msg:
-                error_msg = 'Database schema mismatch. Please run database migrations.'
-            elif 'UNIQUE constraint' in error_msg or 'unique constraint' in error_msg:
-                error_msg = 'Duplicate entry detected. Please check for conflicts.'
-            elif 'NOT NULL constraint' in error_msg or 'NOT NULL' in error_msg:
-                error_msg = 'Required field missing. Please check your data.'
-            
-            return jsonify({
-                'success': False,
-                'message': f'Failed to save routine: {error_msg}',
-                'error_type': 'commit_error',
-                'details': str(commit_error),
-                'entries_saved': saved_count
-            }), 500
+            raw = str(commit_error).lower()
+            if 'no such column' in raw or 'unknown column' in raw:
+                public_msg = 'Database schema mismatch. Please run database migrations.'
+            elif 'unique constraint' in raw:
+                public_msg = 'Duplicate entry detected. Please check for conflicts.'
+            elif 'not null' in raw:
+                public_msg = 'Required field missing. Please check your data.'
+            else:
+                public_msg = 'Could not save the routine.'
+            return api_error(
+                commit_error,
+                public_msg,
+                extra={'error_type': 'commit_error', 'entries_saved': saved_count},
+            )
     
     except Exception as e:
         # Catch-all for any unexpected errors
         db.session.rollback()
         current_app.logger.error(f'Unexpected error in save_routine: {e}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'An unexpected error occurred: {str(e)}',
-            'error_type': 'unexpected_error',
-            'details': str(e)
-        }), 500
+        return api_error(e, extra={'error_type': 'unexpected_error'})
 
 @routine_management_bp.route('/api/routine/clear', methods=['POST'])
 @login_required
@@ -2560,7 +2544,7 @@ def clear_routine():
         return jsonify({'message': 'Routine cleared successfully!'}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({'message': str(e)}), 500
+        return api_error(e)
 
 # Saved Routines API Endpoints
 @routine_management_bp.route('/api/saved-routines', methods=['GET'])
@@ -2591,10 +2575,7 @@ def get_saved_routines():
         return jsonify(routines_data), 200
     except Exception as e:
         current_app.logger.error(f'Error getting saved routines: {e}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error fetching saved routines: {str(e)}'
-        }), 500
+        return api_error(e, 'Could not load saved routines.')
 
 @routine_management_bp.route('/api/saved-routines', methods=['POST'])
 @login_required
@@ -2693,10 +2674,7 @@ def create_saved_routine():
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error creating saved routine: {e}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error creating saved routine: {str(e)}'
-        }), 500
+        return api_error(e, 'Could not create the saved routine.')
 
 @routine_management_bp.route('/api/saved-routines/<int:saved_routine_id>', methods=['GET'])
 @login_required
@@ -2836,10 +2814,7 @@ def get_saved_routine(saved_routine_id):
         
     except Exception as e:
         current_app.logger.error(f'Error getting saved routine {saved_routine_id}: {e}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error fetching saved routine: {str(e)}'
-        }), 500
+        return api_error(e, 'Could not load the saved routine.')
 
 @routine_management_bp.route('/api/saved-routines/<int:saved_routine_id>/duplicate', methods=['POST'])
 @login_required
@@ -2984,7 +2959,7 @@ def duplicate_saved_routine(saved_routine_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error duplicating saved routine: {e}', exc_info=True)
-        return jsonify({'success': False, 'message': f'Failed to duplicate: {str(e)}'}), 500
+        return api_error(e, 'Failed to duplicate')
 
 
 @routine_management_bp.route('/api/saved-routines/<int:saved_routine_id>', methods=['DELETE'])
@@ -3055,11 +3030,7 @@ def delete_saved_routine(saved_routine_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error deleting saved routine {saved_routine_id}: {e}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error deleting saved routine: {str(e)}',
-            'details': str(e)
-        }), 500
+        return api_error(e, 'Could not delete the saved routine.')
 
 @routine_management_bp.route('/api/saved-routines/<int:saved_routine_id>/toggle-reveal', methods=['POST'])
 @login_required
@@ -3106,10 +3077,7 @@ def toggle_reveal_saved_routine(saved_routine_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error toggling reveal for saved routine {saved_routine_id}: {e}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error updating reveal status: {str(e)}'
-        }), 500
+        return api_error(e, 'Could not update reveal status.')
 
 @routine_management_bp.route('/api/time-slots', methods=['POST'])
 @login_required
@@ -3196,10 +3164,7 @@ def save_time_slots():
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f'Error saving time slots: {e}', exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': f'Error saving time slots: {str(e)}'
-        }), 500
+        return api_error(e, 'Could not save time slots.')
 
 @routine_management_bp.route('/api/routine/load')
 @login_required
@@ -3765,10 +3730,8 @@ def download_pdf():
         return response
         
     except Exception as e:
-        import traceback
-        error_msg = f"PDF generation error: {str(e)}\n{traceback.format_exc()}"
-        print(error_msg)  # Log to server console
-        return jsonify({'error': str(e), 'details': error_msg}), 500
+        current_app.logger.error('Routine PDF generation failed: %s', e, exc_info=True)
+        return api_error(e, 'Could not generate the PDF.')
 
 @routine_management_bp.route('/download_teacher_wise_pdf')
 @login_required
