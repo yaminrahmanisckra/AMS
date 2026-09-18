@@ -120,6 +120,25 @@
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
 }
 
+.dashboard-card .icon-circle.icon-portrait {
+    border-radius: 50% !important;
+    padding: 0;
+    overflow: hidden;
+    background: #4c1d95;
+}
+
+.dashboard-card .icon-circle.icon-portrait img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    animation: none;
+    filter: none;
+}
+
+.dashboard-card:hover .icon-circle.icon-portrait {
+    transform: scale(1.08);
+}
+
 .dashboard-card .icon-circle i {
     font-size: 1.05rem;
     color: white;
@@ -389,6 +408,15 @@ html {
             'show': (is_teacher or is_head) and not is_officer
         },
         {
+            'title': 'Socrates',
+            'desc': 'Set debate topics; students argue with the AI companion as a graded assignment.',
+            'icon': 'fas fa-user',
+            'image': url_for('static', filename='images/socrates.png'),
+            'color_class': 'card-purple',
+            'url': url_for('class_management.socrates_home'),
+            'show': (is_teacher or is_head) and not is_teaching_assistant and not is_officer
+        },
+        {
             'title': 'Exam Paper Evaluation',
             'desc': 'Submit subject information for exam paper evaluation workflow.',
             'icon': 'fas fa-file-alt',
@@ -527,8 +555,12 @@ html {
         <div class="col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3">
             <a href="{{ card.url }}" class="text-decoration-none" aria-label="{{ card.title }}">
                 <div class="dashboard-card text-center h-100 {{ card.color_class }}">
-                    <div class="icon-circle">
+                    <div class="icon-circle{% if card.image %} icon-portrait{% endif %}">
+                        {% if card.image %}
+                        <img src="{{ card.image }}" alt="" width="52" height="52">
+                        {% else %}
                         <i class="{{ card.icon }}"></i>
+                        {% endif %}
                     </div>
                     <h5 class="mb-1">{{ card.title }}</h5>
                     <p class="text-muted small mb-0">{{ card.desc }}</p>

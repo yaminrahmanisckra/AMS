@@ -4984,6 +4984,15 @@ def create_app():
                 'bg': 'rgba(139,90,43,0.15)',
                 'url': url_for('noticeboard.index'),
             })
+        head_cards.append({
+            'title': 'Socrates',
+            'desc': 'Set debate topics; students argue with the AI companion as a graded assignment.',
+            'icon': 'fas fa-user',
+            'image': url_for('static', filename='images/socrates.png'),
+            'color': '#6f42c1',
+            'bg': 'rgba(111,66,193,0.15)',
+            'url': url_for('class_management.socrates_home'),
+        })
         # Self Assessment card: লিংক সবসময় /self-assessment (blueprints/self_assessment)
         if 'self_assessment.index' in current_app.view_functions:
             self_assessment_url = url_for('self_assessment.index')

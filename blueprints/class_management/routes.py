@@ -37,6 +37,11 @@ from .models import (
     StudentNotification,
     QuestionBankFile,
     QuestionBankFolder,
+    SocratesAssignment,
+    SocratesGroup,
+    SocratesGroupMember,
+    SocratesConversation,
+    SocratesMessage,
 )
 from user_models import User  # Same User as login (users table); required for StudentNotification.user_id
 try:
@@ -1854,6 +1859,10 @@ def restrict_to_teaching_roles():
         'class_management.student_notifications_page',
         'class_management.student_notifications_mark_all_read',
         'class_management.my_invitations',
+        'class_management.student_socrates_list',
+        'class_management.student_socrates_chat',
+        'class_management.student_socrates_send',
+        'class_management.student_socrates_submit',
     ]
     if request.endpoint in student_routes:
         return
@@ -11019,6 +11028,1009 @@ def mark_student_feedback_response_read(session_id, response_id):
             return jsonify({'ok': False, 'message': 'Could not update read status'}), 500
 
     return jsonify({'ok': True})
+
+
+def _student_feedback_for_teacher(session_id):
+    """Return (session, teacher, feedback_link) or (None, None, None) after flashing."""
+    session_obj = get_or_404_for_window(Session, session_id)
+    teacher = resolve_caller_teacher(current_user)
+    if not teacher or teacher.id != session_obj.teacher_id:
+        flash('শুধুমাত্র কোর্সটির শিক্ষকই ফিডব্যাক বিশ্লেষণ দেখতে পারবেন।', 'danger')
+        return None, None, None
+    feedback_link = (
+        StudentFeedbackLink.query.filter_by(session_id=session_id)
+        .order_by(StudentFeedbackLink.created_at.desc())
+        .first()
+    )
+    return session_obj, teacher, feedback_link
+
+
+@class_management_bp.route('/evaluation/<int:session_id>/student-feedback/ai-report')
+@login_required
+def student_feedback_ai_report(session_id):
+    """View the IQAC course-wise student feedback analysis."""
+    session_obj, teacher, feedback_link = _student_feedback_for_teacher(session_id)
+    if not teacher:
+        return redirect(url_for('class_management.evaluation', session_id=session_id))
+    if not feedback_link:
+        flash('আগে ফিডব্যাক লিংক তৈরি করুন।', 'info')
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+    from utils.ai.feedback_report import load_stored_report
+
+    response_count = StudentFeedbackResponse.query.filter_by(feedback_link_id=feedback_link.id).count()
+    report = load_stored_report(feedback_link)
+    report_is_stale = bool(report and report.get('response_count') != response_count)
+    return render_template(
+        'class_management/student_feedback_ai_report.html',
+        session=session_obj,
+        feedback_link=feedback_link,
+        report=report,
+        response_count=response_count,
+        report_is_stale=report_is_stale,
+    )
+
+
+@class_management_bp.route('/evaluation/<int:session_id>/student-feedback/ai-analyze', methods=['POST'])
+@login_required
+def student_feedback_ai_analyze(session_id):
+    """Generate an IQAC-style analysis from anonymous student feedback."""
+    session_obj, teacher, feedback_link = _student_feedback_for_teacher(session_id)
+    if not teacher:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    if not feedback_link:
+        return jsonify({'success': False, 'message': 'ফিডব্যাক লিংক পাওয়া যায়নি।'}), 404
+
+    responses = (
+        StudentFeedbackResponse.query.filter_by(feedback_link_id=feedback_link.id)
+        .order_by(StudentFeedbackResponse.submitted_at.asc())
+        .all()
+    )
+    if not responses:
+        return jsonify({'success': False, 'message': 'এখনও কোনো ফিডব্যাক আসেনি।'}), 400
+
+    try:
+        from utils.ai.feedback_report import build_feedback_dataset, generate_feedback_report
+
+        enrolled_count = len(_class_students_for_session(session_obj.id, order=False))
+        dataset = build_feedback_dataset(
+            session_obj,
+            feedback_link,
+            responses,
+            enrolled_count=enrolled_count,
+        )
+        link_id = feedback_link.id
+        report = generate_feedback_report(dataset)
+        link = StudentFeedbackLink.query.get(link_id)
+        if not link:
+            return jsonify({'success': False, 'message': 'ফিডব্যাক লিংক পাওয়া যায়নি।'}), 404
+        link.ai_report_json = json.dumps(report, ensure_ascii=False)
+        link.ai_report_generated_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify({'success': True, 'redirect': url_for('class_management.student_feedback_ai_report', session_id=session_id)})
+    except json.JSONDecodeError:
+        return jsonify({'success': False, 'message': 'এআই রিপোর্ট অসম্পূর্ণ ছিল। আবার Generate চাপুন।'}), 400
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
+    except Exception as exc:
+        try:
+            from utils.ai.client import AIClientError
+        except Exception:
+            AIClientError = None
+        if AIClientError is not None and isinstance(exc, AIClientError):
+            return jsonify({'success': False, 'message': client_message(exc)}), 400
+        current_app.logger.error(f'Student feedback AI report failed for {session_id}: {exc}', exc_info=True)
+        try:
+            from utils.ai.client import user_facing_generation_error
+            message = user_facing_generation_error(exc)
+        except Exception:
+            message = client_message(exc)
+        from utils.ai.session_utils import reset_db_session
+        reset_db_session()
+        return jsonify({'success': False, 'message': message}), 500
+
+
+@class_management_bp.route('/evaluation/<int:session_id>/student-feedback/ai-report/docx')
+@login_required
+def student_feedback_ai_report_docx(session_id):
+    """Download the stored IQAC feedback report as a Word document."""
+    session_obj, teacher, feedback_link = _student_feedback_for_teacher(session_id)
+    if not teacher:
+        return redirect(url_for('class_management.evaluation', session_id=session_id))
+    if not feedback_link:
+        flash('ফিডব্যাক লিংক পাওয়া যায়নি।', 'info')
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+    from utils.ai.feedback_report import build_report_docx, load_stored_report
+
+    report = load_stored_report(feedback_link)
+    if not report:
+        flash('আগে এআই অ্যানালাইসিস তৈরি করুন।', 'warning')
+        return redirect(url_for('class_management.student_feedback_ai_report', session_id=session_id))
+
+    docx_data = build_report_docx(report)
+    code = (session_obj.course_code or 'course').replace(' ', '_')
+    filename = f'IQAC_course_feedback_{code}.docx'
+    return Response(
+        docx_data,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Length': str(len(docx_data)),
+        },
+    )
+
+
+@class_management_bp.route('/evaluation/<int:session_id>/student-feedback/ai-report/pdf')
+@login_required
+def student_feedback_ai_report_pdf(session_id):
+    """Download the stored IQAC feedback report as a PDF."""
+    session_obj, teacher, feedback_link = _student_feedback_for_teacher(session_id)
+    if not teacher:
+        return redirect(url_for('class_management.evaluation', session_id=session_id))
+    if not feedback_link:
+        flash('ফিডব্যাক লিংক পাওয়া যায়নি।', 'info')
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+    from utils.ai.feedback_report import load_stored_report
+
+    report = load_stored_report(feedback_link)
+    if not report:
+        flash('আগে এআই অ্যানালাইসিস তৈরি করুন।', 'warning')
+        return redirect(url_for('class_management.student_feedback_ai_report', session_id=session_id))
+
+    HTML = _get_weasyprint_html()
+    if HTML is None:
+        flash(
+            'PDF তৈরি করা যায়নি। WeasyPrint ইনস্টল নেই। '
+            'On macOS, run: brew install cairo pango gdk-pixbuf gobject-introspection',
+            'error',
+        )
+        return redirect(url_for('class_management.student_feedback_ai_report', session_id=session_id))
+
+    try:
+        from utils.pdf_fonts import resolve_formal_pdf_fonts, resolve_dejavu_pdf_fonts
+
+        formal_fonts = resolve_formal_pdf_fonts()
+        if not formal_fonts:
+            flash('PDF fonts missing. Upload LiberationSerif-*.ttf to static/fonts/.', 'error')
+            return redirect(url_for('class_management.student_feedback_ai_report', session_id=session_id))
+
+        dejavu_regular, _dejavu_bold, _dejavu_dir = resolve_dejavu_pdf_fonts()
+        font_path = os.path.join(current_app.root_path, 'static', 'Fonts', 'kalpurush.ttf')
+        if not os.path.exists(font_path):
+            font_path = os.path.join(current_app.root_path, 'static', 'fonts', 'kalpurush.ttf')
+
+        html_content = render_template(
+            'class_management/student_feedback_ai_report_weasyprint.html',
+            report=report,
+            session=session_obj,
+            kalpurush_font_path=font_path if os.path.exists(font_path) else None,
+            pdf_font_regular=formal_fonts['regular'],
+            pdf_font_bold=formal_fonts['bold'],
+            pdf_font_dejavu_regular=dejavu_regular,
+        )
+        pdf_buffer = io.BytesIO()
+        HTML(string=html_content, base_url=formal_fonts['fonts_dir'].as_uri() + '/').write_pdf(pdf_buffer)
+        pdf_bytes = pdf_buffer.getvalue()
+        code = (session_obj.course_code or 'course').replace(' ', '_')
+        filename = f'IQAC_course_feedback_{code}.pdf'
+        return Response(
+            pdf_bytes,
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Length': str(len(pdf_bytes)),
+            },
+        )
+    except Exception as exc:
+        current_app.logger.error(
+            f'Error generating AI feedback PDF for session {session_id}: {exc}',
+            exc_info=True,
+        )
+        flash_exception(exc, 'Error generating PDF', 'error')
+        return redirect(url_for('class_management.student_feedback_ai_report', session_id=session_id))
+
+
+# --- Socrates AI Debate Companion ---
+
+@class_management_bp.route('/socrates')
+@login_required
+def socrates_home():
+    """Teacher landing page: their courses with Socrates assignment status."""
+    teacher = resolve_caller_teacher(current_user)
+    if not teacher:
+        flash('শুধুমাত্র শিক্ষকরাই Socrates ব্যবহার করতে পারবেন।', 'danger')
+        return redirect(url_for('index'))
+
+    sessions = (
+        query_for_window(Session)
+        .filter_by(teacher_id=teacher.id, archived=False)
+        .order_by(Session.created_at.desc())
+        .all()
+    )
+    session_ids = [s.id for s in sessions]
+    by_session = {}
+    if session_ids:
+        for assignment in SocratesAssignment.query.filter(
+            SocratesAssignment.session_id.in_(session_ids)
+        ).order_by(SocratesAssignment.created_at.desc()).all():
+            by_session.setdefault(assignment.session_id, []).append(assignment)
+
+    rows = []
+    for session_obj in sessions:
+        items = by_session.get(session_obj.id, [])
+        rows.append({
+            'session': session_obj,
+            'assignments': items,
+            'assignment_count': len(items),
+            'conversation_count': sum(len(item.conversations or []) for item in items),
+        })
+
+    return render_template('class_management/socrates_home.html', rows=rows)
+
+
+def _socrates_history_dicts(conversation):
+    """Plain dicts safe to use across reset_db_session() during AI calls."""
+    return [
+        {
+            'sender': msg.sender,
+            'sender_student_name': msg.sender_student_name,
+            'body': msg.body,
+        }
+        for msg in (conversation.messages or [])
+    ]
+
+
+def _socrates_course_label(session_obj):
+    return f"{session_obj.course_code or ''} {session_obj.course_name or ''}".strip()
+
+
+def _socrates_assignment_for_teacher(assignment_id):
+    """Return (assignment, session) for the owning teacher, else (None, None)."""
+    assignment = SocratesAssignment.query.get(assignment_id)
+    if not assignment:
+        return None, None
+    session_obj = get_or_404_for_window(Session, assignment.session_id)
+    teacher = resolve_caller_teacher(current_user)
+    if not teacher or teacher.id != session_obj.teacher_id:
+        return None, None
+    return assignment, session_obj
+
+
+def _socrates_conversation_label_map(assignment):
+    """Build display rows for the manage page conversations table."""
+    rows = []
+    for convo in assignment.conversations or []:
+        suggested = None
+        if convo.ai_evaluation_json:
+            try:
+                suggested = (json.loads(convo.ai_evaluation_json) or {}).get('suggested_score')
+            except (json.JSONDecodeError, TypeError):
+                suggested = None
+        rows.append({'conversation': convo, 'suggested_score': suggested})
+    return rows
+
+
+def _socrates_teacher_session(session_id):
+    session_obj = get_or_404_for_window(Session, session_id)
+    teacher = resolve_caller_teacher(current_user)
+    if not teacher or teacher.id != session_obj.teacher_id:
+        return session_obj, None
+    return session_obj, teacher
+
+
+def _socrates_read_settings(session_id):
+    """Parse create/update form fields. Returns (payload, error_message)."""
+    topic = (request.form.get('topic') or '').strip()
+    if not topic:
+        return None, 'ডিবেট টপিক দিন।'
+    mode = request.form.get('mode') or SocratesAssignment.MODE_INDIVIDUAL
+    if mode not in (SocratesAssignment.MODE_INDIVIDUAL, SocratesAssignment.MODE_GROUP):
+        mode = SocratesAssignment.MODE_INDIVIDUAL
+    try:
+        prompt_limit = max(1, min(100, int(request.form.get('prompt_limit') or 15)))
+    except (TypeError, ValueError):
+        prompt_limit = 15
+    deadline = None
+    deadline_raw = (request.form.get('deadline') or '').strip()
+    if deadline_raw:
+        try:
+            deadline = datetime.strptime(deadline_raw, '%Y-%m-%d').replace(
+                hour=23, minute=59, second=59
+            )
+        except ValueError:
+            return None, 'ভ্যালিড ডেডলাইন দিন (YYYY-MM-DD).'
+    from utils.outline_richtext import html_is_empty, sanitize_outline_html
+    instructions = sanitize_outline_html(request.form.get('instructions') or '')
+    if html_is_empty(instructions):
+        instructions = ''
+    return {
+        'topic': topic,
+        'mode': mode,
+        'prompt_limit': prompt_limit,
+        'deadline': deadline,
+        'instructions': instructions,
+    }, None
+
+
+@class_management_bp.route('/socrates/<int:session_id>', methods=['GET', 'POST'])
+@login_required
+def socrates_course(session_id):
+    """Teacher: list this course's Socrates assignments and create another."""
+    session_obj, teacher = _socrates_teacher_session(session_id)
+    if not teacher:
+        flash('শুধুমাত্র কোর্সটির শিক্ষকই Socrates অ্যাসাইনমেন্ট পরিচালনা করতে পারবেন।', 'danger')
+        return redirect(url_for('class_management.evaluation', session_id=session_id))
+
+    if request.method == 'POST':
+        if request.form.get('action') != 'create':
+            flash('অজানা অ্যাকশন।', 'danger')
+            return redirect(url_for('class_management.socrates_course', session_id=session_id))
+        payload, error = _socrates_read_settings(session_id)
+        if error:
+            flash(error, 'warning')
+            return redirect(url_for('class_management.socrates_course', session_id=session_id))
+        try:
+            assignment = SocratesAssignment(
+                session_id=session_id,
+                teacher_id=teacher.id,
+                **payload,
+            )
+            db.session.add(assignment)
+            db.session.commit()
+            flash('Socrates অ্যাসাইনমেন্ট তৈরি হয়েছে।', 'success')
+            return redirect(url_for(
+                'class_management.socrates_manage',
+                session_id=session_id,
+                assignment_id=assignment.id,
+            ))
+        except Exception as exc:
+            db.session.rollback()
+            flash_exception(exc, 'Socrates অ্যাসাইনমেন্ট পরিবর্তন ব্যর্থ', 'danger')
+            return redirect(url_for('class_management.socrates_course', session_id=session_id))
+
+    assignments = (
+        SocratesAssignment.query.filter_by(session_id=session_id)
+        .order_by(SocratesAssignment.created_at.desc())
+        .all()
+    )
+    return render_template(
+        'class_management/socrates_course.html',
+        session=session_obj,
+        assignments=assignments,
+    )
+
+
+@class_management_bp.route(
+    '/socrates/<int:session_id>/assignment/<int:assignment_id>',
+    methods=['GET', 'POST'],
+)
+@login_required
+def socrates_manage(session_id, assignment_id):
+    """Teacher: edit one debate assignment, groups, and conversations."""
+    session_obj, teacher = _socrates_teacher_session(session_id)
+    if not teacher:
+        flash('শুধুমাত্র কোর্সটির শিক্ষকই Socrates অ্যাসাইনমেন্ট পরিচালনা করতে পারবেন।', 'danger')
+        return redirect(url_for('class_management.evaluation', session_id=session_id))
+
+    assignment = SocratesAssignment.query.filter_by(
+        id=assignment_id, session_id=session_id,
+    ).first_or_404()
+    manage_url = url_for(
+        'class_management.socrates_manage',
+        session_id=session_id,
+        assignment_id=assignment_id,
+    )
+
+    if request.method == 'POST':
+        action = request.form.get('action')
+        try:
+            if action == 'update':
+                payload, error = _socrates_read_settings(session_id)
+                if error:
+                    flash(error, 'warning')
+                    return redirect(manage_url)
+                assignment.topic = payload['topic']
+                assignment.instructions = payload['instructions']
+                assignment.prompt_limit = payload['prompt_limit']
+                assignment.deadline = payload['deadline']
+                if not assignment.conversations:
+                    assignment.mode = payload['mode']
+                db.session.commit()
+                flash('অ্যাসাইনমেন্ট আপডেট হয়েছে।', 'success')
+            elif action == 'toggle_active':
+                assignment.is_active = not assignment.is_active
+                db.session.commit()
+                flash('অ্যাসাইনমেন্ট ' + ('চালু' if assignment.is_active else 'বন্ধ') + ' করা হয়েছে।', 'info')
+            elif action == 'delete':
+                db.session.delete(assignment)
+                db.session.commit()
+                flash('অ্যাসাইনমেন্ট ও সমস্ত কথোপকথন মুছে ফেলা হয়েছে।', 'info')
+                return redirect(url_for('class_management.socrates_course', session_id=session_id))
+            elif action == 'create_group':
+                name = (request.form.get('group_name') or '').strip()
+                member_ids = request.form.getlist('member_ids')
+                if not name:
+                    flash('গ্রুপের নাম দিন।', 'warning')
+                elif not member_ids:
+                    flash('অন্তত একজন সদস্য নির্বাচন করুন।', 'warning')
+                else:
+                    already = {
+                        member.student_id
+                        for group in assignment.groups
+                        for member in group.members
+                    }
+                    roster = {
+                        stu.student_id: stu.name
+                        for stu in _class_students_for_session(session_id, order=False)
+                    }
+                    group = SocratesGroup(assignment_id=assignment.id, name=name)
+                    db.session.add(group)
+                    db.session.flush()
+                    added = 0
+                    for student_id in member_ids:
+                        if student_id in roster and student_id not in already:
+                            db.session.add(SocratesGroupMember(
+                                group_id=group.id,
+                                student_id=student_id,
+                                student_name=roster[student_id],
+                            ))
+                            added += 1
+                    if added:
+                        db.session.commit()
+                        flash(f'গ্রুপ "{name}" তৈরি হয়েছে ({added} জন সদস্য)।', 'success')
+                    else:
+                        db.session.rollback()
+                        flash('নির্বাচিত সদস্যরা রোস্টারে নেই বা অন্য গ্রুপে আছেন।', 'warning')
+            elif action == 'delete_group':
+                group = SocratesGroup.query.filter_by(
+                    id=request.form.get('group_id', type=int),
+                    assignment_id=assignment.id,
+                ).first()
+                if group:
+                    SocratesConversation.query.filter_by(group_id=group.id).delete(synchronize_session=False)
+                    db.session.delete(group)
+                    db.session.commit()
+                    flash('গ্রুপ মুছে ফেলা হয়েছে।', 'info')
+            else:
+                flash('অজানা অ্যাকশন।', 'danger')
+        except Exception as exc:
+            db.session.rollback()
+            flash_exception(exc, 'Socrates অ্যাসাইনমেন্ট পরিবর্তন ব্যর্থ', 'danger')
+        return redirect(manage_url)
+
+    roster = _class_students_for_session(session_id)
+    grouped_ids = {
+        member.student_id
+        for group in assignment.groups
+        for member in group.members
+    }
+    conversation_rows = _socrates_conversation_label_map(assignment)
+    return render_template(
+        'class_management/socrates_manage.html',
+        session=session_obj,
+        assignment=assignment,
+        roster=roster,
+        grouped_ids=grouped_ids,
+        conversation_rows=conversation_rows,
+    )
+
+
+@class_management_bp.route('/socrates/conversation/<int:conversation_id>')
+@login_required
+def socrates_transcript(conversation_id):
+    """Teacher: full transcript with AI evaluation and marking form."""
+    conversation = SocratesConversation.query.get_or_404(conversation_id)
+    assignment, session_obj = _socrates_assignment_for_teacher(conversation.assignment_id)
+    if not assignment:
+        flash('আপনি এই কথোপকথন দেখতে পারবেন না।', 'danger')
+        return redirect(url_for('class_management.index'))
+
+    evaluation = None
+    if conversation.ai_evaluation_json:
+        try:
+            evaluation = json.loads(conversation.ai_evaluation_json)
+        except (json.JSONDecodeError, TypeError):
+            evaluation = None
+
+    return render_template(
+        'class_management/socrates_transcript.html',
+        session=session_obj,
+        assignment=assignment,
+        conversation=conversation,
+        evaluation=evaluation,
+    )
+
+
+@class_management_bp.route('/socrates/conversation/<int:conversation_id>/evaluate', methods=['POST'])
+@login_required
+def socrates_evaluate(conversation_id):
+    """Teacher: run (or regenerate) the AI evaluation for one conversation."""
+    conversation = SocratesConversation.query.get_or_404(conversation_id)
+    assignment, session_obj = _socrates_assignment_for_teacher(conversation.assignment_id)
+    if not assignment:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    from utils.rate_limit import AI_USER, reject_if_user_limited
+    limited = reject_if_user_limited(
+        'ai.socrates', AI_USER,
+        json_message='অনেকবার চেষ্টা করা হয়েছে। কিছুক্ষণ পর আবার চেষ্টা করুন।',
+    )
+    if limited:
+        return limited
+
+    history = _socrates_history_dicts(conversation)
+    payload = {
+        'topic': assignment.topic,
+        'instructions': assignment.instructions,
+        'course_label': _socrates_course_label(session_obj),
+        'prompt_limit': assignment.prompt_limit,
+        'prompts_used': conversation.prompts_used,
+    }
+    try:
+        from utils.ai.socrates import evaluate_conversation
+        evaluation = evaluate_conversation(history_messages=history, **payload)
+        convo = SocratesConversation.query.get(conversation_id)
+        if not convo:
+            return jsonify({'success': False, 'message': 'কথোপকথন পাওয়া যায়নি।'}), 404
+        convo.ai_evaluation_json = json.dumps(evaluation, ensure_ascii=False)
+        if convo.status == SocratesConversation.STATUS_SUBMITTED:
+            convo.status = SocratesConversation.STATUS_EVALUATED
+        db.session.commit()
+        return jsonify({'success': True})
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': client_message(exc)}), 400
+    except Exception as exc:
+        current_app.logger.error(f'Socrates evaluation failed for conversation {conversation_id}: {exc}', exc_info=True)
+        from utils.ai.client import user_facing_generation_error
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return jsonify({'success': False, 'message': user_facing_generation_error(exc)}), 500
+
+
+@class_management_bp.route('/socrates/conversation/<int:conversation_id>/mark', methods=['POST'])
+@login_required
+def socrates_save_mark(conversation_id):
+    """Teacher: save final mark and comment."""
+    conversation = SocratesConversation.query.get_or_404(conversation_id)
+    assignment, _session_obj = _socrates_assignment_for_teacher(conversation.assignment_id)
+    if not assignment:
+        flash('আপনি এই কথোপকথনে মার্ক দিতে পারবেন না।', 'danger')
+        return redirect(url_for('class_management.index'))
+
+    mark_raw = (request.form.get('teacher_mark') or '').strip()
+    if not mark_raw:
+        conversation.teacher_mark = None
+    else:
+        from utils.ai.socrates import score_out_of_ten
+        mark = score_out_of_ten(mark_raw)
+        if mark is None:
+            flash('ভ্যালিড মার্ক দিন (০ থেকে ১০, .৫ করে)।', 'warning')
+            return redirect(url_for('class_management.socrates_transcript', conversation_id=conversation_id))
+        conversation.teacher_mark = mark
+    conversation.teacher_comment = (request.form.get('teacher_comment') or '').strip() or None
+    db.session.commit()
+    flash('মার্ক সংরক্ষণ হয়েছে।', 'success')
+    return redirect(url_for('class_management.socrates_transcript', conversation_id=conversation_id))
+
+
+@class_management_bp.route('/socrates/conversation/<int:conversation_id>/reopen', methods=['POST'])
+@login_required
+def socrates_reopen(conversation_id):
+    """Teacher: let a submitted student (or group) debate again."""
+    conversation = SocratesConversation.query.get_or_404(conversation_id)
+    assignment, session_obj = _socrates_assignment_for_teacher(conversation.assignment_id)
+    if not assignment:
+        flash('আপনি এই কথোপকথন আবার খুলতে পারবেন না।', 'danger')
+        return redirect(url_for('class_management.index'))
+
+    if conversation.status == SocratesConversation.STATUS_IN_PROGRESS:
+        flash('ডিবেট ইতিমধ্যে খোলা আছে।', 'info')
+        return redirect(url_for('class_management.socrates_transcript', conversation_id=conversation_id))
+
+    try:
+        extra = int(request.form.get('extra_prompts') or 0)
+    except (TypeError, ValueError):
+        extra = 0
+    extra = max(0, min(50, extra))
+    if conversation.remaining_prompts() <= 0 and extra <= 0:
+        extra = 5
+
+    conversation.status = SocratesConversation.STATUS_IN_PROGRESS
+    conversation.submitted_at = None
+    conversation.extra_prompts = int(conversation.extra_prompts or 0) + extra
+    db.session.commit()
+
+    parts = ['ডিবেট আবার খোলা হয়েছে। ছাত্র এখন চ্যাট করতে পারবে।']
+    if extra:
+        parts.append(f'অতিরিক্ত {extra}টি প্রম্পট দেওয়া হয়েছে।')
+    if not assignment.is_open():
+        parts.append('অ্যাসাইনমেন্ট বন্ধ বা ডেডলাইন পেরিয়ে গেছে — চ্যাট চালু করতে অ্যাসাইনমেন্ট Active রাখুন।')
+    flash(' '.join(parts), 'success' if assignment.is_open() else 'warning')
+    return redirect(url_for('class_management.socrates_transcript', conversation_id=conversation_id))
+
+
+@class_management_bp.route(
+    '/socrates/<int:session_id>/assignment/<int:assignment_id>/marks.csv'
+)
+@login_required
+def socrates_marks_csv(session_id, assignment_id):
+    """Teacher: export conversation marks as CSV."""
+    session_obj, teacher = _socrates_teacher_session(session_id)
+    if not teacher:
+        flash('আপনি এই এক্সপোর্ট ডাউনলোড করতে পারবেন না।', 'danger')
+        return redirect(url_for('class_management.evaluation', session_id=session_id))
+
+    assignment = SocratesAssignment.query.filter_by(
+        id=assignment_id, session_id=session_id,
+    ).first_or_404()
+
+    import csv
+    from io import StringIO
+
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([
+        'Participant', 'Students', 'Prompts Used', 'Prompt Limit', 'Status',
+        'Submitted At', 'AI Suggested Score (/10)', 'Teacher Mark', 'Teacher Comment',
+    ])
+    for row in _socrates_conversation_label_map(assignment):
+        convo = row['conversation']
+        if convo.group_id and convo.group:
+            students = '; '.join(
+                f'{member.student_name or ""} ({member.student_id})'.strip()
+                for member in convo.group.members
+            )
+        else:
+            students = f'{convo.student_name or ""} ({convo.student_id})'.strip()
+        writer.writerow([
+            convo.participant_label(),
+            students,
+            convo.prompts_used,
+            convo.prompt_cap(),
+            convo.status,
+            format_bd(convo.submitted_at, '%Y-%m-%d %H:%M') if convo.submitted_at else '',
+            row['suggested_score'] if row['suggested_score'] is not None else '',
+            convo.teacher_mark if convo.teacher_mark is not None else '',
+            convo.teacher_comment or '',
+        ])
+
+    code = (session_obj.course_code or 'course').replace(' ', '_')
+    return Response(
+        '\ufeff' + buffer.getvalue(),
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="socrates_marks_{code}.csv"'},
+    )
+
+
+def _socrates_student_sessions(student_id):
+    """Window-scoped session ids the logged-in student is enrolled in."""
+    records_q = ClassStudent.query.filter_by(student_id=student_id)
+    if filter_by_window_sessions:
+        records_q = filter_by_window_sessions(
+            records_q,
+            ClassStudent.session_id,
+            session_model=Session,
+            admin_override=False,
+        )
+    return {record.session_id: record for record in records_q.all()}
+
+
+def _socrates_student_context(assignment_id):
+    """Resolve (assignment, class_student, group) for the logged-in student.
+
+    Returns (None, None, None, response) when access must be denied.
+    """
+    student_id = current_user.username
+    assignment = SocratesAssignment.query.get(assignment_id)
+    if not assignment:
+        return None, None, None, ('অ্যাসাইনমেন্ট পাওয়া যায়নি।', 404)
+    enrolled = _socrates_student_sessions(student_id)
+    class_student = enrolled.get(assignment.session_id)
+    if not class_student:
+        return None, None, None, ('আপনি এই কোর্সে তালিকাভুক্ত নন।', 403)
+    group = None
+    if assignment.mode == SocratesAssignment.MODE_GROUP:
+        group = (
+            SocratesGroup.query.join(SocratesGroupMember)
+            .filter(
+                SocratesGroup.assignment_id == assignment.id,
+                SocratesGroupMember.student_id == student_id,
+            )
+            .first()
+        )
+        if not group:
+            return None, None, None, ('শিক্ষক এখনও আপনাকে কোনো গ্রুপে যুক্ত করেননি।', 403)
+    return assignment, class_student, group, None
+
+
+def _socrates_get_or_create_conversation(assignment, class_student, group):
+    if group is not None:
+        conversation = SocratesConversation.query.filter_by(
+            assignment_id=assignment.id, group_id=group.id,
+        ).first()
+        if not conversation:
+            conversation = SocratesConversation(
+                assignment_id=assignment.id,
+                group_id=group.id,
+            )
+            db.session.add(conversation)
+            db.session.commit()
+        return conversation
+    conversation = SocratesConversation.query.filter_by(
+        assignment_id=assignment.id, student_id=class_student.student_id,
+    ).first()
+    if not conversation:
+        conversation = SocratesConversation(
+            assignment_id=assignment.id,
+            student_id=class_student.student_id,
+            student_name=class_student.name,
+        )
+        db.session.add(conversation)
+        db.session.commit()
+    return conversation
+
+
+@class_management_bp.route('/student/socrates')
+@login_required
+def student_socrates_list():
+    """Student: list Socrates debate assignments across enrolled courses."""
+    from utils.dashboard_settings import require_student_dashboard_card
+    blocked = require_student_dashboard_card('socrates')
+    if blocked:
+        return blocked
+
+    student_id = current_user.username
+    enrolled = _socrates_student_sessions(student_id)
+    assignments = []
+    if enrolled:
+        rows = (
+            SocratesAssignment.query.filter(SocratesAssignment.session_id.in_(enrolled.keys()))
+            .order_by(SocratesAssignment.created_at.desc())
+            .all()
+        )
+        for assignment in rows:
+            group = None
+            conversation = None
+            if assignment.mode == SocratesAssignment.MODE_GROUP:
+                group = (
+                    SocratesGroup.query.join(SocratesGroupMember)
+                    .filter(
+                        SocratesGroup.assignment_id == assignment.id,
+                        SocratesGroupMember.student_id == student_id,
+                    )
+                    .first()
+                )
+                if group:
+                    conversation = SocratesConversation.query.filter_by(
+                        assignment_id=assignment.id, group_id=group.id,
+                    ).first()
+            else:
+                conversation = SocratesConversation.query.filter_by(
+                    assignment_id=assignment.id, student_id=student_id,
+                ).first()
+            assignments.append({
+                'assignment': assignment,
+                'session': assignment.session,
+                'group': group,
+                'conversation': conversation,
+                'needs_group': assignment.mode == SocratesAssignment.MODE_GROUP and not group,
+            })
+
+    return render_template('class_management/student_socrates_list.html', assignments=assignments)
+
+
+@class_management_bp.route('/student/socrates/<int:assignment_id>')
+@login_required
+def student_socrates_chat(assignment_id):
+    """Student: debate chat page."""
+    from utils.dashboard_settings import require_student_dashboard_card
+    blocked = require_student_dashboard_card('socrates')
+    if blocked:
+        return blocked
+
+    assignment, class_student, group, error = _socrates_student_context(assignment_id)
+    if error:
+        message, _status = error
+        flash(message, 'warning')
+        return redirect(url_for('class_management.student_socrates_list'))
+
+    conversation = _socrates_get_or_create_conversation(assignment, class_student, group)
+    remaining = conversation.remaining_prompts()
+    prompt_cap = conversation.prompt_cap()
+    student_name = (class_student.name or current_user.full_name or 'You').strip()
+    from markupsafe import Markup
+    from utils.outline_richtext import html_is_empty, sanitize_outline_html
+    instructions_html = sanitize_outline_html(assignment.instructions or '')
+    if html_is_empty(instructions_html):
+        instructions_html = None
+    else:
+        instructions_html = Markup(instructions_html)
+    return render_template(
+        'class_management/student_socrates_chat.html',
+        assignment=assignment,
+        session=assignment.session,
+        group=group,
+        conversation=conversation,
+        remaining=remaining,
+        prompt_cap=prompt_cap,
+        student_name=student_name,
+        student_initial=(student_name[:1] or 'S').upper(),
+        can_chat=assignment.is_open() and conversation.status == SocratesConversation.STATUS_IN_PROGRESS,
+        instructions_html=instructions_html,
+    )
+
+
+def _socrates_wants_json():
+    return bool(request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest')
+
+
+def _socrates_send_fail(assignment_id, message, status=400):
+    if _socrates_wants_json():
+        return jsonify({'success': False, 'message': message}), status
+    flash(message, 'danger')
+    return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
+
+
+@class_management_bp.route('/student/socrates/<int:assignment_id>/send', methods=['POST'])
+@login_required
+def student_socrates_send(assignment_id):
+    """Student: send one argument; Socrates replies. Enforces the prompt limit."""
+    assignment, class_student, group, error = _socrates_student_context(assignment_id)
+    if error:
+        message, status = error
+        return _socrates_send_fail(assignment_id, message, status)
+
+    if not assignment.is_open():
+        return _socrates_send_fail(assignment_id, 'অ্যাসাইনমেন্টটি বন্ধ বা ডেডলাইন পেরিয়ে গেছে।')
+
+    conversation = _socrates_get_or_create_conversation(assignment, class_student, group)
+    if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
+        return _socrates_send_fail(assignment_id, 'কথোপকথনটি ইতিমধ্যে জমা দেওয়া হয়েছে।')
+    if conversation.prompts_used >= conversation.prompt_cap():
+        return _socrates_send_fail(assignment_id, 'প্রম্পট লিমিট শেষ। এখন জমা দিন।')
+
+    data = request.get_json(silent=True) or {}
+    body = (data.get('message') or request.form.get('message') or '').strip()
+    if not body:
+        return _socrates_send_fail(assignment_id, 'যুক্তি লিখুন।')
+    if len(body) > 3000:
+        return _socrates_send_fail(assignment_id, 'বার্তা খুব বড় (সর্বোচ্চ ৩০০০ অক্ষর)।')
+
+    from utils.rate_limit import AI_USER, reject_if_user_limited
+    limited = reject_if_user_limited(
+        'ai.socrates', AI_USER,
+        json_message='অনেকবার পাঠানো হয়েছে। কিছুক্ষণ পর আবার চেষ্টা করুন।',
+    )
+    if limited:
+        return limited
+
+    # Snapshot everything the AI call needs before reset_db_session() detaches ORM rows.
+    conversation_id = conversation.id
+    ai_payload = {
+        'topic': assignment.topic,
+        'instructions': assignment.instructions,
+        'course_label': _socrates_course_label(assignment.session),
+    }
+    history = _socrates_history_dicts(conversation)
+    history.append({
+        'sender': SocratesMessage.SENDER_STUDENT,
+        'sender_student_name': class_student.name,
+        'body': body,
+    })
+    prompt_limit = conversation.prompt_cap()
+
+    student_message = SocratesMessage(
+        conversation_id=conversation_id,
+        sender=SocratesMessage.SENDER_STUDENT,
+        sender_student_id=class_student.student_id,
+        sender_student_name=class_student.name,
+        body=body,
+    )
+    conversation.prompts_used += 1
+    db.session.add(student_message)
+    db.session.commit()
+    student_message_id = student_message.id
+
+    try:
+        from utils.ai.socrates import generate_socrates_reply
+        reply = generate_socrates_reply(history_messages=history, **ai_payload)
+    except Exception as exc:
+        # Refund the prompt: the student got no reply.
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        try:
+            convo = SocratesConversation.query.get(conversation_id)
+            message_row = SocratesMessage.query.get(student_message_id)
+            if message_row:
+                db.session.delete(message_row)
+            if convo and convo.prompts_used > 0:
+                convo.prompts_used -= 1
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        if isinstance(exc, ValueError):
+            return _socrates_send_fail(assignment_id, client_message(exc))
+        current_app.logger.error(f'Socrates reply failed for conversation {conversation_id}: {exc}', exc_info=True)
+        from utils.ai.client import user_facing_generation_error
+        return _socrates_send_fail(assignment_id, user_facing_generation_error(exc), 500)
+
+    convo = SocratesConversation.query.get(conversation_id)
+    if not convo:
+        return _socrates_send_fail(assignment_id, 'কথোপকথন পাওয়া যায়নি।', 404)
+    db.session.add(SocratesMessage(
+        conversation_id=conversation_id,
+        sender=SocratesMessage.SENDER_SOCRATES,
+        body=reply,
+    ))
+    db.session.commit()
+
+    remaining = max(0, prompt_limit - convo.prompts_used)
+    if _socrates_wants_json():
+        return jsonify({
+            'success': True,
+            'reply': reply,
+            'prompts_used': convo.prompts_used,
+            'prompt_limit': prompt_limit,
+            'remaining': remaining,
+        })
+    return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
+
+
+@class_management_bp.route('/student/socrates/<int:assignment_id>/submit', methods=['POST'])
+@login_required
+def student_socrates_submit(assignment_id):
+    """Student: lock the conversation and trigger the AI evaluation."""
+    assignment, class_student, group, error = _socrates_student_context(assignment_id)
+    if error:
+        message, _status = error
+        flash(message, 'warning')
+        return redirect(url_for('class_management.student_socrates_list'))
+
+    conversation = _socrates_get_or_create_conversation(assignment, class_student, group)
+    if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
+        flash('কথোপকথনটি ইতিমধ্যে জমা দেওয়া হয়েছে।', 'info')
+        return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
+    if not any(msg.sender == SocratesMessage.SENDER_STUDENT for msg in conversation.messages or []):
+        flash('জমা দেওয়ার আগে অন্তত একটি যুক্তি লিখুন।', 'warning')
+        return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
+
+    conversation_id = conversation.id
+    history = _socrates_history_dicts(conversation)
+    ai_payload = {
+        'topic': assignment.topic,
+        'instructions': assignment.instructions,
+        'course_label': _socrates_course_label(assignment.session),
+        'prompt_limit': assignment.prompt_limit,
+        'prompts_used': conversation.prompts_used,
+    }
+    conversation.status = SocratesConversation.STATUS_SUBMITTED
+    conversation.submitted_at = datetime.utcnow()
+    db.session.commit()
+
+    try:
+        from utils.ai.socrates import evaluate_conversation
+        evaluation = evaluate_conversation(history_messages=history, **ai_payload)
+        convo = SocratesConversation.query.get(conversation_id)
+        if convo:
+            convo.ai_evaluation_json = json.dumps(evaluation, ensure_ascii=False)
+            convo.status = SocratesConversation.STATUS_EVALUATED
+            db.session.commit()
+        flash('ডিবেট জমা হয়েছে এবং এআই মূল্যায়ন সম্পন্ন হয়েছে।', 'success')
+    except Exception as exc:
+        current_app.logger.warning(f'Socrates evaluation after submit failed for {conversation_id}: {exc}')
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        flash('ডিবেট জমা হয়েছে। এআই মূল্যায়ন পরে শিক্ষক তৈরি করবেন।', 'info')
+
+    return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
 
 
 @class_management_bp.route('/evaluation/<int:session_id>/course-review', methods=['GET', 'POST'])

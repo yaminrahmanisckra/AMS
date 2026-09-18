@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Course-wise Student Feedback Report</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 18mm 16mm 18mm 16mm;
+            @bottom-center {
+                content: "Page " counter(page);
+                font-size: 9pt;
+                font-family: 'PDFSerif', 'Times New Roman', serif;
+            }
+        }
+
+        {% if kalpurush_font_path %}
+        @font-face {
+            font-family: 'Kalpurush';
+            src: url('file://{{ kalpurush_font_path }}') format('truetype');
+        }
+        {% endif %}
+
+        @font-face {
+            font-family: 'PDFSerif';
+            src: url('{{ pdf_font_regular }}');
+            font-weight: normal;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'PDFSerif';
+            src: url('{{ pdf_font_bold }}');
+            font-weight: bold;
+            font-style: normal;
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'PDFSerif', 'Times New Roman', Times, serif;
+            font-size: 10.5pt;
+            line-height: 1.35;
+            color: #111;
+        }
+        h1 {
+            font-size: 16pt;
+            text-align: center;
+            margin: 0 0 4pt 0;
+        }
+        .subtitle, .discipline {
+            text-align: center;
+            margin: 0 0 4pt 0;
+        }
+        .subtitle { font-size: 11pt; font-weight: bold; }
+        .meta {
+            text-align: center;
+            font-size: 9pt;
+            color: #444;
+            margin-bottom: 14pt;
+        }
+        h2 {
+            font-size: 12pt;
+            margin: 16pt 0 6pt 0;
+            border-bottom: 0.6pt solid #333;
+            padding-bottom: 2pt;
+        }
+        h3 {
+            font-size: 11pt;
+            margin: 10pt 0 4pt 0;
+        }
+        p { margin: 0 0 7pt 0; text-align: justify; }
+        ol, ul { margin: 0 0 8pt 18pt; padding: 0; }
+        li { margin-bottom: 4pt; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0 0 10pt 0;
+            font-size: 9.5pt;
+        }
+        th, td {
+            border: 0.6pt solid #333;
+            padding: 4pt 6pt;
+            vertical-align: top;
+        }
+        th { background: #e8eef6; font-weight: bold; text-align: left; }
+        .num { text-align: right; white-space: nowrap; }
+        .note {
+            border: 0.6pt solid #666;
+            padding: 6pt 8pt;
+            margin: 0 0 12pt 0;
+            font-size: 10pt;
+        }
+        .quote {
+            margin: 0 0 8pt 12pt;
+            padding-left: 8pt;
+            border-left: 2pt solid #888;
+            font-size: 10pt;
+            font-style: italic;
+        }
+        .bn {
+            font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}'PDFSerif', 'Times New Roman', serif;
+        }
+        .caption { font-size: 9pt; margin: 0 0 4pt 0; color: #333; }
+    </style>
+</head>
+<body>
+{% set narrative = report.narrative or {} %}
+{% set quantitative = report.quantitative or {} %}
+
+<h1>Course-wise Student Feedback Report</h1>
+<p class="subtitle">Institutional Quality Assurance / Self-Assessment</p>
+{% if report.discipline %}<p class="discipline">{{ report.discipline }}</p>{% endif %}
+{% if report.generated_at %}<p class="meta">Generated: {{ report.generated_at }}</p>{% endif %}
+
+{% if report.indicative_only %}
+<div class="note">Findings are indicative rather than representative because the response rate is below 50 per cent or fewer than 10 valid responses were received.</div>
+{% endif %}
+
+<h2>1. Course and Survey Profile</h2>
+<table>
+    <tbody>
+    {% for row in report.profile or [] %}
+        <tr>
+            <th style="width: 34%">{{ row.field }}</th>
+            <td>{{ row.value }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+<h2>2. Methodology</h2>
+<p>{{ narrative.methodology or 'not reported' }}</p>
+
+<h2>3. Quantitative Findings</h2>
+<p class="caption">Table 1. Item-wise ratings (1 = strongly disagree to 5 = strongly agree). Favourable responses are ratings of 4 and 5 combined.</p>
+<table>
+    <thead>
+        <tr>
+            <th>Item</th>
+            <th>Statement</th>
+            <th class="num">n</th>
+            <th class="num">Mean</th>
+            <th class="num">SD</th>
+            <th class="num">% favourable</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for item in quantitative.likert_items or [] %}
+        <tr>
+            <td>{{ item.item }}</td>
+            <td>
+                {{ item.text }}
+                {% if item.divided_opinion or item.high_sd %}
+                <div>
+                    {% if item.divided_opinion %}Divided opinion.{% endif %}
+                    {% if item.high_sd %} High relative dispersion.{% endif %}
+                </div>
+                {% endif %}
+            </td>
+            <td class="num">{{ item.n if item.n is not none else '—' }}</td>
+            <td class="num">{% if item.mean is not none %}{{ '%.2f'|format(item.mean) }}{% else %}—{% endif %}</td>
+            <td class="num">{% if item.sd is not none %}{{ '%.2f'|format(item.sd) }}{% else %}—{% endif %}</td>
+            <td class="num">{% if item.favourable_pct is not none %}{{ '%.1f'|format(item.favourable_pct) }}%{% else %}—{% endif %}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% if quantitative.overall_mean is not none %}
+<p>Overall mean across items: <strong>{{ '%.2f'|format(quantitative.overall_mean) }}</strong>.</p>
+{% endif %}
+{% if quantitative.highest_rated %}
+<p>Highest-rated items:
+    {% for row in quantitative.highest_rated %}{{ row.item }} ({{ '%.2f'|format(row.mean) }}){% if not loop.last %}; {% endif %}{% endfor %}.</p>
+{% endif %}
+{% if quantitative.lowest_rated %}
+<p>Lowest-rated items:
+    {% for row in quantitative.lowest_rated %}{{ row.item }} ({{ '%.2f'|format(row.mean) }}){% if not loop.last %}; {% endif %}{% endfor %}.</p>
+{% endif %}
+<p>{{ narrative.quantitative_narrative or '' }}</p>
+
+<h2>4. Qualitative Findings</h2>
+{% set themes = narrative.qualitative_findings or [] %}
+{% if not themes %}
+<p>No open comments were available for thematic analysis.</p>
+{% else %}
+    {% for theme in themes %}
+        <h3>{{ theme.theme }}{% if theme.comment_count %} (n = {{ theme.comment_count }}){% endif %}</h3>
+        <p>{{ theme.summary }}</p>
+        {% if theme.quotation %}<p class="quote bn">“{{ theme.quotation }}”</p>{% endif %}
+    {% endfor %}
+{% endif %}
+
+<h2>5. Triangulated Key Findings</h2>
+{% set findings = narrative.triangulated_key_findings or [] %}
+{% if not findings %}
+<p>not reported</p>
+{% else %}
+<ol>
+    {% for finding in findings %}
+        <li>{{ finding.text }}{% if finding.qa_area %} ({{ finding.qa_area }}){% endif %}</li>
+    {% endfor %}
+</ol>
+{% endif %}
+
+<h2>6. Strengths Identified</h2>
+{% if narrative.strengths %}
+<ul>
+    {% for item in narrative.strengths %}<li>{{ item }}</li>{% endfor %}
+</ul>
+{% else %}
+<p>not reported</p>
+{% endif %}
+
+<h2>7. Areas Requiring Improvement</h2>
+{% if narrative.areas_requiring_improvement %}
+<ul>
+    {% for item in narrative.areas_requiring_improvement %}<li>{{ item }}</li>{% endfor %}
+</ul>
+{% else %}
+<p>not reported</p>
+{% endif %}
+
+<h2>8. Action Plan</h2>
+{% set actions = narrative.action_plan or [] %}
+{% if actions %}
+<table>
+    <thead>
+        <tr>
+            <th>Issue</th>
+            <th>Proposed action</th>
+            <th>Responsibility</th>
+            <th>Timeline</th>
+            <th>How improvement will be verified</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in actions %}
+        <tr>
+            <td>{{ row.issue }}</td>
+            <td>{{ row.proposed_action }}</td>
+            <td>{{ row.responsibility }}</td>
+            <td>{{ row.timeline }}</td>
+            <td>{{ row.verification }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>not reported</p>
+{% endif %}
+
+<h2>9. Limitations</h2>
+<ul>
+    {% for item in narrative.limitations or [] %}
+        <li>{{ item }}</li>
+    {% endfor %}
+    {% if narrative.excluded_comments_count %}
+        <li>{{ narrative.excluded_comments_count }} comment(s) excluded under the propriety rule{% if narrative.excluded_comments_reason %}: {{ narrative.excluded_comments_reason }}{% endif %}.</li>
+    {% endif %}
+</ul>
+
+<h2>10. Annexes</h2>
+<h3>Annex A. Survey instrument (Likert items)</h3>
+<table>
+    <thead>
+        <tr><th>Item</th><th>Statement</th></tr>
+    </thead>
+    <tbody>
+        {% for item in quantitative.likert_items or [] %}
+        <tr>
+            <td>{{ item.item }}</td>
+            <td>{{ item.text }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h3>Annex B. Anonymised open comments</h3>
+{% if report.comments %}
+<ol class="bn">
+    {% for comment in report.comments %}
+        <li>
+            {% if comment.likes %}<div><strong>Liked:</strong> {{ comment.likes }}</div>{% endif %}
+            {% if comment.challenges %}<div><strong>Challenges:</strong> {{ comment.challenges }}</div>{% endif %}
+            {% if comment.suggestions %}<div><strong>Suggestions:</strong> {{ comment.suggestions }}</div>{% endif %}
+        </li>
+    {% endfor %}
+</ol>
+{% else %}
+<p>No open comments were recorded.</p>
+{% endif %}
+</body>
+</html>

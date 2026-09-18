@@ -398,6 +398,8 @@ class StudentFeedbackLink(db.Model):
     expires_at = db.Column(db.DateTime, nullable=True)
     allow_multiple = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    ai_report_json = db.Column(db.Text, nullable=True)
+    ai_report_generated_at = db.Column(db.DateTime, nullable=True)
     session = db.relationship('Session', backref=db.backref('student_feedback_links', lazy='dynamic', cascade='all, delete-orphan'))
 
 
@@ -474,3 +476,112 @@ class CourseOutline(db.Model):
                                                 cascade='none'),  # Explicitly disable cascade
                               passive_updates=True)
     teacher = db.relationship('Teacher', backref=db.backref('course_outlines', lazy='dynamic'))
+
+
+# --- Socrates AI Debate Companion ---
+
+class SocratesAssignment(db.Model):
+    """Teacher-set debate topic students argue with the AI companion (Socrates)."""
+    __tablename__ = 'socrates_assignment'
+    MODE_INDIVIDUAL = 'individual'
+    MODE_GROUP = 'group'
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey('class_session.id'), nullable=False, index=True)
+    teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False, index=True)
+    topic = db.Column(db.String(300), nullable=False)
+    instructions = db.Column(db.Text, nullable=True)
+    mode = db.Column(db.String(20), nullable=False, default=MODE_INDIVIDUAL)  # individual | group
+    prompt_limit = db.Column(db.Integer, nullable=False, default=15)
+    deadline = db.Column(db.DateTime, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    session = db.relationship('Session', backref=db.backref('socrates_assignments', lazy='dynamic', cascade='all, delete-orphan'))
+    teacher = db.relationship('Teacher', backref=db.backref('socrates_assignments', lazy='dynamic'))
+    groups = db.relationship('SocratesGroup', backref='assignment', lazy='selectin', cascade='all, delete-orphan')
+    conversations = db.relationship('SocratesConversation', backref='assignment', lazy='selectin', cascade='all, delete-orphan')
+
+    def is_open(self):
+        if not self.is_active:
+            return False
+        if self.deadline and datetime.utcnow().date() > self.deadline.date():
+            return False
+        return True
+
+
+class SocratesGroup(db.Model):
+    """Teacher-assigned student group for a group-mode Socrates assignment."""
+    __tablename__ = 'socrates_group'
+    id = db.Column(db.Integer, primary_key=True)
+    assignment_id = db.Column(db.Integer, db.ForeignKey('socrates_assignment.id'), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    members = db.relationship('SocratesGroupMember', backref='group', lazy='selectin', cascade='all, delete-orphan')
+
+
+class SocratesGroupMember(db.Model):
+    __tablename__ = 'socrates_group_member'
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('socrates_group.id'), nullable=False, index=True)
+    student_id = db.Column(db.String(50), nullable=False, index=True)
+    student_name = db.Column(db.String(100), nullable=True)
+
+
+class SocratesConversation(db.Model):
+    """One debate per student (individual) or per group (group mode)."""
+    __tablename__ = 'socrates_conversation'
+    STATUS_IN_PROGRESS = 'in_progress'
+    STATUS_SUBMITTED = 'submitted'
+    STATUS_EVALUATED = 'evaluated'
+
+    id = db.Column(db.Integer, primary_key=True)
+    assignment_id = db.Column(db.Integer, db.ForeignKey('socrates_assignment.id'), nullable=False, index=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('socrates_group.id'), nullable=True, index=True)
+    student_id = db.Column(db.String(50), nullable=True, index=True)  # individual mode
+    student_name = db.Column(db.String(100), nullable=True)
+    prompts_used = db.Column(db.Integer, nullable=False, default=0)
+    extra_prompts = db.Column(db.Integer, nullable=False, default=0)
+    status = db.Column(db.String(20), nullable=False, default=STATUS_IN_PROGRESS)
+    ai_evaluation_json = db.Column(db.Text, nullable=True)
+    teacher_mark = db.Column(db.Float, nullable=True)
+    teacher_comment = db.Column(db.Text, nullable=True)
+    submitted_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    group = db.relationship('SocratesGroup', backref=db.backref('conversations', lazy='selectin'))
+    messages = db.relationship(
+        'SocratesMessage',
+        backref='conversation',
+        lazy='selectin',
+        cascade='all, delete-orphan',
+        order_by='SocratesMessage.created_at',
+    )
+
+    def participant_label(self):
+        if self.group_id and self.group:
+            return self.group.name
+        return f"{self.student_name or ''} ({self.student_id})".strip()
+
+    def prompt_cap(self):
+        base = int(self.assignment.prompt_limit or 0) if self.assignment else 0
+        return base + int(self.extra_prompts or 0)
+
+    def remaining_prompts(self):
+        return max(0, self.prompt_cap() - int(self.prompts_used or 0))
+
+
+class SocratesMessage(db.Model):
+    __tablename__ = 'socrates_message'
+    SENDER_STUDENT = 'student'
+    SENDER_SOCRATES = 'socrates'
+
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('socrates_conversation.id'), nullable=False, index=True)
+    sender = db.Column(db.String(20), nullable=False)  # student | socrates
+    sender_student_id = db.Column(db.String(50), nullable=True)  # who in the group wrote it
+    sender_student_name = db.Column(db.String(100), nullable=True)
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

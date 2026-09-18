@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block mobile_title %}Socrates{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-1"><i class="fas fa-robot me-2 text-primary"></i>Socrates — AI Debate Companion</h4>
+      <p class="text-muted small mb-0">প্রতিটি কোর্সে একাধিক ডিবেট অ্যাসাইনমেন্ট দিতে পারেন।</p>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('index') }}">
+      <i class="fas fa-arrow-left me-1"></i>Dashboard
+    </a>
+  </div>
+
+  {% if not rows %}
+    <div class="card shadow-sm">
+      <div class="card-body text-center py-5 text-muted">
+        <i class="fas fa-chalkboard fa-2x mb-3"></i>
+        <p class="mb-0">এই উইন্ডোতে আপনার কোনো কোর্স সেশন নেই।</p>
+      </div>
+    </div>
+  {% else %}
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Course</th>
+                <th>Assignments</th>
+                <th class="text-center">Conversations</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+                <tr>
+                  <td>
+                    <strong>{{ row.session.course_code or 'N/A' }}</strong>
+                    <div class="small text-muted">{{ row.session.course_name or '' }}</div>
+                  </td>
+                  <td class="small">
+                    {% if not row.assignments %}
+                      <span class="text-muted">Not set</span>
+                    {% else %}
+                      <div class="mb-1">{{ row.assignment_count }} assignment{{ 's' if row.assignment_count != 1 else '' }}</div>
+                      {% for assignment in row.assignments[:3] %}
+                        <div class="text-muted">• {{ assignment.topic }}</div>
+                      {% endfor %}
+                      {% if row.assignment_count > 3 %}
+                        <div class="text-muted">+ {{ row.assignment_count - 3 }} more</div>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                  <td class="text-center">{{ row.conversation_count if row.assignment_count else '—' }}</td>
+                  <td class="text-end">
+                    <a class="btn btn-sm btn-{{ 'outline-primary' if row.assignment_count else 'primary' }}" href="{{ url_for('class_management.socrates_course', session_id=row.session.id) }}">
+                      <i class="fas fa-{{ 'cog' if row.assignment_count else 'plus' }} me-1"></i>{{ 'Manage' if row.assignment_count else 'Set Up' }}
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

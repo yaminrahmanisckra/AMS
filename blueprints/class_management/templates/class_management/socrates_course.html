@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block mobile_title %}Socrates{% endblock %}
+{% block extra_css %}
+<style>
+.tox-tinymce { border-radius: 6px !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-1"><i class="fas fa-comments me-2 text-primary"></i>Socrates — {{ session.course_code or 'Course' }}</h4>
+      <p class="text-muted small mb-0">{{ session.course_name or '' }} — এই কোর্সে একাধিক ডিবেট অ্যাসাইনমেন্ট দিতে পারেন।</p>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.socrates_home') }}">
+      <i class="fas fa-arrow-left me-1"></i>Back to Socrates
+    </a>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header bg-white">
+      <h6 class="mb-0 text-secondary">Assignments ({{ assignments|length }})</h6>
+    </div>
+    <div class="card-body">
+      {% if not assignments %}
+        <p class="text-muted mb-0">এখনও কোনো অ্যাসাইনমেন্ট নেই। নিচে নতুন টপিক তৈরি করুন।</p>
+      {% else %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Topic</th>
+                <th class="text-center">Mode</th>
+                <th class="text-center">Status</th>
+                <th class="text-center">Conversations</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for assignment in assignments %}
+                <tr>
+                  <td>
+                    <strong>{{ assignment.topic }}</strong>
+                    <div class="small text-muted">Prompt limit: {{ assignment.prompt_limit }}
+                      {% if assignment.deadline %} · {{ assignment.deadline.strftime('%d %b %Y') }}{% endif %}
+                    </div>
+                  </td>
+                  <td class="text-center small">{{ assignment.mode }}</td>
+                  <td class="text-center">
+                    {% if assignment.is_open() %}
+                      <span class="badge bg-success">Open</span>
+                    {% else %}
+                      <span class="badge bg-secondary">Closed</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-center">{{ assignment.conversations|length }}</td>
+                  <td class="text-end">
+                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('class_management.socrates_manage', session_id=session.id, assignment_id=assignment.id) }}">
+                      <i class="fas fa-cog me-1"></i>Manage
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-header bg-primary text-white">
+      <h6 class="mb-0">New Assignment</h6>
+    </div>
+    <div class="card-body">
+      <form method="POST" id="socratesSettingsForm">
+        <input type="hidden" name="action" value="create">
+        <div class="mb-3">
+          <label class="form-label">Debate Topic <span class="text-danger">*</span></label>
+          <input type="text" name="topic" class="form-control" required maxlength="300"
+                 placeholder="যেমন: Capital punishment should be abolished in Bangladesh">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="socratesInstructions">Instructions (optional)</label>
+          <textarea name="instructions" id="socratesInstructions" class="form-control" rows="6"
+                    placeholder="Students-দের জন্য নির্দেশনা — নম্বর সিরিয়াল বা বুলেট লিস্ট দিতে পারেন"></textarea>
+          <div class="form-text">নম্বর সিরিয়াল (১, ২, ৩) বা বুলেট লিস্ট ব্যবহার করতে টুলবারের তালিকা বাটন চাপুন।</div>
+        </div>
+        <div class="row g-2">
+          <div class="col-sm-4">
+            <label class="form-label">Mode</label>
+            <select name="mode" class="form-select">
+              <option value="individual">Individual</option>
+              <option value="group">Group</option>
+            </select>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label">Prompt Limit</label>
+            <input type="number" name="prompt_limit" class="form-control" min="1" max="100" value="15">
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label">Deadline</label>
+            <input type="date" name="deadline" class="form-control">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary w-100 mt-3">
+          <i class="fas fa-plus me-1"></i>Create Assignment
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js" referrerpolicy="origin"></script>
+<script>
+(function () {
+  function boot() {
+    if (!window.tinymce) {
+      setTimeout(boot, 50);
+      return;
+    }
+    if (tinymce.get('socratesInstructions')) return;
+    tinymce.init({
+      selector: '#socratesInstructions',
+      height: 240,
+      menubar: false,
+      branding: false,
+      promotion: false,
+      plugins: 'lists link autolink',
+      toolbar: 'undo redo | bold italic underline | bullist numlist | link | removeformat',
+      toolbar_mode: 'wrap',
+      convert_urls: false,
+      link_default_target: '_blank',
+      link_assume_external_targets: true,
+      content_style: 'body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; } ol, ul { margin-left: 1.2rem; }'
+    });
+  }
+  boot();
+  const form = document.getElementById('socratesSettingsForm');
+  if (form) {
+    form.addEventListener('submit', function () {
+      if (window.tinymce) {
+        try { tinymce.triggerSave(); } catch (err) {}
+      }
+    });
+  }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+{% block mobile_title %}AI Report{% endblock %}
+
+{% block content %}
+<div class="container mt-4 feedback-ai-report">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-1"><i class="fas fa-robot me-2 text-info"></i>Student Feedback Analysis</h4>
+      <p class="text-muted small mb-0">IQAC course-wise report from anonymous responses — review before using in a self-assessment submission.</p>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.student_feedback_manage', session_id=session.id) }}">
+      <i class="fas fa-arrow-left me-1"></i>Back to Feedback
+    </a>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div>
+        <div class="fw-semibold">{{ session.course_code or 'Course' }} — {{ session.course_name or 'Untitled' }}</div>
+        <div class="small text-muted">
+          {{ response_count }} response{{ 's' if response_count != 1 else '' }}
+          {% if report and report.generated_at %} · Last generated {{ report.generated_at }}{% endif %}
+        </div>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        {% if report %}
+          <a class="btn btn-primary btn-sm" href="{{ url_for('class_management.student_feedback_ai_report_pdf', session_id=session.id) }}" target="_blank">
+            <i class="fas fa-file-pdf me-1"></i>Download PDF
+          </a>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.student_feedback_ai_report_docx', session_id=session.id) }}">
+            <i class="fas fa-file-word me-1"></i>Download DOCX
+          </a>
+        {% endif %}
+        <button
+          type="button"
+          class="btn btn-info text-white btn-sm"
+          id="generateFeedbackReport"
+          data-url="{{ url_for('class_management.student_feedback_ai_analyze', session_id=session.id) }}"
+          data-has-report="{{ '1' if report else '0' }}"
+          {% if response_count == 0 %}disabled{% endif %}
+        >
+          <i class="fas fa-magic me-1"></i>{% if report %}Regenerate{% else %}Generate AI Report{% endif %}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {% if response_count == 0 %}
+    <div class="alert alert-warning">এখনও কোনো ফিডব্যাক আসেনি। অ্যানালাইসিস করতে উত্তর প্রয়োজন।</div>
+  {% elif report_is_stale %}
+    <div class="alert alert-warning">নতুন উত্তর এসেছে। হালনাগাদ রিপোর্টের জন্য আবার Generate চাপুন।</div>
+  {% endif %}
+
+  <div id="feedbackAiStatus" class="alert alert-info d-none" role="status"></div>
+
+  {% if report %}
+    {% set narrative = report.narrative or {} %}
+    {% set quantitative = report.quantitative or {} %}
+    <article class="card shadow-sm report-body mb-5">
+      <div class="card-body p-4 p-md-5">
+        <header class="text-center mb-4">
+          <h2 class="h4 mb-1">Course-wise Student Feedback Report</h2>
+          <p class="text-muted mb-1">Institutional Quality Assurance / Self-Assessment</p>
+          {% if report.discipline %}<p class="mb-0">{{ report.discipline }}</p>{% endif %}
+        </header>
+
+        {% if report.indicative_only %}
+          <div class="alert alert-secondary">
+            Findings are indicative rather than representative because the response rate is below 50 per cent or fewer than 10 valid responses were received.
+          </div>
+        {% endif %}
+
+        <section class="mb-4">
+          <h3 class="h5">1. Course and Survey Profile</h3>
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle">
+              <tbody>
+                {% for row in report.profile or [] %}
+                  <tr>
+                    <th class="bg-light" style="width: 32%">{{ row.field }}</th>
+                    <td>{{ row.value }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="mb-4">
+          <h3 class="h5">2. Methodology</h3>
+          <p>{{ narrative.methodology or 'not reported' }}</p>
+        </section>
+
+        <section class="mb-4">
+          <h3 class="h5">3. Quantitative Findings</h3>
+          <p class="small text-muted">Table 1. Item-wise ratings (1 = strongly disagree to 5 = strongly agree). Favourable responses are ratings of 4 and 5 combined.</p>
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm">
+              <thead class="table-light">
+                <tr>
+                  <th>Item</th>
+                  <th>Statement</th>
+                  <th class="text-end">n</th>
+                  <th class="text-end">Mean</th>
+                  <th class="text-end">SD</th>
+                  <th class="text-end">% favourable</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in quantitative.likert_items or [] %}
+                  <tr>
+                    <td>{{ item.item }}</td>
+                    <td>
+                      {{ item.text }}
+                      {% if item.high_sd or item.divided_opinion %}
+                        <div class="small text-muted">
+                          {% if item.divided_opinion %}Divided opinion.{% endif %}
+                          {% if item.high_sd %} High relative dispersion.{% endif %}
+                        </div>
+                      {% endif %}
+                    </td>
+                    <td class="text-end">{{ item.n if item.n is not none else '—' }}</td>
+                    <td class="text-end">{% if item.mean is not none %}{{ '%.2f'|format(item.mean) }}{% else %}—{% endif %}</td>
+                    <td class="text-end">{% if item.sd is not none %}{{ '%.2f'|format(item.sd) }}{% else %}—{% endif %}</td>
+                    <td class="text-end">{% if item.favourable_pct is not none %}{{ '%.1f'|format(item.favourable_pct) }}%{% else %}—{% endif %}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% if quantitative.overall_mean is not none %}
+            <p>Overall mean across items: <strong>{{ '%.2f'|format(quantitative.overall_mean) }}</strong>.</p>
+          {% endif %}
+          {% if quantitative.highest_rated %}
+            <p class="mb-1"><strong>Highest-rated items:</strong>
+              {% for row in quantitative.highest_rated %}{{ row.item }} ({{ '%.2f'|format(row.mean) }}){% if not loop.last %}; {% endif %}{% endfor %}.
+            </p>
+          {% endif %}
+          {% if quantitative.lowest_rated %}
+            <p><strong>Lowest-rated items:</strong>
+              {% for row in quantitative.lowest_rated %}{{ row.item }} ({{ '%.2f'|format(row.mean) }}){% if not loop.last %}; {% endif %}{% endfor %}.
+            </p>
+          {% endif %}
+          <p>{{ narrative.quantitative_narrative or '' }}</p>
+        </section>
+
+        <section class="mb-4">
+          <h3 class="h5">4. Qualitative Findings</h3>
+          {% set themes = narrative.qualitative_findings or [] %}
+          {% if not themes %}
+            <p>No open comments were available for thematic analysis.</p>
+          {% else %}
+            {% for theme in themes %}
+              <h4 class="h6 mb-1">{{ theme.theme }}{% if theme.comment_count %} <span class="text-muted fw-normal">(n = {{ theme.comment_count }})</span>{% endif %}</h4>
+              <p>{{ theme.summary }}</p>
+              {% if theme.quotation %}
+                <blockquote class="blockquote small ps-3 border-start">“{{ theme.quotation }}”</blockquote>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        </section>
+
+        <section class="mb-4">
+          <h3 class="h5">5. Triangulated Key Findings</h3>
+          {% set findings = narrative.triangulated_key_findings or [] %}
+          {% if not findings %}
+            <p>not reported</p>
+          {% else %}
+            <ol>
+              {% for finding in findings %}
+                <li class="mb-2">
+                  {{ finding.text }}
+                  {% if finding.qa_area %}<span class="text-muted"> ({{ finding.qa_area }})</span>{% endif %}
+                </li>
+              {% endfor %}
+            </ol>
+          {% endif %}
+        </section>
+
+        <section class="mb-4">
+          <h3 class="h5">6. Strengths Identified</h3>
+          {% if narrative.strengths %}
+            <ul>
+              {% for item in narrative.strengths %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+          {% else %}
+            <p>not reported</p>
+          {% endif %}
+        </section>
+
+        <section class="mb-4">
+          <h3 class="h5">7. Areas Requiring Improvement</h3>
+          {% if narrative.areas_requiring_improvement %}
+            <ul>
+              {% for item in narrative.areas_requiring_improvement %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+          {% else %}
+            <p>not reported</p>
+          {% endif %}
+        </section>
+
+        <section class="mb-4">
+          <h3 class="h5">8. Action Plan</h3>
+          {% set actions = narrative.action_plan or [] %}
+          {% if actions %}
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm">
+                <thead class="table-light">
+                  <tr>
+                    <th>Issue</th>
+                    <th>Proposed action</th>
+                    <th>Responsibility</th>
+                    <th>Timeline</th>
+                    <th>How improvement will be verified</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in actions %}
+                    <tr>
+                      <td>{{ row.issue }}</td>
+                      <td>{{ row.proposed_action }}</td>
+                      <td>{{ row.responsibility }}</td>
+                      <td>{{ row.timeline }}</td>
+                      <td>{{ row.verification }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p>not reported</p>
+          {% endif %}
+        </section>
+
+        <section class="mb-4">
+          <h3 class="h5">9. Limitations</h3>
+          <ul>
+            {% for item in narrative.limitations or [] %}
+              <li>{{ item }}</li>
+            {% endfor %}
+            {% if narrative.excluded_comments_count %}
+              <li>{{ narrative.excluded_comments_count }} comment(s) excluded under the propriety rule{% if narrative.excluded_comments_reason %}: {{ narrative.excluded_comments_reason }}{% endif %}.</li>
+            {% endif %}
+          </ul>
+        </section>
+
+        <section>
+          <h3 class="h5">10. Annexes</h3>
+          <h4 class="h6">Annex A. Survey instrument (Likert items)</h4>
+          <div class="table-responsive mb-3">
+            <table class="table table-bordered table-sm">
+              <thead class="table-light">
+                <tr><th>Item</th><th>Statement</th></tr>
+              </thead>
+              <tbody>
+                {% for item in quantitative.likert_items or [] %}
+                  <tr>
+                    <td>{{ item.item }}</td>
+                    <td>{{ item.text }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <h4 class="h6">Annex B. Anonymised open comments</h4>
+          {% if report.comments %}
+            <ol class="small">
+              {% for comment in report.comments %}
+                <li class="mb-2">
+                  {% if comment.likes %}<div><strong>Liked:</strong> {{ comment.likes }}</div>{% endif %}
+                  {% if comment.challenges %}<div><strong>Challenges:</strong> {{ comment.challenges }}</div>{% endif %}
+                  {% if comment.suggestions %}<div><strong>Suggestions:</strong> {{ comment.suggestions }}</div>{% endif %}
+                </li>
+              {% endfor %}
+            </ol>
+          {% else %}
+            <p>No open comments were recorded.</p>
+          {% endif %}
+        </section>
+      </div>
+    </article>
+  {% elif response_count > 0 %}
+    <div class="card shadow-sm">
+      <div class="card-body text-center py-5 text-muted">
+        <i class="fas fa-chart-line fa-2x mb-3"></i>
+        <p class="mb-1">এআই রিপোর্ট এখনও তৈরি হয়নি।</p>
+        <p class="small mb-0">Generate চাপলে Likert স্কোর স্থানীয়ভাবে হিসাব হবে এবং মন্তব্য থেকে IQAC-স্টাইল খসড়া তৈরি হবে।</p>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<style>
+  .feedback-ai-report .report-body {
+    max-width: 960px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .feedback-ai-report .report-body h3 {
+    border-bottom: 1px solid #dee2e6;
+    padding-bottom: 0.35rem;
+  }
+  .feedback-ai-report .report-body p,
+  .feedback-ai-report .report-body li {
+    text-align: justify;
+  }
+  @media print {
+    .btn, nav, .feedback-ai-report > .card:first-of-type, #feedbackAiStatus, .alert-warning {
+      display: none !important;
+    }
+  }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const button = document.getElementById('generateFeedbackReport');
+  const status = document.getElementById('feedbackAiStatus');
+  if (!button) {
+    return;
+  }
+
+  function setStatus(message, kind) {
+    status.classList.remove('d-none', 'alert-info', 'alert-danger', 'alert-success');
+    status.classList.add(kind || 'alert-info');
+    status.textContent = message;
+  }
+
+  button.addEventListener('click', async function() {
+    if (button.dataset.hasReport === '1') {
+      if (!confirm('Existing report will be replaced. Continue?')) {
+        return;
+      }
+    }
+    button.disabled = true;
+    setStatus('এআই রিপোর্ট তৈরি হচ্ছে। উত্তর সংখ্যার ওপর এক মিনিট পর্যন্ত লাগতে পারে।', 'alert-info');
+    try {
+      const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+      const csrf = window.getCsrfToken && window.getCsrfToken();
+      if (csrf) {
+        headers['X-CSRFToken'] = csrf;
+      }
+      const res = await fetch(button.dataset.url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: headers,
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setStatus(data.message || 'এআই অ্যানালাইসিস ব্যর্থ হয়েছে।', 'alert-danger');
+        button.disabled = false;
+        return;
+      }
+      setStatus('রিপোর্ট তৈরি হয়েছে। পাতা রিফ্রেশ হচ্ছে…', 'alert-success');
+      window.location.href = data.redirect || window.location.href;
+    } catch (err) {
+      setStatus(err.message || 'এআই অ্যানালাইসিস ব্যর্থ হয়েছে।', 'alert-danger');
+      button.disabled = false;
+    }
+  });
+});
+</script>
+{% endblock %}

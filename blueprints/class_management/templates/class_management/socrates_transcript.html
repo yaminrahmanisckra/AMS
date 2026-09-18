@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block mobile_title %}Transcript{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-1"><i class="fas fa-scroll me-2 text-primary"></i>Debate Transcript</h4>
+      <p class="text-muted small mb-0">
+        {{ conversation.participant_label() }} — {{ assignment.topic }}
+      </p>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.socrates_manage', session_id=session.id, assignment_id=assignment.id) }}">
+      <i class="fas fa-arrow-left me-1"></i>Back to Socrates
+    </a>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-7">
+      <div class="card shadow-sm">
+        <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+          <h6 class="mb-0 text-secondary">Conversation ({{ conversation.prompts_used }}/{{ conversation.prompt_cap() }} prompts)</h6>
+          <span class="badge bg-{{ 'success' if conversation.status == 'evaluated' else ('info' if conversation.status == 'submitted' else 'secondary') }}">
+            {{ conversation.status.replace('_', ' ') }}
+          </span>
+        </div>
+        <div class="card-body socrates-transcript">
+          {% for msg in conversation.messages %}
+            <div class="mb-3 {% if msg.sender == 'socrates' %}socrates-msg{% else %}student-msg{% endif %}">
+              <div class="small text-muted mb-1">
+                {% if msg.sender == 'socrates' %}
+                  <i class="fas fa-robot me-1"></i>Socrates
+                {% else %}
+                  <i class="fas fa-user me-1"></i>{{ msg.sender_student_name or msg.sender_student_id or 'Student' }}
+                  {% if conversation.group_id %}({{ msg.sender_student_id }}){% endif %}
+                {% endif %}
+                · {{ msg.created_at|bd('%Y-%m-%d %H:%M') }}
+              </div>
+              <div class="border rounded p-2 msg-body">{{ msg.body }}</div>
+            </div>
+          {% else %}
+            <p class="text-muted mb-0">কোনো বার্তা নেই।</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-5">
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+          <h6 class="mb-0">AI Evaluation</h6>
+          <button type="button" class="btn btn-sm btn-light" id="regenEvalBtn"
+                  data-url="{{ url_for('class_management.socrates_evaluate', conversation_id=conversation.id) }}">
+            <i class="fas fa-magic me-1"></i>{{ 'Regenerate' if evaluation else 'Generate' }}
+          </button>
+        </div>
+        <div class="card-body">
+          <div id="evalStatus" class="alert alert-info d-none small" role="status"></div>
+          {% if evaluation %}
+            {% set scores = evaluation.scores or {} %}
+            {% if scores %}
+              <table class="table table-sm table-bordered mb-3">
+                <tbody>
+                  {% for key in ['logic', 'evidence', 'rebuttal', 'clarity', 'engagement'] %}
+                    {% if scores.get(key) is not none %}
+                      <tr>
+                        <th class="bg-light text-capitalize" style="width: 50%">{{ key }}</th>
+                        <td>{{ scores.get(key) }}/10</td>
+                      </tr>
+                    {% endif %}
+                  {% endfor %}
+                  {% if evaluation.suggested_score is not none %}
+                    <tr class="table-info">
+                      <th>Suggested Score</th>
+                      <td><strong>{{ evaluation.suggested_score }}/10</strong></td>
+                    </tr>
+                  {% endif %}
+                </tbody>
+              </table>
+            {% endif %}
+            {% if evaluation.summary %}
+              <p class="small">{{ evaluation.summary }}</p>
+            {% endif %}
+            {% if evaluation.strengths %}
+              <p class="small mb-1"><strong>Strengths</strong></p>
+              <ul class="small">
+                {% for item in evaluation.strengths %}<li>{{ item }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+            {% if evaluation.weaknesses %}
+              <p class="small mb-1"><strong>Weaknesses</strong></p>
+              <ul class="small">
+                {% for item in evaluation.weaknesses %}<li>{{ item }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          {% else %}
+            <p class="text-muted small mb-0">এখনও এআই মূল্যায়ন তৈরি হয়নি। Generate চাপুন।</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card shadow-sm">
+        <div class="card-header bg-warning text-dark">
+          <h6 class="mb-0">Final Mark (Teacher)</h6>
+        </div>
+        <div class="card-body">
+          <form method="POST" action="{{ url_for('class_management.socrates_save_mark', conversation_id=conversation.id) }}">
+            <div class="mb-3">
+              <label class="form-label">Mark (out of 10)</label>
+              <input type="number" step="0.5" min="0" max="10" name="teacher_mark" class="form-control"
+                     value="{{ conversation.teacher_mark if conversation.teacher_mark is not none else '' }}"
+                     placeholder="যেমন: 8.5">
+              <div class="form-text">শুধু ০.৫ করে ভাঙা নম্বর (যেমন ৭, ৭.৫, ৮)।</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Comment (optional)</label>
+              <textarea name="teacher_comment" class="form-control" rows="2">{{ conversation.teacher_comment or '' }}</textarea>
+            </div>
+            <button type="submit" class="btn btn-warning w-100">
+              <i class="fas fa-save me-1"></i>Save Mark
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {% if conversation.status != 'in_progress' %}
+      <div class="card shadow-sm mt-4">
+        <div class="card-header bg-success text-white">
+          <h6 class="mb-0">আবার ডিবেট খুলুন</h6>
+        </div>
+        <div class="card-body">
+          <p class="small text-muted">ছাত্র (বা গ্রুপ) আগের চ্যাট রেখে আবার যুক্তিতর্ক করতে পারবে। জমা দেওয়ার পর নতুন এআই মূল্যায়ন হবে।</p>
+          <form method="POST" action="{{ url_for('class_management.socrates_reopen', conversation_id=conversation.id) }}">
+            <div class="mb-3">
+              <label class="form-label">অতিরিক্ত প্রম্পট</label>
+              <input type="number" name="extra_prompts" class="form-control" min="0" max="50"
+                     value="{{ 5 if conversation.remaining_prompts() <= 0 else 0 }}">
+              <div class="form-text">প্রম্পট শেষ হয়ে গেলে কয়েকটি অতিরিক্ত টার্ন দিন। বাকি থাকলে ০ রাখুন।</div>
+            </div>
+            <button type="submit" class="btn btn-success w-100"
+                    onclick="return confirm('ছাত্রকে আবার ডিবেট করার সুযোগ দেবেন?');">
+              <i class="fas fa-redo me-1"></i>Reopen Debate
+            </button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<style>
+  .socrates-transcript { max-height: 70vh; overflow-y: auto; }
+  .socrates-transcript .msg-body { white-space: pre-wrap; }
+  .socrates-transcript .socrates-msg .msg-body { background: #eef6fb; }
+  .socrates-transcript .student-msg .msg-body { background: #f8f9fa; }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const btn = document.getElementById('regenEvalBtn');
+  const status = document.getElementById('evalStatus');
+  if (!btn) return;
+
+  btn.addEventListener('click', async function() {
+    btn.disabled = true;
+    status.classList.remove('d-none', 'alert-danger');
+    status.classList.add('alert-info');
+    status.textContent = 'এআই মূল্যায়ন তৈরি হচ্ছে…';
+    try {
+      const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+      const csrf = window.getCsrfToken && window.getCsrfToken();
+      if (csrf) headers['X-CSRFToken'] = csrf;
+      const res = await fetch(btn.dataset.url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: headers,
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (!data.success) {
+        status.classList.remove('alert-info');
+        status.classList.add('alert-danger');
+        status.textContent = data.message || 'মূল্যায়ন ব্যর্থ হয়েছে।';
+        btn.disabled = false;
+        return;
+      }
+      window.location.reload();
+    } catch (err) {
+      status.classList.remove('alert-info');
+      status.classList.add('alert-danger');
+      status.textContent = err.message || 'মূল্যায়ন ব্যর্থ হয়েছে।';
+      btn.disabled = false;
+    }
+  });
+});
+</script>
+{% endblock %}

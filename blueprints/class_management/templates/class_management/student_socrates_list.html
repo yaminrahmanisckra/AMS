@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Socrates{% endblock %}
+{% block mobile_title %}Socrates{% endblock %}
+{% set socrates_avatar = url_for('static', filename='images/socrates.png') %}
+
+{% block extra_css %}
+<style>
+.soc-list-page { max-width: 760px; margin: 0 auto 2rem; }
+.soc-list-hero {
+  display: flex;
+  gap: 0.9rem;
+  align-items: center;
+  background: linear-gradient(135deg, #3b1878 0%, #5b2bb0 55%, #7c3aed 100%);
+  color: #fff;
+  border-radius: 20px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+}
+.soc-list-hero img {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255,255,255,0.75);
+  flex-shrink: 0;
+}
+.soc-list-hero h1 { font-size: 1.25rem; font-weight: 700; margin: 0 0 0.2rem; }
+.soc-list-hero p { margin: 0; font-size: 0.86rem; opacity: 0.9; }
+.soc-assign {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  background: #fffdf8;
+  border: 1px solid #e7ddcf;
+  border-radius: 16px;
+  padding: 1rem;
+  box-shadow: 0 8px 20px rgba(43, 33, 24, 0.05);
+  height: 100%;
+}
+.soc-assign:hover { border-color: #c4b5fd; color: inherit; }
+.soc-assign h2 { font-size: 1rem; font-weight: 700; color: #2b2118; margin: 0 0 0.45rem; line-height: 1.4; }
+.soc-assign .soc-meta { font-size: 0.8rem; color: #6e6256; margin: 0; }
+.soc-pill {
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  background: #efe6d8;
+  color: #5c4a34;
+}
+.soc-pill.live { background: #dcfce7; color: #166534; }
+.soc-pill.done { background: #e0e7ff; color: #3730a3; }
+.soc-pill.closed { background: #f3f4f6; color: #4b5563; }
+.soc-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  font-weight: 650;
+  font-size: 0.88rem;
+  color: #4c1d95;
+}
+.soc-empty-card {
+  text-align: center;
+  background: #fffdf8;
+  border: 1px solid #e7ddcf;
+  border-radius: 16px;
+  padding: 2rem 1rem;
+  color: #6e6256;
+}
+.soc-empty-card img {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 0.75rem;
+}
+@media (max-width: 575.98px) {
+  .soc-list-hero { border-radius: 16px; padding: 0.85rem; }
+  .soc-list-hero img { width: 52px; height: 52px; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container soc-list-page mt-3 mt-lg-4">
+  <div class="d-flex justify-content-end mb-2">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('student_dashboard') }}">Dashboard</a>
+  </div>
+  <div class="soc-list-hero">
+    <img src="{{ socrates_avatar }}" alt="Socrates">
+    <div>
+      <h1>Socrates</h1>
+      <p>শিক্ষকের টপিকে লাইভ চ্যাটে যুক্তিতর্ক করুন। সহজে রাজি হবেন না।</p>
+    </div>
+  </div>
+
+  {% if not assignments %}
+    <div class="soc-empty-card">
+      <img src="{{ socrates_avatar }}" alt="">
+      <p class="mb-0">এখনও কোনো ডিবেট অ্যাসাইনমেন্ট নেই।</p>
+    </div>
+  {% else %}
+    <div class="row g-3">
+      {% for item in assignments %}
+        {% set assignment = item.assignment %}
+        {% set convo = item.conversation %}
+        {% set remaining = convo.remaining_prompts() if convo else assignment.prompt_limit %}
+        {% set prompt_cap = convo.prompt_cap() if convo else assignment.prompt_limit %}
+        <div class="col-12">
+          {% if item.needs_group %}
+            <div class="soc-assign">
+              <div class="d-flex justify-content-between gap-2 mb-2">
+                <span class="soc-pill">{{ item.session.course_code or 'Course' }}</span>
+                <span class="soc-pill">গ্রুপ বাকি</span>
+              </div>
+              <h2>{{ assignment.topic }}</h2>
+              <p class="soc-meta mb-0">শিক্ষক এখনও আপনাকে কোনো গ্রুপে যুক্ত করেননি।</p>
+            </div>
+          {% else %}
+            <a class="soc-assign" href="{{ url_for('class_management.student_socrates_chat', assignment_id=assignment.id) }}">
+              <div class="d-flex justify-content-between gap-2 mb-2">
+                <span class="soc-pill">{{ item.session.course_code or 'Course' }}</span>
+                {% if not assignment.is_open() %}
+                  <span class="soc-pill closed">বন্ধ</span>
+                {% elif convo and convo.status != 'in_progress' %}
+                  <span class="soc-pill done">জমা হয়েছে</span>
+                {% else %}
+                  <span class="soc-pill live">লাইভ চ্যাট</span>
+                {% endif %}
+              </div>
+              <h2>{{ assignment.topic }}</h2>
+              <p class="soc-meta">{{ item.session.course_name or '' }}
+                · {{ remaining }}/{{ prompt_cap }} প্রম্পট বাকি
+                {% if assignment.deadline %} · {{ assignment.deadline.strftime('%d %b') }}{% endif %}
+                {% if item.group %} · {{ item.group.name }}{% endif %}
+              </p>
+              <span class="soc-cta">
+                {% if convo and convo.status != 'in_progress' %}ট্রান্সক্রিপ্ট দেখুন{% else %}চ্যাট শুরু করুন{% endif %}
+                <i class="fas fa-chevron-right"></i>
+              </span>
+            </a>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -409,6 +409,47 @@
         border-radius: 8px;
     }
 
+    body.m-shell .icon-circle.icon-portrait {
+        border-radius: 50% !important;
+        overflow: hidden;
+        padding: 0;
+        background: #4c1d95;
+    }
+
+    body.m-shell .icon-circle.icon-portrait img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    body.m-shell:has(.socrates-chat-app) {
+        overflow: hidden;
+    }
+
+    body.m-shell:has(.socrates-chat-app) .footer,
+    body.m-shell:has(.socrates-chat-app) .ams-offline-dock {
+        display: none !important;
+    }
+
+    body.m-shell:has(.socrates-chat-app) main.m-main {
+        height: calc(100dvh - var(--m-topbar-height) - env(safe-area-inset-top, 0px));
+        min-height: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    body.m-shell:has(.socrates-chat-app) .m-flash-wrap {
+        flex-shrink: 0;
+    }
+
+    body.m-shell:has(.socrates-chat-app) .socrates-chat-app {
+        flex: 1;
+        min-height: 0;
+        width: 100%;
+    }
+
     body.m-shell .dashboard-card .icon-circle i {
         font-size: 0.8rem;
     }

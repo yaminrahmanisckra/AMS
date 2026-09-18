@@ -58,6 +58,13 @@ PATCHES = {
     'course_question_thread': [
         ('teacher_read_at', 'teacher_read_at DATETIME'),
     ],
+    'student_feedback_link': [
+        ('ai_report_json', 'ai_report_json TEXT'),
+        ('ai_report_generated_at', 'ai_report_generated_at DATETIME'),
+    ],
+    'socrates_conversation': [
+        ('extra_prompts', 'extra_prompts INTEGER NOT NULL DEFAULT 0'),
+    ],
     'student_feedback_response': [
         ('is_read', 'is_read BOOLEAN NOT NULL DEFAULT 0'),
     ],

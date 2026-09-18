@@ -50,6 +50,12 @@ STUDENT_DASHBOARD_CARDS = (
         'description': 'Read notices from teachers and Head of Discipline.',
         'sort_order': 7,
     },
+    {
+        'card_key': 'socrates',
+        'label': 'Socrates',
+        'description': 'Argue with the AI companion on teacher-set debate topics.',
+        'sort_order': 8,
+    },
 )
 
 
