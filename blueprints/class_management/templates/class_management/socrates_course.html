@@ -56,9 +56,18 @@
                   </td>
                   <td class="text-center">{{ assignment.conversations|length }}</td>
                   <td class="text-end">
-                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('class_management.socrates_manage', session_id=session.id, assignment_id=assignment.id) }}">
-                      <i class="fas fa-cog me-1"></i>Manage
-                    </a>
+                    <div class="d-inline-flex gap-1">
+                      <form method="POST" action="{{ url_for('class_management.socrates_manage', session_id=session.id, assignment_id=assignment.id) }}">
+                        <input type="hidden" name="action" value="send_email">
+                        <button type="submit" class="btn btn-sm btn-outline-success" title="নির্ধারিত ছাত্রদের মেইল পাঠান"
+                                onclick="return confirm('এই অ্যাসাইনমেন্টের মেইল পাঠাবেন?');">
+                          <i class="fas fa-envelope"></i>
+                        </button>
+                      </form>
+                      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('class_management.socrates_manage', session_id=session.id, assignment_id=assignment.id) }}">
+                        <i class="fas fa-cog me-1"></i>Manage
+                      </a>
+                    </div>
                   </td>
                 </tr>
               {% endfor %}
@@ -107,6 +116,7 @@
         <button type="submit" class="btn btn-primary w-100 mt-3">
           <i class="fas fa-plus me-1"></i>Create Assignment
         </button>
+        <div class="form-text mt-2">তৈরি হলে নির্ধারিত ছাত্রদের মেইল যাবে। গ্রুপ মোডে গ্রুপ তৈরির পর সদস্যদের মেইল যাবে।</div>
       </form>
     </div>
   </div>

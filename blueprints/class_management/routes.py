@@ -42,6 +42,9 @@ from .models import (
     SocratesGroupMember,
     SocratesConversation,
     SocratesMessage,
+    classify_socrates_input,
+    socrates_ai_use_warning,
+    SOCRATES_AI_USE_WARNING,
 )
 from user_models import User  # Same User as login (users table); required for StudentNotification.user_id
 try:
@@ -11354,6 +11357,213 @@ def _socrates_read_settings(session_id):
     }, None
 
 
+def _socrates_assigned_student_ids(assignment, only_ids=None):
+    """Student IDs who currently have this assignment."""
+    if assignment.mode == SocratesAssignment.MODE_GROUP:
+        ids = {
+            member.student_id
+            for member in SocratesGroupMember.query.join(SocratesGroup).filter(
+                SocratesGroup.assignment_id == assignment.id,
+            ).all()
+        }
+    else:
+        ids = {
+            stu.student_id
+            for stu in _class_students_for_session(assignment.session_id, order=False)
+        }
+    if only_ids is not None:
+        allowed = {str(item) for item in only_ids}
+        ids = {sid for sid in ids if sid in allowed}
+    return ids
+
+
+def _absolute_socrates_student_url(assignment_id):
+    """Absolute student chat URL for assignment emails."""
+    rel = url_for('class_management.student_socrates_chat', assignment_id=assignment_id)
+    public = (current_app.config.get('PUBLIC_APP_URL') or os.environ.get('PUBLIC_APP_URL') or '').strip().rstrip('/')
+    if public:
+        return public + rel
+    try:
+        return url_for(
+            'class_management.student_socrates_chat',
+            assignment_id=assignment_id,
+            _external=True,
+        )
+    except Exception:
+        pass
+    try:
+        if request and getattr(request, 'host_url', None):
+            return request.host_url.rstrip('/') + rel
+    except Exception:
+        pass
+    return rel
+
+
+def _socrates_flash_email_result(result, *, prefix=''):
+    parts = []
+    if prefix:
+        parts.append(prefix.rstrip())
+    emailed = result.get('emailed') or 0
+    assigned = result.get('assigned') or 0
+    if emailed:
+        parts.append(f'{emailed} জনকে মেইল পাঠানো হয়েছে।')
+    elif not result.get('smtp'):
+        if assigned:
+            parts.append('ইমেইল কনফিগার করা নেই, তাই মেইল যায়নি।')
+    elif assigned == 0:
+        parts.append('মেইল দেওয়ার মতো কোনো নির্ধারিত ছাত্র নেই। গ্রুপ অ্যাসাইনমেন্টে আগে সদস্য যোগ করুন।')
+    else:
+        parts.append('মেইল যায়নি (ইউজার বা ইমেইল নেই)।')
+    no_email = result.get('no_email') or 0
+    if no_email:
+        parts.append(f'{no_email} জনের ইমেইল নেই।')
+    flash(' '.join(parts), 'success' if emailed else 'warning')
+
+
+def _socrates_notify_assignment(assignment, *, student_ids=None, notify_in_app=True, send_email=True):
+    """Email (and optionally in-app notify) students who have this assignment."""
+    from markupsafe import escape
+    from utils.notification_email import _notification_smtp_configured, send_notification_batch
+
+    target_ids = _socrates_assigned_student_ids(assignment, only_ids=student_ids)
+    roster = {
+        stu.student_id: stu
+        for stu in _class_students_for_session(assignment.session_id, order=False)
+    }
+    session_obj = assignment.session or Session.query.get(assignment.session_id)
+    course_label = _socrates_course_label(session_obj) if session_obj else ''
+    chat_url = _absolute_socrates_student_url(assignment.id)
+    link_url = url_for('class_management.student_socrates_chat', assignment_id=assignment.id)
+    deadline_label = assignment.deadline.strftime('%d %b %Y') if assignment.deadline else 'None'
+    from utils.outline_richtext import html_is_empty, html_to_plain_text, sanitize_outline_html
+    instructions_html = sanitize_outline_html(assignment.instructions or '')
+    if html_is_empty(instructions_html):
+        instructions_html = ''
+        instructions_plain = ''
+    else:
+        instructions_plain = html_to_plain_text(assignment.instructions or '')
+    tenant = current_tenant()
+    sender = (
+        current_app.config.get('NOTIFICATION_MAIL_SENDER')
+        or current_app.config.get('NOTIFICATION_MAIL_USERNAME')
+        or ''
+    ).strip()
+    topic = (assignment.topic or 'Socrates debate').strip()
+    window_id = _window_id_for_session(assignment.session_id)
+    smtp_ok = bool(send_email and _notification_smtp_configured())
+    result = {
+        'assigned': len(target_ids),
+        'notified': 0,
+        'emailed': 0,
+        'no_user': 0,
+        'no_email': 0,
+        'smtp': smtp_ok,
+    }
+    if not target_ids:
+        return result
+
+    entries = []
+    seen_emails = set()
+    seen_user_ids = set()
+    for student_id in sorted(target_ids):
+        class_student = roster.get(student_id)
+        user = User.query.filter_by(username=student_id).first()
+        if not user:
+            result['no_user'] += 1
+            continue
+        student_name = (user.full_name or (class_student.name if class_student else None) or student_id).strip()
+        if notify_in_app and user.id not in seen_user_ids:
+            seen_user_ids.add(user.id)
+            notif = StudentNotification(
+                user_id=user.id,
+                type='socrates',
+                title=f'Socrates: {topic[:80]}',
+                link_url=link_url,
+            )
+            _stamp_notification_window(notif, window_id=window_id)
+            db.session.add(notif)
+            result['notified'] += 1
+        email = (user.email or '').strip()
+        if not email:
+            result['no_email'] += 1
+            continue
+        email_key = email.lower()
+        if email_key in seen_emails:
+            continue
+        seen_emails.add(email_key)
+        subject = f'Socrates debate assigned: {topic[:80]} — {student_name} ({student_id})'
+        text_body = (
+            f'Dear {student_name},\n\n'
+            'Your course teacher has given you a Socrates AI debate assignment in AMS '
+            f'({tenant.display_with_university}).\n\n'
+            f'- Student name: {student_name}\n'
+            f'- Student ID: {student_id}\n'
+            f'- Course: {course_label}\n'
+            f'- Debate topic: {topic}\n'
+            f'- Mode: {assignment.mode}\n'
+            f'- Prompt limit: {assignment.prompt_limit}\n'
+            f'- Deadline: {deadline_label}\n'
+            + (
+                '\nInstructions:\n' + instructions_plain + '\n'
+                if instructions_plain else ''
+            )
+            + '\nSign in and open Socrates to argue your position:\n'
+            f'{chat_url}\n\n'
+            'Regards,\n'
+            'Academic Management System\n'
+            f'{tenant.display_with_university}\n'
+            + (f'Sender: {sender}\n' if sender else '')
+        )
+        html_body = (
+            f'<p>Dear {escape(student_name)},</p>'
+            '<p>Your course teacher has given you a Socrates AI debate assignment in AMS '
+            f'({escape(tenant.display_with_university)}).</p>'
+            '<ul>'
+            f'<li>Student name: {escape(student_name)}</li>'
+            f'<li>Student ID: {escape(student_id)}</li>'
+            f'<li>Course: {escape(course_label)}</li>'
+            f'<li>Debate topic: {escape(topic)}</li>'
+            f'<li>Mode: {escape(assignment.mode)}</li>'
+            f'<li>Prompt limit: {escape(str(assignment.prompt_limit))}</li>'
+            f'<li>Deadline: {escape(deadline_label)}</li>'
+            '</ul>'
+            + (
+                '<p><strong>Instructions</strong></p>'
+                f'<div>{instructions_html}</div>'
+                if instructions_html else ''
+            )
+            + f'<p><a href="{escape(chat_url)}">Open Socrates debate</a></p>'
+            + f'<p style="word-break:break-all;">{escape(chat_url)}</p>'
+            + '<p>Regards,<br>Academic Management System<br>'
+            + f'{escape(tenant.display_with_university)}</p>'
+        )
+        entries.append({
+            'recipient': email,
+            'subject': subject,
+            'text_body': text_body,
+            'html_body': html_body,
+        })
+
+    if notify_in_app and result['notified']:
+        try:
+            db.session.commit()
+        except Exception as exc:
+            current_app.logger.warning('Socrates in-app notifications failed: %s', exc)
+            db.session.rollback()
+            result['notified'] = 0
+
+    if smtp_ok and entries:
+        try:
+            result['emailed'] = send_notification_batch(None, entries)
+        except Exception as exc:
+            current_app.logger.error('Socrates assignment email failed: %s', exc, exc_info=True)
+    elif send_email and not smtp_ok:
+        current_app.logger.warning(
+            'Socrates assignment email skipped: set NOTIFICATION_MAIL_USERNAME/PASSWORD/SENDER'
+        )
+    return result
+
+
 @class_management_bp.route('/socrates/<int:session_id>', methods=['GET', 'POST'])
 @login_required
 def socrates_course(session_id):
@@ -11379,7 +11589,11 @@ def socrates_course(session_id):
             )
             db.session.add(assignment)
             db.session.commit()
-            flash('Socrates অ্যাসাইনমেন্ট তৈরি হয়েছে।', 'success')
+            email_result = _socrates_notify_assignment(assignment)
+            _socrates_flash_email_result(
+                email_result,
+                prefix='Socrates অ্যাসাইনমেন্ট তৈরি হয়েছে।',
+            )
             return redirect(url_for(
                 'class_management.socrates_manage',
                 session_id=session_id,
@@ -11469,6 +11683,7 @@ def socrates_manage(session_id, assignment_id):
                     db.session.add(group)
                     db.session.flush()
                     added = 0
+                    added_ids = []
                     for student_id in member_ids:
                         if student_id in roster and student_id not in already:
                             db.session.add(SocratesGroupMember(
@@ -11477,12 +11692,24 @@ def socrates_manage(session_id, assignment_id):
                                 student_name=roster[student_id],
                             ))
                             added += 1
+                            added_ids.append(student_id)
                     if added:
                         db.session.commit()
-                        flash(f'গ্রুপ "{name}" তৈরি হয়েছে ({added} জন সদস্য)।', 'success')
+                        email_result = _socrates_notify_assignment(
+                            assignment, student_ids=added_ids,
+                        )
+                        _socrates_flash_email_result(
+                            email_result,
+                            prefix=f'গ্রুপ "{name}" তৈরি হয়েছে ({added} জন সদস্য)।',
+                        )
                     else:
                         db.session.rollback()
                         flash('নির্বাচিত সদস্যরা রোস্টারে নেই বা অন্য গ্রুপে আছেন।', 'warning')
+            elif action == 'send_email':
+                email_result = _socrates_notify_assignment(
+                    assignment, notify_in_app=False,
+                )
+                _socrates_flash_email_result(email_result)
             elif action == 'delete_group':
                 group = SocratesGroup.query.filter_by(
                     id=request.form.get('group_id', type=int),
@@ -11534,12 +11761,17 @@ def socrates_transcript(conversation_id):
         except (json.JSONDecodeError, TypeError):
             evaluation = None
 
+    paste_flag_count = sum(
+        1 for msg in (conversation.messages or [])
+        if (msg.input_signal() or {}).get('flag')
+    )
     return render_template(
         'class_management/socrates_transcript.html',
         session=session_obj,
         assignment=assignment,
         conversation=conversation,
         evaluation=evaluation,
+        paste_flag_count=paste_flag_count,
     )
 
 
@@ -11861,7 +12093,41 @@ def student_socrates_chat(assignment_id):
         student_initial=(student_name[:1] or 'S').upper(),
         can_chat=assignment.is_open() and conversation.status == SocratesConversation.STATUS_IN_PROGRESS,
         instructions_html=instructions_html,
+        ai_use_warning=socrates_ai_use_warning(conversation),
+        ai_warning_text=SOCRATES_AI_USE_WARNING,
     )
+
+
+def _socrates_lock_and_evaluate(conversation, assignment):
+    """Lock a debate after the last prompt (or manual submit) and try AI evaluation."""
+    if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
+        return conversation.status == SocratesConversation.STATUS_EVALUATED
+    conversation_id = conversation.id
+    history = _socrates_history_dicts(conversation)
+    ai_payload = {
+        'topic': assignment.topic,
+        'instructions': assignment.instructions,
+        'course_label': _socrates_course_label(assignment.session),
+        'prompt_limit': conversation.prompt_cap(),
+        'prompts_used': conversation.prompts_used,
+    }
+    conversation.status = SocratesConversation.STATUS_SUBMITTED
+    conversation.submitted_at = datetime.utcnow()
+    db.session.commit()
+    try:
+        from utils.ai.socrates import evaluate_conversation
+        evaluation = evaluate_conversation(history_messages=history, **ai_payload)
+        convo = SocratesConversation.query.get(conversation_id)
+        if convo:
+            convo.ai_evaluation_json = json.dumps(evaluation, ensure_ascii=False)
+            convo.status = SocratesConversation.STATUS_EVALUATED
+            db.session.commit()
+        return True
+    except Exception as exc:
+        current_app.logger.warning(
+            f'Socrates evaluation after submit failed for {conversation_id}: {exc}'
+        )
+        return False
 
 
 def _socrates_wants_json():
@@ -11899,6 +12165,13 @@ def student_socrates_send(assignment_id):
         return _socrates_send_fail(assignment_id, 'যুক্তি লিখুন।')
     if len(body) > 3000:
         return _socrates_send_fail(assignment_id, 'বার্তা খুব বড় (সর্বোচ্চ ৩০০০ অক্ষর)।')
+    classified = classify_socrates_input(body, {
+        'pasted_chars': data.get('pasted_chars', request.form.get('pasted_chars')),
+        'typed_chars': data.get('typed_chars', request.form.get('typed_chars')),
+        'paste_events': data.get('paste_events', request.form.get('paste_events')),
+        'compose_ms': data.get('compose_ms', request.form.get('compose_ms')),
+    })
+    input_meta = json.dumps(classified, ensure_ascii=False)
 
     from utils.rate_limit import AI_USER, reject_if_user_limited
     limited = reject_if_user_limited(
@@ -11929,6 +12202,7 @@ def student_socrates_send(assignment_id):
         sender_student_id=class_student.student_id,
         sender_student_name=class_student.name,
         body=body,
+        input_meta=input_meta,
     )
     conversation.prompts_used += 1
     db.session.add(student_message)
@@ -11971,14 +12245,36 @@ def student_socrates_send(assignment_id):
     db.session.commit()
 
     remaining = max(0, prompt_limit - convo.prompts_used)
+    auto_submitted = False
+    if remaining <= 0:
+        auto_submitted = True
+        evaluated = _socrates_lock_and_evaluate(convo, assignment)
+        convo = SocratesConversation.query.get(conversation_id) or convo
+    warning = None
+    if classified.get('source') in ('pasted', 'mixed', 'burst'):
+        warning = SOCRATES_AI_USE_WARNING
+    else:
+        warning = socrates_ai_use_warning(convo)
     if _socrates_wants_json():
-        return jsonify({
+        payload = {
             'success': True,
             'reply': reply,
             'prompts_used': convo.prompts_used,
             'prompt_limit': prompt_limit,
             'remaining': remaining,
-        })
+            'ai_use_warning': warning,
+            'submitted': auto_submitted,
+        }
+        return jsonify(payload)
+    if warning:
+        flash(warning, 'warning')
+    if auto_submitted:
+        flash(
+            'প্রম্পট শেষ। ডিবেট স্বয়ংক্রিয়ভাবে জমা হয়েছে এবং এআই মূল্যায়ন সম্পন্ন হয়েছে।'
+            if convo.status == SocratesConversation.STATUS_EVALUATED
+            else 'প্রম্পট শেষ। ডিবেট স্বয়ংক্রিয়ভাবে জমা হয়েছে।',
+            'success' if convo.status == SocratesConversation.STATUS_EVALUATED else 'info',
+        )
     return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
 
 
@@ -12000,36 +12296,11 @@ def student_socrates_submit(assignment_id):
         flash('জমা দেওয়ার আগে অন্তত একটি যুক্তি লিখুন।', 'warning')
         return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
 
-    conversation_id = conversation.id
-    history = _socrates_history_dicts(conversation)
-    ai_payload = {
-        'topic': assignment.topic,
-        'instructions': assignment.instructions,
-        'course_label': _socrates_course_label(assignment.session),
-        'prompt_limit': assignment.prompt_limit,
-        'prompts_used': conversation.prompts_used,
-    }
-    conversation.status = SocratesConversation.STATUS_SUBMITTED
-    conversation.submitted_at = datetime.utcnow()
-    db.session.commit()
-
-    try:
-        from utils.ai.socrates import evaluate_conversation
-        evaluation = evaluate_conversation(history_messages=history, **ai_payload)
-        convo = SocratesConversation.query.get(conversation_id)
-        if convo:
-            convo.ai_evaluation_json = json.dumps(evaluation, ensure_ascii=False)
-            convo.status = SocratesConversation.STATUS_EVALUATED
-            db.session.commit()
+    evaluated = _socrates_lock_and_evaluate(conversation, assignment)
+    if evaluated:
         flash('ডিবেট জমা হয়েছে এবং এআই মূল্যায়ন সম্পন্ন হয়েছে।', 'success')
-    except Exception as exc:
-        current_app.logger.warning(f'Socrates evaluation after submit failed for {conversation_id}: {exc}')
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
+    else:
         flash('ডিবেট জমা হয়েছে। এআই মূল্যায়ন পরে শিক্ষক তৈরি করবেন।', 'info')
-
     return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
 
 

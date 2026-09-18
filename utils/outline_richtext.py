@@ -167,6 +167,94 @@ def html_is_empty(html):
     return not text
 
 
+class _HtmlToPlain(HTMLParser):
+    """Turn TinyMCE lists into numbered/bulleted plain text."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.lines = []
+        self._stack = []
+        self._buf = []
+        self._in_li = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = (tag or '').lower()
+        if tag in ('ol', 'ul'):
+            self._flush_paragraph()
+            self._stack.append({'type': tag, 'index': 0})
+        elif tag == 'li':
+            self._flush_item()
+            self._in_li += 1
+            if self._stack:
+                self._stack[-1]['index'] += 1
+        elif tag == 'br':
+            if self._in_li:
+                self._buf.append(' ')
+            else:
+                self._flush_paragraph()
+        elif tag in ('p', 'div', 'h2', 'h3', 'h4', 'blockquote') and not self._in_li:
+            self._flush_paragraph()
+
+    def handle_endtag(self, tag):
+        tag = (tag or '').lower()
+        if tag == 'li':
+            self._flush_item()
+            if self._in_li:
+                self._in_li -= 1
+        elif tag in ('ol', 'ul'):
+            self._flush_item()
+            if self._stack:
+                self._stack.pop()
+        elif tag in ('p', 'div', 'h2', 'h3', 'h4', 'blockquote') and not self._in_li:
+            self._flush_paragraph()
+
+    def handle_data(self, data):
+        if data:
+            self._buf.append(data)
+
+    def _take(self):
+        text = unescape(''.join(self._buf)).replace('\xa0', ' ')
+        self._buf = []
+        return ' '.join(text.split())
+
+    def _prefix(self):
+        if not self._stack:
+            return ''
+        indent = '  ' * (len(self._stack) - 1)
+        top = self._stack[-1]
+        if top['type'] == 'ol':
+            return f'{indent}{top["index"]}. '
+        return f'{indent}- '
+
+    def _flush_item(self):
+        text = self._take()
+        if text:
+            self.lines.append(self._prefix() + text)
+
+    def _flush_paragraph(self):
+        text = self._take()
+        if text:
+            self.lines.append(text)
+
+
+def html_to_plain_text(html):
+    """Convert rich-text HTML to plain text, keeping numbered and bullet lists."""
+    text = (html or '').strip()
+    if not text:
+        return ''
+    if '<' not in text:
+        return unescape(text).replace('\xa0', ' ').strip()
+    parser = _HtmlToPlain()
+    try:
+        parser.feed(text)
+        parser.close()
+    except Exception:
+        stripped = re.sub(r'<[^>]+>', ' ', text)
+        return ' '.join(unescape(stripped).split())
+    parser._flush_paragraph()
+    return '\n'.join(parser.lines).strip()
+
+
 def dump_rich_field(value):
     """JSON-encode sanitized HTML for CourseOutline text columns."""
     if isinstance(value, list):

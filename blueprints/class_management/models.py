@@ -1,6 +1,7 @@
 from datetime import datetime, date
 from flask_login import UserMixin
 from extensions import db
+import json
 
 # Teacher Model
 class Teacher(db.Model):
@@ -584,4 +585,81 @@ class SocratesMessage(db.Model):
     sender_student_id = db.Column(db.String(50), nullable=True)  # who in the group wrote it
     sender_student_name = db.Column(db.String(100), nullable=True)
     body = db.Column(db.Text, nullable=False)
+    input_meta = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def input_signal(self):
+        """Paste/type signal for teacher review. None for Socrates replies or old rows."""
+        if self.sender != self.SENDER_STUDENT or not self.input_meta:
+            return None
+        try:
+            data = json.loads(self.input_meta)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        source = data.get('source') or 'unknown'
+        labels = {
+            'typed': 'টাইপ করা',
+            'pasted': 'পেস্ট করা',
+            'mixed': 'পেস্ট + টাইপ',
+            'burst': 'খুব দ্রুত ঢোকানো',
+        }
+        label = labels.get(source)
+        if not label:
+            return None
+        data = dict(data)
+        data['source'] = source
+        data['label'] = label
+        data['flag'] = source in ('pasted', 'mixed', 'burst')
+        return data
+
+
+def classify_socrates_input(body, raw=None):
+    """Classify a student message as typed, pasted, mixed, or too-fast burst.
+
+    This cannot prove another AI wrote the text. It only records how the text
+    entered the box (paste vs typing, plus a speed check).
+    """
+    length = len(body or '')
+    raw = raw if isinstance(raw, dict) else {}
+
+    def _int(key, cap):
+        try:
+            return max(0, min(int(cap), int(raw.get(key) or 0)))
+        except (TypeError, ValueError):
+            return 0
+
+    pasted = min(length, _int('pasted_chars', 20000))
+    typed = min(length, _int('typed_chars', 20000))
+    paste_events = _int('paste_events', 100)
+    compose_ms = _int('compose_ms', 86400000)
+    burst = bool(length >= 80 and compose_ms > 0 and compose_ms < max(2500, length * 40))
+    if paste_events or pasted >= 24:
+        source = 'mixed' if typed >= 24 and pasted >= 24 else 'pasted'
+    elif burst:
+        source = 'burst'
+    elif length:
+        source = 'typed'
+    else:
+        source = 'unknown'
+    return {
+        'source': source,
+        'pasted_chars': pasted,
+        'typed_chars': typed,
+        'paste_events': paste_events,
+        'compose_ms': compose_ms,
+        'length': length,
+    }
+
+
+SOCRATES_AI_USE_WARNING = 'আপনি এআই ব্যবহার করছেন, ফলে কাঙ্ক্ষিত নম্বর নাও পেতে পারেন।'
+
+
+def socrates_ai_use_warning(conversation):
+    """Student-facing warning text if any message looks pasted/burst. None otherwise."""
+    for msg in (conversation.messages or []):
+        signal = msg.input_signal()
+        if signal and signal.get('flag'):
+            return SOCRATES_AI_USE_WARNING
+    return None

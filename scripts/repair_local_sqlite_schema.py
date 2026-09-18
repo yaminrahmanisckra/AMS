@@ -65,6 +65,9 @@ PATCHES = {
     'socrates_conversation': [
         ('extra_prompts', 'extra_prompts INTEGER NOT NULL DEFAULT 0'),
     ],
+    'socrates_message': [
+        ('input_meta', 'input_meta TEXT'),
+    ],
     'student_feedback_response': [
         ('is_read', 'is_read BOOLEAN NOT NULL DEFAULT 0'),
     ],

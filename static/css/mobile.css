@@ -433,7 +433,8 @@
     }
 
     body.m-shell:has(.socrates-chat-app) main.m-main {
-        height: calc(100dvh - var(--m-topbar-height) - env(safe-area-inset-top, 0px));
+        overflow: hidden;
+        height: calc(100dvh - var(--m-topbar-height) - var(--m-impersonation-banner-height) - env(safe-area-inset-top, 0px));
         min-height: 0;
         padding: 0;
         display: flex;
@@ -444,10 +445,20 @@
         flex-shrink: 0;
     }
 
+    body.m-shell:has(.socrates-chat-app) .socrates-chat-page {
+        flex: 1;
+        min-height: 0;
+        width: 100%;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
     body.m-shell:has(.socrates-chat-app) .socrates-chat-app {
         flex: 1;
         min-height: 0;
         width: 100%;
+        height: auto;
     }
 
     body.m-shell .dashboard-card .icon-circle i {

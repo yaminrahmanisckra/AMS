@@ -20,9 +20,14 @@
       <div class="card shadow-sm">
         <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
           <h6 class="mb-0 text-secondary">Conversation ({{ conversation.prompts_used }}/{{ conversation.prompt_cap() }} prompts)</h6>
-          <span class="badge bg-{{ 'success' if conversation.status == 'evaluated' else ('info' if conversation.status == 'submitted' else 'secondary') }}">
-            {{ conversation.status.replace('_', ' ') }}
-          </span>
+          <div class="d-flex gap-1 align-items-center">
+            {% if paste_flag_count %}
+              <span class="badge bg-warning text-dark">{{ paste_flag_count }}টি পেস্ট/দ্রুত ঢোকানো</span>
+            {% endif %}
+            <span class="badge bg-{{ 'success' if conversation.status == 'evaluated' else ('info' if conversation.status == 'submitted' else 'secondary') }}">
+              {{ conversation.status.replace('_', ' ') }}
+            </span>
+          </div>
         </div>
         <div class="card-body socrates-transcript">
           {% for msg in conversation.messages %}
@@ -35,12 +40,22 @@
                   {% if conversation.group_id %}({{ msg.sender_student_id }}){% endif %}
                 {% endif %}
                 · {{ msg.created_at|bd('%Y-%m-%d %H:%M') }}
+                {% set signal = msg.input_signal() %}
+                {% if signal %}
+                  <span class="badge ms-1 bg-{{ 'warning text-dark' if signal.flag else 'secondary' }}"
+                        title="পেস্ট {{ signal.pasted_chars }} অক্ষর · টাইপ {{ signal.typed_chars }} অক্ষর{% if signal.compose_ms %} · {{ (signal.compose_ms / 1000)|round(1) }} সেকেন্ড{% endif %}">
+                    {{ signal.label }}
+                  </span>
+                {% endif %}
               </div>
               <div class="border rounded p-2 msg-body">{{ msg.body }}</div>
             </div>
           {% else %}
             <p class="text-muted mb-0">কোনো বার্তা নেই।</p>
           {% endfor %}
+        </div>
+        <div class="card-footer small text-muted">
+          পেস্ট বা খুব দ্রুত ঢোকানো ধরা যায়। অন্য এআই থেকে কপি করা কি না নিশ্চিত করে বলা যায় না।
         </div>
       </div>
     </div>

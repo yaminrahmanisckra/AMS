@@ -9,10 +9,29 @@ from blueprints.class_management.models import (
     SocratesGroup,
     SocratesGroupMember,
     SocratesMessage,
+    classify_socrates_input,
 )
 from extensions import db
 from tests.conftest import TEST_PASSWORD, login_client
 from utils.ai.socrates import score_out_of_ten
+from utils.outline_richtext import html_to_plain_text
+
+
+def test_html_instructions_keep_numbered_lines_and_quotes():
+    html = (
+        '<ol>'
+        '<li>You have only 5 prompts to convince the AI companion &quot;Socrates&quot;.</li>'
+        '<li>You can either support the position &#34;IPL is a trap for the third world countries&#34; '
+        'or &#34;it can be refined from within&#34;;</li>'
+        '<li><p>The language should be English. Follow the deadline: 23/9/2026.</p></li>'
+        '</ol>'
+    )
+    plain = html_to_plain_text(html)
+    assert '1. You have only 5 prompts to convince the AI companion "Socrates".' in plain
+    assert '2. You can either support the position "IPL is a trap for the third world countries"' in plain
+    assert '3. The language should be English. Follow the deadline: 23/9/2026.' in plain
+    assert '&#34;' not in plain
+    assert '&quot;' not in plain
 
 
 def test_scores_round_to_half_marks_out_of_ten():
@@ -24,6 +43,25 @@ def test_scores_round_to_half_marks_out_of_ten():
     assert score_out_of_ten(-1) == 0.0
     assert score_out_of_ten('7') == 7.0
     assert score_out_of_ten('') is None
+
+
+def test_socrates_input_classifies_paste_type_and_burst():
+    typed = classify_socrates_input('A short typed argument.', {
+        'typed_chars': 24, 'pasted_chars': 0, 'paste_events': 0, 'compose_ms': 8000,
+    })
+    assert typed['source'] == 'typed'
+    pasted = classify_socrates_input('x' * 120, {
+        'typed_chars': 0, 'pasted_chars': 120, 'paste_events': 1, 'compose_ms': 400,
+    })
+    assert pasted['source'] == 'pasted'
+    mixed = classify_socrates_input('x' * 80, {
+        'typed_chars': 30, 'pasted_chars': 50, 'paste_events': 1, 'compose_ms': 12000,
+    })
+    assert mixed['source'] == 'mixed'
+    burst = classify_socrates_input('x' * 200, {
+        'typed_chars': 200, 'pasted_chars': 0, 'paste_events': 0, 'compose_ms': 300,
+    })
+    assert burst['source'] == 'burst'
 
 
 def _ensure_student_user(username='S001', name='Student One'):
@@ -131,6 +169,11 @@ def test_student_chat_page_shows_live_composer(app, client, teacher_user, class_
     assert 'name="message"' in html
     assert 'লাইভ চ্যাট' in html
     assert 'socrates.png' in html
+    assert 'socrates-chat-page' in html
+    assert 'Enter নতুন লাইন' in html
+    assert 'Shift+Enter পাঠাবে' in html
+    assert 'data-ai-warning=' in html
+    assert 'আপনি এআই ব্যবহার করছেন' in html
     assert 'in progress' not in html.lower()
 
 
@@ -152,6 +195,52 @@ def test_student_form_post_sends_argument(mock_reply, app, client, teacher_user,
     html = rv.get_data(as_text=True)
     assert 'The death penalty violates the right to life.' in html
     assert 'But what is your authority for that claim?' in html
+
+
+@patch('utils.ai.socrates.generate_socrates_reply')
+def test_teacher_sees_paste_flag_on_transcript(mock_reply, app, client, teacher_user, class_session_w1, windows):
+    mock_reply.return_value = 'What follows from that?'
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'])
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    pasted = 'The death penalty cannot be justified because it is irreversible and the state may err.'
+    rv = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={
+            'message': pasted,
+            'pasted_chars': len(pasted),
+            'typed_chars': 0,
+            'paste_events': 1,
+            'compose_ms': 500,
+        },
+    )
+    assert rv.status_code == 200
+    assert rv.get_json().get('ai_use_warning') == 'আপনি এআই ব্যবহার করছেন, ফলে কাঙ্ক্ষিত নম্বর নাও পেতে পারেন।'
+
+    chat = client.get(f'/class-management/student/socrates/{assignment_id}')
+    student_html = chat.get_data(as_text=True)
+    assert chat.status_code == 200
+    assert 'আপনি এআই ব্যবহার করছেন, ফলে কাঙ্ক্ষিত নম্বর নাও পেতে পারেন।' in student_html
+    assert 'পেস্ট করা' not in student_html
+    assert 'দ্রুত ঢোকানো' not in student_html
+
+    with app.app_context():
+        convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').first()
+        convo_id = convo.id
+        student_msg = next(m for m in convo.messages if m.sender == SocratesMessage.SENDER_STUDENT)
+        signal = student_msg.input_signal()
+        assert signal['source'] == 'pasted'
+        assert signal['flag'] is True
+
+    teacher_client = app.test_client()
+    login_client(teacher_client, teacher_user['username'], window_id=windows['w1_id'])
+    page = teacher_client.get(f'/class-management/socrates/conversation/{convo_id}')
+    html = page.get_data(as_text=True)
+    assert 'পেস্ট করা' in html
+    assert 'পেস্ট/দ্রুত ঢোকানো' in html
 
 
 def test_teacher_creates_assignment_and_group(app, client, teacher_user, class_session_w1, windows):
@@ -187,6 +276,121 @@ def test_teacher_creates_assignment_and_group(app, client, teacher_user, class_s
         group = SocratesGroup.query.filter_by(assignment_id=assignment_id).first()
         assert group is not None
         assert [m.student_id for m in group.members] == ['S001']
+
+
+@patch('utils.notification_email.send_notification_batch', return_value=1)
+@patch('utils.notification_email._notification_smtp_configured', return_value=True)
+def test_creating_individual_assignment_emails_enrolled_students(
+    mock_smtp, mock_batch, app, client, teacher_user, class_session_w1, windows,
+):
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        _ensure_student_user()
+    login_client(client, teacher_user['username'], window_id=windows['w1_id'])
+    rv = client.post(
+        f'/class-management/socrates/{session_id}',
+        data={
+            'action': 'create',
+            'topic': 'Free speech needs limits',
+            'mode': 'individual',
+            'prompt_limit': '8',
+        },
+        follow_redirects=True,
+    )
+    assert rv.status_code == 200
+    mock_batch.assert_called_once()
+    entries = mock_batch.call_args[0][1]
+    assert len(entries) == 1
+    assert entries[0]['recipient'] == 's001@test.example'
+    assert 'Free speech needs limits' in entries[0]['subject']
+    assert '/class-management/student/socrates/' in entries[0]['text_body']
+    html = rv.get_data(as_text=True)
+    assert 'Send assignment email' in html
+    with app.app_context():
+        from blueprints.class_management.models import StudentNotification
+        notes = StudentNotification.query.filter_by(type='socrates').all()
+        assert len(notes) == 1
+        assert 'Free speech needs limits' in notes[0].title
+
+
+@patch('utils.notification_email.send_notification_batch', return_value=1)
+@patch('utils.notification_email._notification_smtp_configured', return_value=True)
+def test_group_assignment_emails_members_and_teacher_can_resend(
+    mock_smtp, mock_batch, app, client, teacher_user, class_session_w1, windows,
+):
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        _ensure_student_user()
+    login_client(client, teacher_user['username'], window_id=windows['w1_id'])
+    rv = client.post(
+        f'/class-management/socrates/{session_id}',
+        data={'action': 'create', 'topic': 'Group debate topic', 'mode': 'group', 'prompt_limit': '5'},
+        follow_redirects=True,
+    )
+    assert rv.status_code == 200
+    mock_batch.assert_not_called()
+
+    with app.app_context():
+        assignment_id = SocratesAssignment.query.filter_by(session_id=session_id).first().id
+
+    rv = client.post(
+        f'/class-management/socrates/{session_id}/assignment/{assignment_id}',
+        data={'action': 'create_group', 'group_name': 'Group A', 'member_ids': ['S001']},
+        follow_redirects=True,
+    )
+    assert rv.status_code == 200
+    mock_batch.assert_called_once()
+    assert mock_batch.call_args[0][1][0]['recipient'] == 's001@test.example'
+
+    mock_batch.reset_mock()
+    rv = client.post(
+        f'/class-management/socrates/{session_id}/assignment/{assignment_id}',
+        data={'action': 'send_email'},
+        follow_redirects=True,
+    )
+    assert rv.status_code == 200
+    mock_batch.assert_called_once()
+    assert 'মেইল পাঠানো হয়েছে' in rv.get_data(as_text=True)
+
+
+@patch('utils.notification_email.send_notification_batch', return_value=1)
+@patch('utils.notification_email._notification_smtp_configured', return_value=True)
+def test_assignment_email_keeps_numbered_instructions(
+    mock_smtp, mock_batch, app, client, teacher_user, class_session_w1, windows,
+):
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        _ensure_student_user()
+    login_client(client, teacher_user['username'], window_id=windows['w1_id'])
+    instructions = (
+        '<ol>'
+        '<li>You have only 5 prompts to convince the AI companion "Socrates".</li>'
+        '<li>You can either support the position "IPL is a trap for the third world countries" '
+        'or "it can be refined from within";</li>'
+        '<li>The language should be English. Follow the deadline: 23/9/2026.</li>'
+        '</ol>'
+    )
+    rv = client.post(
+        f'/class-management/socrates/{session_id}',
+        data={
+            'action': 'create',
+            'topic': 'The international intellectual laws are a trap',
+            'mode': 'individual',
+            'prompt_limit': '5',
+            'instructions': instructions,
+        },
+        follow_redirects=True,
+    )
+    assert rv.status_code == 200
+    html_body = mock_batch.call_args[0][1][0]['html_body']
+    text_body = mock_batch.call_args[0][1][0]['text_body']
+    assert '<ol>' in html_body
+    assert '<li>You have only 5 prompts to convince the AI companion' in html_body
+    assert '&amp;#34;' not in html_body
+    assert '&amp;quot;' not in html_body
+    assert '1. You have only 5 prompts to convince the AI companion "Socrates".' in text_body
+    assert '2. You can either support the position "IPL is a trap' in text_body
+    assert '3. The language should be English.' in text_body
 
 
 def test_teacher_can_create_multiple_assignments(app, client, teacher_user, class_session_w1, windows):
@@ -267,9 +471,11 @@ def test_manage_404_for_other_window(app, client, teacher_user, class_session_w2
     assert rv.status_code == 404
 
 
+@patch('utils.ai.socrates.evaluate_conversation')
 @patch('utils.ai.socrates.generate_socrates_reply')
-def test_student_chat_respects_prompt_limit(mock_reply, app, client, teacher_user, class_session_w1, windows):
+def test_student_chat_respects_prompt_limit(mock_reply, mock_eval, app, client, teacher_user, class_session_w1, windows):
     mock_reply.return_value = 'But what is your authority for that claim?'
+    mock_eval.return_value = _fake_evaluation()
     session_id = class_session_w1['session_id']
 
     with app.app_context():
@@ -281,13 +487,19 @@ def test_student_chat_respects_prompt_limit(mock_reply, app, client, teacher_use
     page = client.get(f'/class-management/student/socrates/{assignment_id}')
     assert page.status_code == 200
 
+    last = None
     for _ in range(2):
         rv = client.post(
             f'/class-management/student/socrates/{assignment_id}/send',
             json={'message': 'The death penalty violates the right to life.'},
         )
         assert rv.status_code == 200
-        assert rv.get_json()['success'] is True
+        last = rv.get_json()
+        assert last['success'] is True
+
+    assert last['remaining'] == 0
+    assert last['submitted'] is True
+    mock_eval.assert_called_once()
 
     rv = client.post(
         f'/class-management/student/socrates/{assignment_id}/send',
@@ -300,7 +512,42 @@ def test_student_chat_respects_prompt_limit(mock_reply, app, client, teacher_use
     with app.app_context():
         convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').first()
         assert convo.prompts_used == 2
+        assert convo.status == 'evaluated'
         assert len(convo.messages) == 4  # 2 student + 2 socrates
+
+
+@patch('utils.ai.socrates.evaluate_conversation')
+@patch('utils.ai.socrates.generate_socrates_reply')
+def test_last_prompt_auto_submits_debate(mock_reply, mock_eval, app, client, teacher_user, class_session_w1, windows):
+    mock_reply.return_value = 'What specific harm did you want to discuss?'
+    mock_eval.return_value = _fake_evaluation()
+    session_id = class_session_w1['session_id']
+
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'], prompt_limit=1)
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    rv = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={'message': 'IPL traps developing countries.'},
+    )
+    assert rv.status_code == 200
+    payload = rv.get_json()
+    assert payload['success'] is True
+    assert payload['remaining'] == 0
+    assert payload['submitted'] is True
+    mock_eval.assert_called_once()
+
+    page = client.get(f'/class-management/student/socrates/{assignment_id}')
+    html = page.get_data(as_text=True)
+    assert 'name="message"' not in html
+    assert 'জমা হয়েছে' in html
+
+    with app.app_context():
+        convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').first()
+        assert convo.status == 'evaluated'
+        assert convo.submitted_at is not None
 
 
 @patch('utils.ai.socrates.generate_socrates_reply')

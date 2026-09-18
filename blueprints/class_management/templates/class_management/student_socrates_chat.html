@@ -5,38 +5,59 @@
 
 {% block extra_css %}
 <style>
+body:has(.socrates-chat-app) .footer,
+body:has(.socrates-chat-app) .ams-offline-dock {
+  display: none !important;
+}
+@media (min-width: 992px) {
+  body:has(.socrates-chat-app) main.m-main {
+    padding: 0.5rem 0 0;
+  }
+  body:has(.impersonation-banner) .socrates-chat-page {
+    height: calc(100dvh - 9.75rem);
+  }
+}
+.socrates-chat-page {
+  width: min(960px, calc(100% - 1.5rem));
+  margin: 0 auto;
+  height: calc(100dvh - 7.5rem);
+  display: flex;
+  flex-direction: column;
+}
 .socrates-chat-app {
-  --soc-ink: #2b2118;
-  --soc-muted: #6e6256;
-  --soc-paper: #f6f1e8;
+  --soc-ink: #1f2937;
+  --soc-muted: #6b7280;
+  --soc-paper: #f3eee6;
   --soc-panel: #fffdf8;
   --soc-purple: #4c1d95;
   --soc-bubble-me: #4c1d95;
   --soc-bubble-ai: #fff;
-  max-width: 760px;
-  margin: 0 auto 1.5rem;
+  width: 100%;
+  margin: 0;
   background: var(--soc-paper);
   border: 1px solid #e7ddcf;
-  border-radius: 22px;
+  border-radius: 18px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: min(78vh, 820px);
-  height: calc(100vh - 8.5rem);
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   box-shadow: 0 18px 40px rgba(43, 33, 24, 0.08);
 }
 .soc-top {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.7rem 0.85rem;
+  padding: 0.7rem 1rem;
   background: linear-gradient(135deg, #3b1878 0%, #5b2bb0 55%, #7c3aed 100%);
   color: #fff;
+  flex-shrink: 0;
 }
 .soc-top a {
   color: #fff;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -46,8 +67,8 @@
   flex-shrink: 0;
 }
 .soc-top-avatar {
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid rgba(255,255,255,0.7);
@@ -55,48 +76,81 @@
   flex-shrink: 0;
 }
 .soc-top h1 {
-  font-size: 1.05rem;
+  font-size: 1.12rem;
   font-weight: 700;
   margin: 0;
   line-height: 1.2;
 }
 .soc-top p {
   margin: 0;
-  font-size: 0.75rem;
-  opacity: 0.88;
+  font-size: 0.8rem;
+  opacity: 0.9;
 }
 .soc-topic {
-  padding: 0.7rem 1rem 0.75rem;
   background: var(--soc-panel);
   border-bottom: 1px solid #ece3d6;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
-.soc-topic-label {
-  font-size: 0.68rem;
+.soc-topic-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+.soc-topic-toggle > span:first-child {
+  min-width: 0;
+  flex: 1;
+}
+.soc-topic-toggle .soc-topic-label {
+  font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #8a6d3b;
-  margin: 0 0 0.2rem;
+  margin: 0;
 }
-.soc-topic h2 {
+.soc-topic-toggle h2 {
   font-size: 0.95rem;
   font-weight: 650;
   color: var(--soc-ink);
-  margin: 0;
-  line-height: 1.4;
+  margin: 0.1rem 0 0;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.soc-topic-chevron {
+  color: #8a6d3b;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.soc-topic.is-collapsed .soc-topic-chevron { transform: rotate(-90deg); }
+.soc-topic-panel {
+  padding: 0 1.1rem 0.7rem;
+}
+.soc-topic.is-collapsed .soc-topic-panel { display: none; }
 .soc-topic-body {
-  font-size: 0.86rem;
-  color: var(--soc-muted);
-  margin-top: 0.45rem;
+  font-size: 0.92rem;
+  color: #3f3a34;
+  line-height: 1.45;
+  max-height: 7rem;
+  overflow-y: auto;
 }
 .soc-topic-body p { margin: 0 0 0.35rem; }
 .soc-topic-body p:last-child { margin-bottom: 0; }
 .soc-topic-body ol, .soc-topic-body ul {
-  margin: 0.25rem 0 0.4rem 1.2rem;
+  margin: 0.25rem 0 0.4rem 1.25rem;
   padding: 0;
 }
-.soc-topic-body li { margin: 0.12rem 0; }
+.soc-topic-body li { margin: 0.18rem 0; }
 .soc-topic .soc-meta {
   display: flex;
   flex-wrap: wrap;
@@ -104,61 +158,74 @@
   margin-top: 0.55rem;
 }
 .soc-chip {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   background: #efe6d8;
   color: #5c4a34;
   border-radius: 999px;
-  padding: 0.18rem 0.55rem;
+  padding: 0.2rem 0.6rem;
 }
 .soc-thread {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 1rem 0.85rem 0.5rem;
+  overflow-x: hidden;
+  padding: 0.9rem 1rem 1.1rem;
   background:
-    radial-gradient(circle at 10% 0%, rgba(124, 58, 237, 0.06), transparent 40%),
+    radial-gradient(circle at 10% 0%, rgba(124, 58, 237, 0.05), transparent 42%),
     var(--soc-paper);
 }
 .soc-row {
   display: flex;
-  gap: 0.5rem;
-  margin-bottom: 0.85rem;
+  gap: 0.55rem;
+  margin: 0 0 0.85rem;
   align-items: flex-end;
-  max-width: 92%;
+  width: fit-content;
+  max-width: min(44rem, 86%);
 }
+.soc-row.ai { margin-right: auto; }
 .soc-row.me {
   margin-left: auto;
   flex-direction: row-reverse;
+  max-width: min(36rem, 78%);
+}
+.soc-row > div:last-child {
+  min-width: 0;
+  flex: 0 1 auto;
+  max-width: 100%;
 }
 .soc-avatar {
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
   background: #4c1d95;
 }
 .soc-initial {
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   background: #1f2937;
   color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   font-weight: 700;
   flex-shrink: 0;
 }
 .soc-bubble {
-  border-radius: 18px;
-  padding: 0.7rem 0.85rem;
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: 16px;
+  padding: 0.7rem 0.95rem;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
-  line-height: 1.45;
-  font-size: 0.95rem;
-  box-shadow: 0 6px 16px rgba(43, 33, 24, 0.06);
+  line-height: 1.55;
+  font-size: 1.02rem;
+  box-shadow: 0 4px 12px rgba(43, 33, 24, 0.06);
 }
 .soc-row.ai .soc-bubble {
   background: var(--soc-bubble-ai);
@@ -170,50 +237,53 @@
   color: #fff;
   border-bottom-right-radius: 6px;
 }
+.soc-bubble strong { font-weight: 700; }
 .soc-who {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   color: var(--soc-muted);
-  margin: 0 0 0.2rem 0.15rem;
+  margin: 0 0 0.25rem 0.15rem;
 }
 .soc-row.me .soc-who { text-align: right; margin-right: 0.15rem; }
 .soc-empty {
   text-align: center;
-  padding: 1.6rem 1rem 1rem;
+  padding: 2rem 1rem 1rem;
   color: var(--soc-muted);
 }
 .soc-empty img {
-  width: 88px;
-  height: 88px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   object-fit: cover;
   margin-bottom: 0.75rem;
   box-shadow: 0 10px 24px rgba(76, 29, 149, 0.25);
 }
 .soc-empty h3 {
-  font-size: 1.05rem;
+  font-size: 1.12rem;
   color: var(--soc-ink);
   margin: 0 0 0.35rem;
 }
-.soc-empty p { margin: 0; font-size: 0.88rem; }
+.soc-empty p { margin: 0; font-size: 0.95rem; }
 .soc-composer {
-  padding: 0.7rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  flex-shrink: 0;
+  padding: 0.65rem 1rem calc(0.7rem + env(safe-area-inset-bottom, 0px));
   background: var(--soc-panel);
   border-top: 1px solid #ece3d6;
 }
 .soc-composer-row {
   display: flex;
   align-items: flex-end;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 .soc-composer textarea {
   flex: 1;
   border: 1px solid #e2d6c6;
-  border-radius: 18px;
-  min-height: 46px;
-  max-height: 140px;
+  border-radius: 16px;
+  min-height: 48px;
+  max-height: 160px;
   resize: none;
-  padding: 0.7rem 0.9rem;
-  font-size: 1rem;
+  padding: 0.65rem 0.95rem;
+  font-size: 1.02rem;
+  line-height: 1.45;
   background: #fff;
 }
 .soc-composer textarea:focus {
@@ -222,8 +292,8 @@
   box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
 }
 .soc-send {
-  width: 46px;
-  height: 46px;
+  width: 50px;
+  height: 50px;
   border: 0;
   border-radius: 50%;
   background: #4c1d95;
@@ -236,22 +306,34 @@
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 0.45rem;
+  margin-top: 0.5rem;
 }
-.soc-hint { font-size: 0.72rem; color: var(--soc-muted); }
+.soc-hint { font-size: 0.78rem; color: var(--soc-muted); }
 .soc-status {
-  font-size: 0.8rem;
-  margin: 0 0 0.45rem;
+  font-size: 0.85rem;
+  margin: 0 0 0.4rem;
   color: #7c3aed;
-  min-height: 1.1em;
 }
+.soc-status:empty { display: none; }
 .soc-status.is-error { color: #b42318; }
+.soc-ai-warn {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.5rem 1.1rem;
+  background: #fff4e5;
+  border-top: 1px solid #f0d9b5;
+  color: #7a4b00;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.soc-ai-warn[hidden] { display: none !important; }
 .soc-closed {
-  padding: 0.9rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  padding: 1rem 1.1rem calc(1.1rem + env(safe-area-inset-bottom, 0px));
   background: var(--soc-panel);
   border-top: 1px solid #ece3d6;
   color: var(--soc-muted);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 }
 .soc-typing {
   display: inline-flex;
@@ -273,6 +355,11 @@
   40% { transform: translateY(-3px); opacity: 1; }
 }
 @media (max-width: 991.98px) {
+  .socrates-chat-page {
+    width: 100%;
+    margin: 0;
+    height: 100%;
+  }
   .socrates-chat-app {
     margin: 0;
     border: 0;
@@ -281,14 +368,20 @@
     height: 100%;
     box-shadow: none;
   }
+  .soc-row { max-width: 88%; }
+  .soc-row.me { max-width: 84%; }
+  .soc-bubble { font-size: 1.02rem; padding: 0.7rem 0.9rem; }
+  .soc-topic-toggle h2 { font-size: 0.9rem; }
 }
 </style>
 {% endblock %}
 
 {% block content %}
+<div class="socrates-chat-page">
 <div class="socrates-chat-app"
      data-student-name="{{ student_name }}"
-     data-student-initial="{{ student_initial }}">
+     data-student-initial="{{ student_initial }}"
+     data-ai-warning="{{ ai_warning_text|default('') }}">
   <header class="soc-top">
     <a href="{{ url_for('class_management.student_socrates_list') }}" aria-label="Back">
       <i class="fas fa-arrow-left"></i>
@@ -300,26 +393,33 @@
     </div>
   </header>
 
-  <div class="soc-topic">
-    <p class="soc-topic-label">ডিবেট টপিক</p>
-    <h2>{{ assignment.topic }}</h2>
-    {% if instructions_html %}
-      <div class="soc-topic-body">{{ instructions_html }}</div>
-    {% endif %}
-    <div class="soc-meta">
-      {% if group %}
-        <span class="soc-chip"><i class="fas fa-users me-1"></i>{{ group.name }}</span>
+  <div class="soc-topic is-collapsed" id="topicBox">
+    <button type="button" class="soc-topic-toggle" id="topicToggle" aria-expanded="false">
+      <span>
+        <span class="soc-topic-label">ডিবেট টপিক</span>
+        <h2>{{ assignment.topic }}</h2>
+      </span>
+      <i class="fas fa-chevron-down soc-topic-chevron" aria-hidden="true"></i>
+    </button>
+    <div class="soc-topic-panel" id="topicPanel">
+      {% if instructions_html %}
+        <div class="soc-topic-body">{{ instructions_html }}</div>
       {% endif %}
-      {% if assignment.deadline %}
-        <span class="soc-chip"><i class="fas fa-clock me-1"></i>{{ assignment.deadline.strftime('%d %b %Y') }}</span>
-      {% endif %}
-      {% if can_chat %}
-        <span class="soc-chip">লাইভ চ্যাট</span>
-      {% elif conversation.status != 'in_progress' %}
-        <span class="soc-chip">জমা হয়েছে</span>
-      {% else %}
-        <span class="soc-chip">বন্ধ</span>
-      {% endif %}
+      <div class="soc-meta">
+        {% if group %}
+          <span class="soc-chip"><i class="fas fa-users me-1"></i>{{ group.name }}</span>
+        {% endif %}
+        {% if assignment.deadline %}
+          <span class="soc-chip"><i class="fas fa-clock me-1"></i>{{ assignment.deadline.strftime('%d %b %Y') }}</span>
+        {% endif %}
+        {% if can_chat %}
+          <span class="soc-chip">লাইভ চ্যাট</span>
+        {% elif conversation.status != 'in_progress' %}
+          <span class="soc-chip">জমা হয়েছে</span>
+        {% else %}
+          <span class="soc-chip">বন্ধ</span>
+        {% endif %}
+      </div>
     </div>
   </div>
 
@@ -330,7 +430,7 @@
           <img class="soc-avatar" src="{{ socrates_avatar }}" alt="">
           <div>
             <div class="soc-who">Socrates</div>
-            <div class="soc-bubble">{{ msg.body }}</div>
+            <div class="soc-bubble js-soc-md">{{ msg.body }}</div>
           </div>
         </div>
       {% else %}
@@ -351,9 +451,17 @@
     {% endfor %}
   </div>
 
+  <div class="soc-ai-warn" id="aiUseWarning" role="status"{% if not ai_use_warning %} hidden{% endif %}>
+    {% if ai_use_warning %}{{ ai_use_warning }}{% endif %}
+  </div>
+
   {% if can_chat %}
   <form class="soc-composer" id="sendForm" method="POST"
         action="{{ url_for('class_management.student_socrates_send', assignment_id=assignment.id) }}">
+    <input type="hidden" name="pasted_chars" id="pastedChars" value="0">
+    <input type="hidden" name="typed_chars" id="typedChars" value="0">
+    <input type="hidden" name="paste_events" id="pasteEvents" value="0">
+    <input type="hidden" name="compose_ms" id="composeMs" value="0">
     <div class="soc-status" id="chatStatus" role="status"></div>
     <div class="soc-composer-row">
       <textarea name="message" id="messageInput" rows="1" maxlength="3000"
@@ -363,7 +471,7 @@
       </button>
     </div>
     <div class="soc-composer-actions">
-      <span class="soc-hint">Enter পাঠাবে · Shift+Enter নতুন লাইন</span>
+      <span class="soc-hint">Enter নতুন লাইন · Shift+Enter পাঠাবে</span>
       <button type="submit" class="btn btn-link btn-sm text-success p-0"
               form="submitForm"
               onclick="return confirm('জমা দিলে আর বার্তা পাঠানো যাবে না। নিশ্চিত?');">
@@ -386,11 +494,47 @@
     </div>
   {% endif %}
 </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+  const root = document.querySelector('.socrates-chat-app');
+  const avatar = {{ socrates_avatar | tojson }};
+  const aiWarningText = (root && root.dataset.aiWarning) || '';
+
+  function formatSocratesHtml(text) {
+    let s = String(text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return s
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^\*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  }
+
+  function showAiUseWarning() {
+    if (!aiWarningText) return;
+    const warn = document.getElementById('aiUseWarning');
+    if (!warn) return;
+    warn.hidden = false;
+    warn.textContent = aiWarningText;
+  }
+
+  document.querySelectorAll('.js-soc-md').forEach(function(el) {
+    el.innerHTML = formatSocratesHtml(el.textContent);
+  });
+
+  const topicBox = document.getElementById('topicBox');
+  const topicToggle = document.getElementById('topicToggle');
+  if (topicToggle && topicBox) {
+    topicToggle.addEventListener('click', function() {
+      const collapsed = topicBox.classList.toggle('is-collapsed');
+      topicToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    });
+  }
+
   const form = document.getElementById('sendForm');
   if (!form) return;
   const input = document.getElementById('messageInput');
@@ -398,10 +542,15 @@ document.addEventListener('DOMContentLoaded', function() {
   const status = document.getElementById('chatStatus');
   const remainingEl = document.getElementById('remainingCount');
   const sendBtn = document.getElementById('sendBtn');
-  const root = document.querySelector('.socrates-chat-app');
   const studentName = root.dataset.studentName || 'You';
   const studentInitial = root.dataset.studentInitial || 'Y';
-  const avatar = {{ socrates_avatar | tojson }};
+
+  function composerLooksLikeAi() {
+    const meta = inputMetaPayload();
+    const text = (input.value || '').trim();
+    if (meta.paste_events > 0 || meta.pasted_chars >= 24) return true;
+    return text.length >= 80 && meta.compose_ms > 0 && meta.compose_ms < Math.max(2500, text.length * 40);
+  }
 
   function setStatus(message, isError) {
     status.textContent = message || '';
@@ -414,7 +563,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   function resizeInput() {
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
   }
 
   function appendRow(kind, name, body) {
@@ -427,8 +576,13 @@ document.addEventListener('DOMContentLoaded', function() {
     who.className = 'soc-who';
     who.textContent = kind === 'socrates' ? 'Socrates' : name;
     const bubble = document.createElement('div');
-    bubble.className = 'soc-bubble';
-    bubble.textContent = body;
+    if (kind === 'socrates') {
+      bubble.className = 'soc-bubble js-soc-md';
+      bubble.innerHTML = formatSocratesHtml(body);
+    } else {
+      bubble.className = 'soc-bubble';
+      bubble.textContent = body;
+    }
     meta.appendChild(who);
     meta.appendChild(bubble);
     if (kind === 'socrates') {
@@ -468,9 +622,86 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  input.addEventListener('input', resizeInput);
+  const inputStats = { pasted: 0, typed: 0, pasteEvents: 0, startedAt: 0, lastPasteAt: 0, lastValue: '' };
+
+  function markStart() {
+    if (!inputStats.startedAt) inputStats.startedAt = Date.now();
+  }
+
+  function resetInputStats() {
+    inputStats.pasted = 0;
+    inputStats.typed = 0;
+    inputStats.pasteEvents = 0;
+    inputStats.startedAt = 0;
+    inputStats.lastPasteAt = 0;
+    inputStats.lastValue = input.value || '';
+    syncInputStats();
+  }
+
+  function syncInputStats() {
+    const pastedEl = document.getElementById('pastedChars');
+    const typedEl = document.getElementById('typedChars');
+    const eventsEl = document.getElementById('pasteEvents');
+    const msEl = document.getElementById('composeMs');
+    if (pastedEl) pastedEl.value = String(inputStats.pasted);
+    if (typedEl) typedEl.value = String(inputStats.typed);
+    if (eventsEl) eventsEl.value = String(inputStats.pasteEvents);
+    if (msEl) msEl.value = String(inputStats.startedAt ? (Date.now() - inputStats.startedAt) : 0);
+  }
+
+  function inputMetaPayload() {
+    syncInputStats();
+    return {
+      pasted_chars: inputStats.pasted,
+      typed_chars: inputStats.typed,
+      paste_events: inputStats.pasteEvents,
+      compose_ms: inputStats.startedAt ? (Date.now() - inputStats.startedAt) : 0
+    };
+  }
+
+  input.addEventListener('paste', function(e) {
+    markStart();
+    const text = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+    inputStats.pasteEvents += 1;
+    inputStats.pasted += text.length;
+    inputStats.lastPasteAt = Date.now();
+    setTimeout(function() {
+      if (composerLooksLikeAi()) showAiUseWarning();
+    }, 0);
+  });
+
+  input.addEventListener('beforeinput', function(e) {
+    markStart();
+    const type = e.inputType || '';
+    if (type === 'insertFromPaste' || type === 'insertFromDrop') {
+      if (Date.now() - inputStats.lastPasteAt > 80) {
+        inputStats.pasteEvents += 1;
+        inputStats.pasted += (e.data || '').length;
+        inputStats.lastPasteAt = Date.now();
+      }
+      return;
+    }
+    if (type.indexOf('insert') === 0 && e.data && type !== 'insertReplacementText') {
+      inputStats.typed += e.data.length;
+    }
+  });
+
+  input.addEventListener('input', function(e) {
+    markStart();
+    resizeInput();
+    const next = input.value || '';
+    const delta = next.length - (inputStats.lastValue || '').length;
+    const type = e.inputType || '';
+    if (delta > 12 && Date.now() - inputStats.lastPasteAt > 80 && type !== 'insertReplacementText' && !e.isComposing) {
+      inputStats.pasteEvents += 1;
+      inputStats.pasted += delta;
+      inputStats.lastPasteAt = Date.now();
+    }
+    inputStats.lastValue = next;
+    if (composerLooksLikeAi()) showAiUseWarning();
+  });
   input.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    if (e.key === 'Enter' && e.shiftKey && !e.isComposing) {
       e.preventDefault();
       form.requestSubmit();
     }
@@ -483,6 +714,7 @@ document.addEventListener('DOMContentLoaded', function() {
       setStatus('যুক্তি লিখুন।', true);
       return;
     }
+    if (composerLooksLikeAi()) showAiUseWarning();
     sendBtn.disabled = true;
     input.disabled = true;
     setStatus('Socrates ভাবছেন…');
@@ -496,7 +728,7 @@ document.addEventListener('DOMContentLoaded', function() {
         method: 'POST',
         credentials: 'same-origin',
         headers: headers,
-        body: JSON.stringify({ message: body })
+        body: JSON.stringify(Object.assign({ message: body }, inputMetaPayload()))
       });
       const data = await readPayload(res);
       typing.remove();
@@ -510,13 +742,22 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       appendRow('socrates', 'Socrates', data.reply);
       input.value = '';
+      resetInputStats();
       resizeInput();
+      if (data.ai_use_warning) {
+        const warn = document.getElementById('aiUseWarning');
+        if (warn) {
+          warn.hidden = false;
+          warn.textContent = data.ai_use_warning;
+        }
+      }
       setStatus('');
       if (remainingEl) remainingEl.textContent = data.remaining;
-      if (data.remaining <= 0) {
-        setStatus('প্রম্পট শেষ। এখন জমা দিন।');
+      if (data.submitted || data.remaining <= 0) {
+        setStatus('প্রম্পট শেষ। ডিবেট স্বয়ংক্রিয়ভাবে জমা হয়েছে।');
         input.disabled = true;
         sendBtn.disabled = true;
+        setTimeout(function() { window.location.reload(); }, 700);
         return;
       }
       sendBtn.disabled = false;

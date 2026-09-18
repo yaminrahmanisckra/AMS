@@ -81,6 +81,14 @@
               </button>
             </form>
           </div>
+          <form method="POST" class="mt-2">
+            <input type="hidden" name="action" value="send_email">
+            <button type="submit" class="btn btn-outline-success w-100"
+                    onclick="return confirm('নির্ধারিত ছাত্রদের অ্যাসাইনমেন্ট মেইল পাঠাবেন?');">
+              <i class="fas fa-envelope me-1"></i>Send assignment email
+            </button>
+          </form>
+          <div class="form-text">Individual: কোর্সের সব ছাত্র। Group: শুধু গ্রুপ সদস্য।</div>
           {% endif %}
         </div>
       </div>

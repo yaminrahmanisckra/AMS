@@ -30,8 +30,8 @@
             <li class="list-group-item list-group-item-action sn-item {% if not n.read_at %}sn-unread{% endif %}">
                 <a href="{{ url_for('class_management.student_notification_read', notification_id=n.id) }}" class="text-decoration-none text-dark d-block">
                     <div class="d-flex">
-                        <div class="flex-shrink-0 me-3 sn-icon {% if n.type == 'question_reply' %}sn-icon-reply{% elif n.type == 'marks_revealed' %}sn-icon-marks{% elif n.type == 'notice' %}sn-icon-notice{% else %}sn-icon-file{% endif %}">
-                            {% if n.type == 'question_reply' %}<i class="fas fa-reply"></i>{% elif n.type == 'marks_revealed' %}<i class="fas fa-chart-line"></i>{% elif n.type == 'notice' %}<i class="fas fa-thumbtack"></i>{% else %}<i class="fas fa-file-download"></i>{% endif %}
+                        <div class="flex-shrink-0 me-3 sn-icon {% if n.type == 'question_reply' %}sn-icon-reply{% elif n.type == 'marks_revealed' %}sn-icon-marks{% elif n.type == 'notice' %}sn-icon-notice{% elif n.type == 'socrates' %}sn-icon-socrates{% else %}sn-icon-file{% endif %}">
+                            {% if n.type == 'question_reply' %}<i class="fas fa-reply"></i>{% elif n.type == 'marks_revealed' %}<i class="fas fa-chart-line"></i>{% elif n.type == 'notice' %}<i class="fas fa-thumbtack"></i>{% elif n.type == 'socrates' %}<i class="fas fa-comments"></i>{% else %}<i class="fas fa-file-download"></i>{% endif %}
                         </div>
                         <div class="flex-grow-1 overflow-hidden">
                             <div class="sn-item-title">{{ n.title }}</div>
@@ -90,6 +90,7 @@
 .sn-icon-reply { background: rgba(13, 110, 253, 0.15); color: #0d6efd; }
 .sn-icon-marks { background: rgba(25, 135, 84, 0.15); color: #198754; }
 .sn-icon-notice { background: rgba(139, 90, 43, 0.15); color: #8b5a2b; }
+.sn-icon-socrates { background: rgba(76, 29, 149, 0.15); color: #4c1d95; }
 .sn-icon-file { background: rgba(108, 117, 125, 0.15); color: #6c757d; }
 .sn-item-title {
     font-weight: 600;
