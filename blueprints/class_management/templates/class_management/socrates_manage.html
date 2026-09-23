@@ -180,7 +180,26 @@
                     {% set convo = row.conversation %}
                     <tr>
                       <td>{{ convo.participant_label() }}</td>
-                      <td class="text-center">{{ convo.prompts_used }}/{{ convo.prompt_cap() }}</td>
+                      <td class="text-center">
+                        <div class="d-inline-flex align-items-center justify-content-center gap-1 soc-prompt-adjust">
+                          <form method="POST" action="{{ url_for('class_management.socrates_adjust_prompts', conversation_id=convo.id) }}" class="m-0">
+                            <input type="hidden" name="delta" value="-1">
+                            <input type="hidden" name="next" value="manage">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary px-2 py-0"
+                                    title="প্রম্পট কমান"
+                                    {% if convo.prompt_cap() <= convo.prompts_used %}disabled{% endif %}>−</button>
+                          </form>
+                          <span class="small fw-semibold text-nowrap" title="ব্যবহৃত / মোট · বাকি {{ convo.remaining_prompts() }}">
+                            {{ convo.prompts_used }}/{{ convo.prompt_cap() }}
+                          </span>
+                          <form method="POST" action="{{ url_for('class_management.socrates_adjust_prompts', conversation_id=convo.id) }}" class="m-0">
+                            <input type="hidden" name="delta" value="1">
+                            <input type="hidden" name="next" value="manage">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary px-2 py-0"
+                                    title="প্রম্পট বাড়ান">+</button>
+                          </form>
+                        </div>
+                      </td>
                       <td class="text-center">
                         <span class="badge bg-{{ 'success' if convo.status == 'evaluated' else ('info' if convo.status == 'submitted' else 'secondary') }}">
                           {{ convo.status.replace('_', ' ') }}

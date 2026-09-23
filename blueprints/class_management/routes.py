@@ -11849,6 +11849,85 @@ def socrates_save_mark(conversation_id):
     return redirect(url_for('class_management.socrates_transcript', conversation_id=conversation_id))
 
 
+def _socrates_clamp_extra_prompts(conversation, assignment, new_extra):
+    """Keep prompt_cap >= prompts_used and within a safe bonus range."""
+    base = int(assignment.prompt_limit or 0)
+    used = int(conversation.prompts_used or 0)
+    min_extra = max(0, used - base)
+    try:
+        new_extra = int(new_extra)
+    except (TypeError, ValueError):
+        new_extra = int(conversation.extra_prompts or 0)
+    return max(min_extra, min(100, new_extra))
+
+
+def _socrates_prompts_redirect(conversation, assignment, session_obj, next_page=None):
+    next_page = (next_page or request.form.get('next') or 'manage').strip().lower()
+    if next_page == 'transcript':
+        return redirect(url_for('class_management.socrates_transcript', conversation_id=conversation.id))
+    return redirect(url_for(
+        'class_management.socrates_manage',
+        session_id=session_obj.id,
+        assignment_id=assignment.id,
+    ))
+
+
+@class_management_bp.route('/socrates/conversation/<int:conversation_id>/prompts', methods=['POST'])
+@login_required
+def socrates_adjust_prompts(conversation_id):
+    """Teacher: raise or lower a student's (or group's) prompt allowance."""
+    conversation = SocratesConversation.query.get_or_404(conversation_id)
+    assignment, session_obj = _socrates_assignment_for_teacher(conversation.assignment_id)
+    if not assignment:
+        flash('আপনি এই প্রম্পট সীমা বদলাতে পারবেন না।', 'danger')
+        return redirect(url_for('class_management.index'))
+
+    old_cap = conversation.prompt_cap()
+    old_remaining = conversation.remaining_prompts()
+    current_extra = int(conversation.extra_prompts or 0)
+
+    raw_extra = request.form.get('extra_prompts')
+    if raw_extra is not None and str(raw_extra).strip() != '':
+        new_extra = raw_extra
+    else:
+        try:
+            delta = int(request.form.get('delta') or 0)
+        except (TypeError, ValueError):
+            delta = 0
+        new_extra = current_extra + delta
+
+    conversation.extra_prompts = _socrates_clamp_extra_prompts(conversation, assignment, new_extra)
+    new_remaining = conversation.remaining_prompts()
+    reopened = False
+    if (
+        conversation.status != SocratesConversation.STATUS_IN_PROGRESS
+        and new_remaining > old_remaining
+        and new_remaining > 0
+    ):
+        conversation.status = SocratesConversation.STATUS_IN_PROGRESS
+        conversation.submitted_at = None
+        reopened = True
+
+    db.session.commit()
+
+    if conversation.prompt_cap() == old_cap and not reopened:
+        flash('প্রম্পট সীমা আর কমানো যাবে না (ব্যবহৃত প্রম্পটের নিচে নামানো যায় না)।', 'info')
+    else:
+        parts = [
+            f'প্রম্পট সীমা এখন {conversation.prompts_used}/{conversation.prompt_cap()} '
+            f'(বাকি {conversation.remaining_prompts()})।'
+        ]
+        if reopened:
+            parts.append('ডিবেট আবার খোলা হয়েছে।')
+        if not assignment.is_open() and reopened:
+            parts.append('অ্যাসাইনমেন্ট বন্ধ বা ডেডলাইন পেরিয়ে গেছে — চ্যাট চালু করতে Active রাখুন।')
+        flash(
+            ' '.join(parts),
+            'warning' if (reopened and not assignment.is_open()) else 'success',
+        )
+    return _socrates_prompts_redirect(conversation, assignment, session_obj)
+
+
 @class_management_bp.route('/socrates/conversation/<int:conversation_id>/reopen', methods=['POST'])
 @login_required
 def socrates_reopen(conversation_id):
@@ -11873,7 +11952,9 @@ def socrates_reopen(conversation_id):
 
     conversation.status = SocratesConversation.STATUS_IN_PROGRESS
     conversation.submitted_at = None
-    conversation.extra_prompts = int(conversation.extra_prompts or 0) + extra
+    conversation.extra_prompts = _socrates_clamp_extra_prompts(
+        conversation, assignment, int(conversation.extra_prompts or 0) + extra
+    )
     db.session.commit()
 
     parts = ['ডিবেট আবার খোলা হয়েছে। ছাত্র এখন চ্যাট করতে পারবে।']

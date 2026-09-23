@@ -18,8 +18,28 @@
   <div class="row g-4">
     <div class="col-lg-7">
       <div class="card shadow-sm">
-        <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
-          <h6 class="mb-0 text-secondary">Conversation ({{ conversation.prompts_used }}/{{ conversation.prompt_cap() }} prompts)</h6>
+        <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <h6 class="mb-0 text-secondary">Conversation</h6>
+            <div class="d-inline-flex align-items-center gap-1">
+              <form method="POST" action="{{ url_for('class_management.socrates_adjust_prompts', conversation_id=conversation.id) }}" class="m-0">
+                <input type="hidden" name="delta" value="-1">
+                <input type="hidden" name="next" value="transcript">
+                <button type="submit" class="btn btn-sm btn-outline-secondary px-2 py-0"
+                        title="প্রম্পট কমান"
+                        {% if conversation.prompt_cap() <= conversation.prompts_used %}disabled{% endif %}>−</button>
+              </form>
+              <span class="small fw-semibold text-nowrap">
+                {{ conversation.prompts_used }}/{{ conversation.prompt_cap() }}
+                <span class="text-muted fw-normal">(বাকি {{ conversation.remaining_prompts() }})</span>
+              </span>
+              <form method="POST" action="{{ url_for('class_management.socrates_adjust_prompts', conversation_id=conversation.id) }}" class="m-0">
+                <input type="hidden" name="delta" value="1">
+                <input type="hidden" name="next" value="transcript">
+                <button type="submit" class="btn btn-sm btn-outline-secondary px-2 py-0" title="প্রম্পট বাড়ান">+</button>
+              </form>
+            </div>
+          </div>
           <div class="d-flex gap-1 align-items-center">
             {% if paste_flag_count %}
               <span class="badge bg-warning text-dark">{{ paste_flag_count }}টি পেস্ট/দ্রুত ঢোকানো</span>

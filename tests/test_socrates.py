@@ -727,6 +727,114 @@ def test_teacher_can_reopen_submitted_debate(
 
 
 @patch('utils.ai.socrates.generate_socrates_reply')
+def test_teacher_can_raise_and_lower_student_prompts(mock_reply, app, client, teacher_user, class_session_w1, windows):
+    mock_reply.return_value = 'Go on.'
+    session_id = class_session_w1['session_id']
+
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'], prompt_limit=3)
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    assert client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={'message': 'Opening argument.'},
+    ).status_code == 200
+
+    with app.app_context():
+        convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').first()
+        convo_id = convo.id
+        assert convo.prompts_used == 1
+        assert convo.prompt_cap() == 3
+        assert convo.extra_prompts == 0
+
+    teacher_client = app.test_client()
+    login_client(teacher_client, teacher_user['username'], window_id=windows['w1_id'])
+
+    manage = teacher_client.get(f'/class-management/socrates/{session_id}/assignment/{assignment_id}')
+    html = manage.get_data(as_text=True)
+    assert 'socrates_adjust_prompts' in html or f'/conversation/{convo_id}/prompts' in html
+    assert 'name="delta" value="1"' in html
+    assert 'name="delta" value="-1"' in html
+
+    rv = teacher_client.post(
+        f'/class-management/socrates/conversation/{convo_id}/prompts',
+        data={'delta': '2', 'next': 'manage'},
+        follow_redirects=True,
+    )
+    assert rv.status_code == 200
+    with app.app_context():
+        convo = SocratesConversation.query.get(convo_id)
+        assert convo.extra_prompts == 2
+        assert convo.prompt_cap() == 5
+        assert convo.remaining_prompts() == 4
+
+    rv = teacher_client.post(
+        f'/class-management/socrates/conversation/{convo_id}/prompts',
+        data={'delta': '-1', 'next': 'manage'},
+        follow_redirects=True,
+    )
+    assert rv.status_code == 200
+    with app.app_context():
+        convo = SocratesConversation.query.get(convo_id)
+        assert convo.extra_prompts == 1
+        assert convo.prompt_cap() == 4
+
+    # Cannot drop the cap below prompts already used (used=1, base=3 → min extra 0)
+    rv = teacher_client.post(
+        f'/class-management/socrates/conversation/{convo_id}/prompts',
+        data={'delta': '-50', 'next': 'manage'},
+        follow_redirects=True,
+    )
+    assert rv.status_code == 200
+    with app.app_context():
+        convo = SocratesConversation.query.get(convo_id)
+        assert convo.extra_prompts == 0
+        assert convo.prompt_cap() == 3
+        assert convo.prompts_used == 1
+
+
+@patch('utils.ai.socrates.evaluate_conversation')
+@patch('utils.ai.socrates.generate_socrates_reply')
+def test_raising_prompts_on_submitted_debate_reopens(
+    mock_reply, mock_eval, app, client, teacher_user, class_session_w1, windows,
+):
+    mock_reply.return_value = 'And then?'
+    mock_eval.return_value = _fake_evaluation()
+    session_id = class_session_w1['session_id']
+
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'], prompt_limit=1)
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    assert client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={'message': 'Only turn.'},
+    ).status_code == 200
+
+    with app.app_context():
+        convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').first()
+        convo_id = convo.id
+        assert convo.status == 'evaluated'
+        assert convo.remaining_prompts() == 0
+
+    teacher_client = app.test_client()
+    login_client(teacher_client, teacher_user['username'], window_id=windows['w1_id'])
+    rv = teacher_client.post(
+        f'/class-management/socrates/conversation/{convo_id}/prompts',
+        data={'delta': '2', 'next': 'manage'},
+        follow_redirects=True,
+    )
+    assert rv.status_code == 200
+    with app.app_context():
+        convo = SocratesConversation.query.get(convo_id)
+        assert convo.status == 'in_progress'
+        assert convo.extra_prompts == 2
+        assert convo.remaining_prompts() == 2
+
+
+@patch('utils.ai.socrates.generate_socrates_reply')
 def test_group_conversation_is_shared(mock_reply, app, client, teacher_user, class_session_w1, windows):
     mock_reply.return_value = 'Interesting. And your evidence?'
     session_id = class_session_w1['session_id']
