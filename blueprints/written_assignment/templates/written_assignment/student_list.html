@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Assignments{% endblock %}
+{% block content %}
+<div class="container my-4 wa-shell">
+  {% set ns = namespace(total=0, submitted=0, writing=0) %}
+  {% for card in cards %}
+    {% set ns.total = ns.total + 1 %}
+    {% if card.part and card.part.status == 'submitted' %}
+      {% set ns.submitted = ns.submitted + 1 %}
+    {% elif card.part and card.part.word_count %}
+      {% set ns.writing = ns.writing + 1 %}
+    {% endif %}
+  {% endfor %}
+
+  <div class="wa-hero">
+    <i class="fas fa-pen-nib wa-hero-icon"></i>
+    <div class="wa-hero-eyebrow">Written assignments</div>
+    <h1>Assignments</h1>
+    <p class="wa-hero-sub">Write inside AMS — your draft saves itself and your teacher can follow your progress.</p>
+    {% if cards %}
+    <div class="wa-stats">
+      <div class="wa-stat">
+        <div class="wa-stat-num">{{ ns.total }}</div>
+        <div class="wa-stat-label">Assignments</div>
+      </div>
+      <div class="wa-stat">
+        <div class="wa-stat-num">{{ ns.writing }}</div>
+        <div class="wa-stat-label">In progress</div>
+      </div>
+      <div class="wa-stat">
+        <div class="wa-stat-num">{{ ns.submitted }}</div>
+        <div class="wa-stat-label">Submitted</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if not cards %}
+  <div class="wa-panel text-center py-5">
+    <i class="fas fa-feather-pointed fa-2x mb-3 text-secondary"></i>
+    <p class="mb-0 text-muted">No assignments yet. When your teacher sets one, it will appear here.</p>
+  </div>
+  {% else %}
+  <div class="row g-3">
+    {% for card in cards %}
+    {% set assignment = card.assignment %}
+    {% set dl = assignment.days_left() %}
+    {% if card.needs_group %}
+      {% set stripe, badge, label, icon = 'waiting', 'waiting', 'Awaiting group', 'fa-users' %}
+    {% elif card.part and card.part.status == 'submitted' %}
+      {% set stripe, badge, label, icon = 'submitted', 'submitted', 'Submitted', 'fa-check' %}
+    {% elif not assignment.is_open() %}
+      {% set stripe, badge, label, icon = 'closed', 'closed', 'Closed', 'fa-lock' %}
+    {% elif card.part and card.part.word_count %}
+      {% set stripe, badge, label, icon = 'draft', 'draft', 'Draft', 'fa-pen' %}
+    {% else %}
+      {% set stripe, badge, label, icon = 'new', 'new', 'Not started', 'fa-feather' %}
+    {% endif %}
+    <div class="col-12 col-md-6">
+      <a class="wa-card wa-stripe-{{ stripe }}" href="{{ url_for('written_assignment.student_write', assignment_id=assignment.id) }}">
+        <div class="small text-muted mb-1">{{ card.course_label }}</div>
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <h2 class="h6 mb-2">{{ assignment.title }}</h2>
+          <span class="wa-badge wa-badge-{{ badge }}"><i class="fas {{ icon }}"></i>{{ label }}</span>
+        </div>
+        <div class="wa-card-foot d-flex flex-wrap gap-2 align-items-center">
+          <span><i class="fas {{ 'fa-users' if assignment.mode == 'group' else 'fa-user' }} me-1"></i>{{ 'Group' if assignment.mode == 'group' else 'Individual' }}{% if card.group %} · {{ card.group.name }}{% endif %}</span>
+          {% if card.part and card.part.word_count %}
+          <span><i class="fas fa-font me-1"></i>{{ card.part.word_count }} words</span>
+          {% endif %}
+          <span><i class="fas fa-star me-1"></i>/{{ assignment.marks_out_of }}</span>
+          {% if dl is not none %}
+          <span class="{{ 'text-danger fw-semibold' if 0 <= dl <= 1 else '' }}">
+            <i class="far fa-clock me-1"></i>
+            {%- if dl < 0 %}Deadline passed
+            {%- elif dl == 0 %}Due today
+            {%- elif dl == 1 %}Due tomorrow
+            {%- else %}{{ dl }} days left{% endif %}
+          </span>
+          {% endif %}
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% include 'written_assignment/_theme.html' %}
+{% endblock %}

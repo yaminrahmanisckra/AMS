@@ -58,6 +58,16 @@ def test_create_error_response_includes_error_id(app):
     assert SECRET not in data['message']
 
 
+def test_favicon_is_served_and_not_logged_as_app_error(app, client, caplog):
+    import logging
+    with caplog.at_level(logging.ERROR, logger='ams_errors'):
+        rv = client.get('/favicon.ico')
+    assert rv.status_code == 200
+    assert rv.mimetype == 'image/png'
+    assert rv.data[:8] == b'\x89PNG\r\n\x1a\n'
+    assert 'Application Error' not in caplog.text
+
+
 def test_routes_do_not_send_str_e_to_clients():
     leaks = _checker.find_leaks()
     assert leaks == [], 'Client-facing exception leaks:\n' + '\n'.join(leaks)

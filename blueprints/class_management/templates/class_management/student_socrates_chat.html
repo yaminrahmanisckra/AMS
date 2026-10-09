@@ -44,6 +44,9 @@ body:has(.socrates-chat-app) .ams-offline-dock {
   min-height: 0;
   height: 100%;
   box-shadow: 0 18px 40px rgba(43, 33, 24, 0.08);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .soc-top {
   display: flex;
@@ -238,12 +241,152 @@ body:has(.socrates-chat-app) .ams-offline-dock {
   border-bottom-right-radius: 6px;
 }
 .soc-bubble strong { font-weight: 700; }
+.socrates-chat-app .soc-composer textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.soc-thread, .soc-topic, .soc-top, .soc-ai-warn, .soc-closed {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
 .soc-who {
   font-size: 0.72rem;
   color: var(--soc-muted);
   margin: 0 0 0.25rem 0.15rem;
 }
 .soc-row.me .soc-who { text-align: right; margin-right: 0.15rem; }
+.soc-row.system {
+  justify-content: center;
+}
+.soc-row.system .soc-bubble {
+  background: #f3f4f6;
+  color: #4b5563;
+  border-radius: 12px;
+  box-shadow: none;
+  font-size: 0.92rem;
+  text-align: center;
+}
+.soc-row.system .soc-who {
+  text-align: center;
+  margin: 0 0 0.2rem;
+}
+.soc-timer {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 1rem;
+  background: #fef3c7;
+  border-bottom: 1px solid #f6e05e;
+  color: #92400e;
+  font-size: 0.92rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.soc-timer.is-visible { display: flex; }
+.soc-timer.is-urgent {
+  background: #fee2e2;
+  border-bottom-color: #fca5a5;
+  color: #991b1b;
+}
+.soc-start-gate {
+  flex-shrink: 0;
+  padding: 1.1rem 1rem calc(1.1rem + env(safe-area-inset-bottom, 0px));
+  background: var(--soc-panel);
+  border-top: 1px solid #ece3d6;
+  text-align: center;
+}
+.soc-start-gate p {
+  margin: 0 0 0.75rem;
+  color: var(--soc-muted);
+  font-size: 0.95rem;
+}
+.soc-start-gate .btn {
+  min-width: 10rem;
+  font-weight: 600;
+}
+.soc-instr-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(28, 25, 23, 0.55);
+  backdrop-filter: blur(2px);
+}
+.soc-instr-modal[hidden] { display: none !important; }
+.soc-instr-card {
+  width: min(100%, 520px);
+  max-height: min(86vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: #fffaf3;
+  border-radius: 18px;
+  box-shadow: 0 24px 48px rgba(28, 25, 23, 0.28);
+  overflow: hidden;
+  border: 1px solid #e7dccb;
+}
+.soc-instr-card header {
+  padding: 1rem 1.15rem 0.65rem;
+  border-bottom: 1px solid #efe6d8;
+}
+.soc-instr-card header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--soc-ink);
+  font-weight: 700;
+}
+.soc-instr-card header p {
+  margin: 0.35rem 0 0;
+  color: var(--soc-muted);
+  font-size: 0.88rem;
+}
+.soc-instr-body {
+  padding: 0.85rem 1.15rem;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--soc-ink);
+}
+.soc-instr-body .soc-topic-label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--soc-muted);
+  margin-bottom: 0.2rem;
+}
+.soc-instr-body h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+.soc-instr-body .soc-auto-rules {
+  margin-top: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  background: #f3f4f6;
+  border-radius: 12px;
+}
+.soc-instr-body .soc-auto-rules p { margin: 0 0 0.4rem; }
+.soc-instr-body .soc-auto-rules ul {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+.soc-instr-body .soc-auto-rules li { margin: 0.25rem 0; }
+.soc-instr-footer {
+  padding: 0.85rem 1.15rem calc(0.95rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #efe6d8;
+  background: #fff;
+}
+.soc-instr-footer .btn {
+  width: 100%;
+  font-weight: 700;
+  padding: 0.7rem 1rem;
+  border-radius: 12px;
+}
 .soc-empty {
   text-align: center;
   padding: 2rem 1rem 1rem;
@@ -381,7 +524,18 @@ body:has(.socrates-chat-app) .ams-offline-dock {
 <div class="socrates-chat-app"
      data-student-name="{{ student_name }}"
      data-student-initial="{{ student_initial }}"
-     data-ai-warning="{{ ai_warning_text|default('') }}">
+     data-ai-warning="{{ ai_warning_text|default('') }}"
+     data-integrity-url="{{ url_for('class_management.student_socrates_integrity_event', assignment_id=assignment.id) }}"
+     data-can-chat="{{ '1' if can_chat else '0' }}"
+     data-requires-start="{{ '1' if requires_start else '0' }}"
+     data-debate-started="{{ '1' if debate_started else '0' }}"
+     data-start-url="{{ start_url|default('') }}"
+     data-forfeit-url="{{ forfeit_url|default('') }}"
+     data-prompt-deadline="{{ prompt_deadline_at or '' }}"
+     data-paste-mode="{{ paste_mode|default('disabled') }}"
+     data-paste-max-words="{{ paste_max_words if paste_max_words is not none else '' }}"
+     data-paste-max-events="{{ paste_max_events if paste_max_events is not none else '' }}"
+     data-paste-events-used="{{ paste_events_used|default(0) }}">
   <header class="soc-top">
     <a href="{{ url_for('class_management.student_socrates_list') }}" aria-label="Back">
       <i class="fas fa-arrow-left"></i>
@@ -423,6 +577,11 @@ body:has(.socrates-chat-app) .ams-offline-dock {
     </div>
   </div>
 
+  <div class="soc-timer" id="promptTimer" role="timer" aria-live="polite">
+    <span>এই প্রম্পটের সময়</span>
+    <span id="promptTimerValue">--:--</span>
+  </div>
+
   <div class="soc-thread" id="messageThread">
     {% for msg in conversation.messages %}
       {% if msg.sender == 'socrates' %}
@@ -431,6 +590,13 @@ body:has(.socrates-chat-app) .ams-offline-dock {
           <div>
             <div class="soc-who">Socrates</div>
             <div class="soc-bubble js-soc-md">{{ msg.body }}</div>
+          </div>
+        </div>
+      {% elif msg.sender == 'system' %}
+        <div class="soc-row system">
+          <div>
+            <div class="soc-who">সিস্টেম</div>
+            <div class="soc-bubble">{{ msg.body }}</div>
           </div>
         </div>
       {% else %}
@@ -455,9 +621,33 @@ body:has(.socrates-chat-app) .ams-offline-dock {
     {% if ai_use_warning %}{{ ai_use_warning }}{% endif %}
   </div>
 
+  {% if can_chat and requires_start and not debate_started %}
+  <div class="soc-instr-modal" id="instrModal" role="dialog" aria-modal="true" aria-labelledby="instrModalTitle">
+    <div class="soc-instr-card">
+      <header>
+        <h2 id="instrModalTitle">ডিবেট নির্দেশনা</h2>
+        <p>একসেপ্ট চাপলেই ডিবেট শুরু হবে{% if assignment.prompt_seconds %} এবং টাইমার চালু হবে{% endif %}।</p>
+      </header>
+      <div class="soc-instr-body">
+        <span class="soc-topic-label">ডিবেট টপিক</span>
+        <h3>{{ assignment.topic }}</h3>
+        {% if instructions_html %}
+          {{ instructions_html }}
+        {% else %}
+          <p class="text-muted mb-0">অতিরিক্ত নির্দেশনা নেই। টপিক অনুযায়ী যুক্তি দিন।</p>
+        {% endif %}
+      </div>
+      <div class="soc-instr-footer">
+        <button type="button" class="btn btn-primary" id="acceptInstrBtn">একসেপ্ট</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {% if can_chat %}
   <form class="soc-composer" id="sendForm" method="POST"
-        action="{{ url_for('class_management.student_socrates_send', assignment_id=assignment.id) }}">
+        action="{{ url_for('class_management.student_socrates_send', assignment_id=assignment.id) }}"
+        {% if requires_start and not debate_started %}hidden{% endif %}>
     <input type="hidden" name="pasted_chars" id="pastedChars" value="0">
     <input type="hidden" name="typed_chars" id="typedChars" value="0">
     <input type="hidden" name="paste_events" id="pasteEvents" value="0">
@@ -471,7 +661,13 @@ body:has(.socrates-chat-app) .ams-offline-dock {
       </button>
     </div>
     <div class="soc-composer-actions">
-      <span class="soc-hint">Enter নতুন লাইন · Shift+Enter পাঠাবে</span>
+      {% if paste_mode == 'disabled' %}
+        <span class="soc-hint">কপি-পেস্ট বন্ধ · Enter নতুন লাইন · Shift+Enter পাঠাবে</span>
+      {% elif paste_mode == 'limited' %}
+        <span class="soc-hint">পেস্ট সীমিত{% if paste_max_words %} · সর্বোচ্চ {{ paste_max_words }} শব্দ{% endif %}{% if paste_max_events %} · {{ paste_events_used }}/{{ paste_max_events }} বার{% endif %} · Shift+Enter পাঠাবে</span>
+      {% else %}
+        <span class="soc-hint">পেস্ট অনুমোদিত · Enter নতুন লাইন · Shift+Enter পাঠাবে</span>
+      {% endif %}
       <button type="submit" class="btn btn-link btn-sm text-success p-0"
               form="submitForm"
               onclick="return confirm('জমা দিলে আর বার্তা পাঠানো যাবে না। নিশ্চিত?');">
@@ -503,6 +699,18 @@ document.addEventListener('DOMContentLoaded', function() {
   const root = document.querySelector('.socrates-chat-app');
   const avatar = {{ socrates_avatar | tojson }};
   const aiWarningText = (root && root.dataset.aiWarning) || '';
+  const integrityUrl = (root && root.dataset.integrityUrl) || '';
+  const canChat = root && root.dataset.canChat === '1';
+  const startUrl = (root && root.dataset.startUrl) || '';
+  const forfeitUrl = (root && root.dataset.forfeitUrl) || '';
+  const pasteMode = (root && root.dataset.pasteMode) || 'disabled';
+  const pasteMaxWords = root && root.dataset.pasteMaxWords !== '' ? parseInt(root.dataset.pasteMaxWords, 10) : null;
+  const pasteMaxEvents = root && root.dataset.pasteMaxEvents !== '' ? parseInt(root.dataset.pasteMaxEvents, 10) : null;
+  let pasteEventsUsed = root ? parseInt(root.dataset.pasteEventsUsed || '0', 10) : 0;
+  let promptDeadlineAt = root ? (root.dataset.promptDeadline || '') : '';
+  let timerInterval = null;
+  let forfeitInFlight = false;
+  let sendInFlight = false;
 
   function formatSocratesHtml(text) {
     let s = String(text || '')
@@ -533,6 +741,278 @@ document.addEventListener('DOMContentLoaded', function() {
       const collapsed = topicBox.classList.toggle('is-collapsed');
       topicToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
     });
+  }
+
+  function jsonHeaders() {
+    const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' };
+    const csrf = window.getCsrfToken && window.getCsrfToken();
+    if (csrf) headers['X-CSRFToken'] = csrf;
+    return headers;
+  }
+
+  function wordCount(text) {
+    const m = String(text || '').match(/\S+/g);
+    return m ? m.length : 0;
+  }
+
+  function pasteAllowed() {
+    if (pasteMode === 'disabled') return false;
+    if (pasteMode === 'unlimited') return true;
+    if (pasteMaxEvents != null && pasteEventsUsed >= pasteMaxEvents) return false;
+    return true;
+  }
+
+  function pasteHintMessage() {
+    if (pasteMode === 'disabled') return 'কপি-পেস্ট নিষিদ্ধ। নিজের ভাষায় টাইপ করুন।';
+    if (pasteMaxEvents != null && pasteEventsUsed >= pasteMaxEvents) return 'পেস্ট সীমা শেষ। আর পেস্ট করা যাবে না।';
+    if (pasteMaxWords != null) return 'প্রতি পেস্টে সর্বোচ্চ ' + pasteMaxWords + ' শব্দ।';
+    return 'পেস্ট সীমা অতিক্রম।';
+  }
+
+  // Block copy / cut / drag of debate text. Paste follows assignment rules.
+  ['copy', 'cut', 'dragstart'].forEach(function(evt) {
+    document.addEventListener(evt, function(e) {
+      if (!root || !root.contains(e.target)) return;
+      e.preventDefault();
+    }, true);
+  });
+  document.addEventListener('paste', function(e) {
+    if (!root || !root.contains(e.target)) return;
+    const inputEl = document.getElementById('messageInput');
+    const inComposer = inputEl && (e.target === inputEl || inputEl.contains(e.target));
+    if (!inComposer || !pasteAllowed()) {
+      e.preventDefault();
+      if (inComposer) {
+        showAiUseWarning();
+        const status = document.getElementById('chatStatus');
+        if (status) {
+          status.textContent = pasteHintMessage();
+          status.classList.add('is-error');
+        }
+      }
+      return;
+    }
+    if (pasteMaxWords != null) {
+      const text = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+      if (wordCount(text) > pasteMaxWords) {
+        e.preventDefault();
+        const status = document.getElementById('chatStatus');
+        if (status) {
+          status.textContent = 'প্রতি পেস্টে সর্বোচ্চ ' + pasteMaxWords + ' শব্দ অনুমোদিত।';
+          status.classList.add('is-error');
+        }
+      }
+    }
+  }, true);
+  document.addEventListener('contextmenu', function(e) {
+    if (root && root.contains(e.target)) e.preventDefault();
+  }, true);
+  document.addEventListener('keydown', function(e) {
+    if (!root) return;
+    const key = (e.key || '').toLowerCase();
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && (key === 'c' || key === 'x' || key === 'p' || key === 's')) {
+      if (root.contains(document.activeElement) || root.contains(e.target)) {
+        e.preventDefault();
+      }
+    }
+    if (mod && key === 'v') {
+      const inputEl = document.getElementById('messageInput');
+      const inComposer = inputEl && document.activeElement === inputEl;
+      if (!inComposer || !pasteAllowed()) {
+        if (root.contains(document.activeElement) || root.contains(e.target)) {
+          e.preventDefault();
+          if (inComposer) showAiUseWarning();
+        }
+      }
+    }
+  }, true);
+
+  let lastIntegrityAt = 0;
+  function postIntegrity(eventName) {
+    if (!canChat || !integrityUrl) return;
+    const now = Date.now();
+    if (now - lastIntegrityAt < 1500) return;
+    lastIntegrityAt = now;
+    fetch(integrityUrl, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ event: eventName }),
+      keepalive: true
+    }).catch(function() {});
+  }
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) postIntegrity('focus_loss');
+  });
+  window.addEventListener('blur', function() {
+    if (document.hidden) return;
+    setTimeout(function() {
+      if (document.hidden || !document.hasFocus()) postIntegrity('focus_loss');
+    }, 0);
+  });
+  document.addEventListener('keyup', function(e) {
+    if (e.key === 'PrintScreen') {
+      postIntegrity('screenshot_hint');
+      try { navigator.clipboard && navigator.clipboard.writeText(''); } catch (err) {}
+      showAiUseWarning();
+    }
+  });
+
+  function appendSystemRow(body) {
+    const thread = document.getElementById('messageThread');
+    if (!thread) return;
+    const emptyNote = document.getElementById('emptyThreadNote');
+    if (emptyNote) emptyNote.remove();
+    const row = document.createElement('div');
+    row.className = 'soc-row system';
+    row.innerHTML = '<div><div class="soc-who">সিস্টেম</div><div class="soc-bubble"></div></div>';
+    row.querySelector('.soc-bubble').textContent = body;
+    thread.appendChild(row);
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function formatCountdown(ms) {
+    const total = Math.max(0, Math.ceil(ms / 1000));
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function stopTimer() {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    const banner = document.getElementById('promptTimer');
+    if (banner) {
+      banner.classList.remove('is-visible', 'is-urgent');
+    }
+  }
+
+  async function forfeitPrompt() {
+    if (forfeitInFlight || sendInFlight || !forfeitUrl || !canChat) return;
+    forfeitInFlight = true;
+    stopTimer();
+    try {
+      const res = await fetch(forfeitUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: jsonHeaders(),
+        body: JSON.stringify({})
+      });
+      const text = await res.text();
+      let data = {};
+      try { data = JSON.parse(text); } catch (err) { data = {}; }
+      if (data.success) {
+        appendSystemRow(data.message || 'সময় শেষ: প্রম্পট বাতিল হয়েছে।');
+        const remainingEl = document.getElementById('remainingCount');
+        if (remainingEl && data.remaining != null) remainingEl.textContent = data.remaining;
+        promptDeadlineAt = data.prompt_deadline_at || '';
+        if (data.submitted || data.remaining <= 0) {
+          setTimeout(function() { window.location.reload(); }, 600);
+          return;
+        }
+        armTimer(promptDeadlineAt);
+      } else {
+        window.location.reload();
+      }
+    } catch (err) {
+      window.location.reload();
+    } finally {
+      forfeitInFlight = false;
+    }
+  }
+
+  async function onTimerExpired() {
+    if (forfeitInFlight || sendInFlight) return;
+    const inputEl = document.getElementById('messageInput');
+    const draft = inputEl ? String(inputEl.value || '').trim() : '';
+    if (draft) {
+      // Partial text: auto-send what was written before time ran out.
+      const formEl = document.getElementById('sendForm');
+      if (formEl && typeof formEl.requestSubmit === 'function') {
+        // Mark so submit handler knows this is a timer auto-send.
+        formEl.dataset.timerExpired = '1';
+        formEl.requestSubmit();
+      } else if (formEl) {
+        formEl.dataset.timerExpired = '1';
+        formEl.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      } else {
+        await forfeitPrompt();
+      }
+      return;
+    }
+    await forfeitPrompt();
+  }
+
+  function armTimer(iso) {
+    stopTimer();
+    promptDeadlineAt = iso || '';
+    if (!promptDeadlineAt) return;
+    const banner = document.getElementById('promptTimer');
+    const valueEl = document.getElementById('promptTimerValue');
+    if (!banner || !valueEl) return;
+    banner.classList.add('is-visible');
+    function tick() {
+      const end = Date.parse(promptDeadlineAt);
+      if (!end) {
+        stopTimer();
+        return;
+      }
+      const left = end - Date.now();
+      valueEl.textContent = formatCountdown(left);
+      banner.classList.toggle('is-urgent', left <= 15000);
+      if (left <= 0) {
+        stopTimer();
+        onTimerExpired();
+      }
+    }
+    tick();
+    timerInterval = setInterval(tick, 250);
+  }
+
+  function unlockComposerAfterAccept(deadlineIso) {
+    const modal = document.getElementById('instrModal');
+    if (modal) modal.hidden = true;
+    const form = document.getElementById('sendForm');
+    if (form) form.hidden = false;
+    root.dataset.debateStarted = '1';
+    armTimer(deadlineIso || '');
+    const input = document.getElementById('messageInput');
+    if (input) input.focus();
+  }
+
+  const acceptBtn = document.getElementById('acceptInstrBtn');
+  if (acceptBtn && startUrl) {
+    acceptBtn.addEventListener('click', async function() {
+      acceptBtn.disabled = true;
+      try {
+        const res = await fetch(startUrl, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: jsonHeaders(),
+          body: JSON.stringify({})
+        });
+        const text = await res.text();
+        let data = {};
+        try { data = JSON.parse(text); } catch (err) { data = {}; }
+        if (!data.success) {
+          acceptBtn.disabled = false;
+          alert(data.message || 'একসেপ্ট করা যায়নি।');
+          return;
+        }
+        unlockComposerAfterAccept(data.prompt_deadline_at || '');
+      } catch (err) {
+        acceptBtn.disabled = false;
+        alert('একসেপ্ট করা যায়নি।');
+      }
+    });
+  }
+
+  if (canChat && promptDeadlineAt) {
+    armTimer(promptDeadlineAt);
   }
 
   const form = document.getElementById('sendForm');
@@ -570,11 +1050,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const emptyNote = document.getElementById('emptyThreadNote');
     if (emptyNote) emptyNote.remove();
     const row = document.createElement('div');
-    row.className = 'soc-row ' + (kind === 'socrates' ? 'ai' : 'me');
+    row.className = 'soc-row ' + (kind === 'socrates' ? 'ai' : (kind === 'system' ? 'system' : 'me'));
     const meta = document.createElement('div');
     const who = document.createElement('div');
     who.className = 'soc-who';
-    who.textContent = kind === 'socrates' ? 'Socrates' : name;
+    who.textContent = kind === 'socrates' ? 'Socrates' : (kind === 'system' ? 'সিস্টেম' : name);
     const bubble = document.createElement('div');
     if (kind === 'socrates') {
       bubble.className = 'soc-bubble js-soc-md';
@@ -591,7 +1071,7 @@ document.addEventListener('DOMContentLoaded', function() {
       img.src = avatar;
       img.alt = '';
       row.appendChild(img);
-    } else {
+    } else if (kind !== 'system') {
       const initial = document.createElement('span');
       initial.className = 'soc-initial';
       initial.textContent = (name || studentInitial).slice(0, 1).toUpperCase();
@@ -622,7 +1102,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  const inputStats = { pasted: 0, typed: 0, pasteEvents: 0, startedAt: 0, lastPasteAt: 0, lastValue: '' };
+  const inputStats = { pasted: 0, typed: 0, pasteEvents: 0, startedAt: 0, lastPasteAt: 0, lastValue: '', pasteSnippets: [] };
 
   function markStart() {
     if (!inputStats.startedAt) inputStats.startedAt = Date.now();
@@ -634,8 +1114,19 @@ document.addEventListener('DOMContentLoaded', function() {
     inputStats.pasteEvents = 0;
     inputStats.startedAt = 0;
     inputStats.lastPasteAt = 0;
+    inputStats.pasteSnippets = [];
     inputStats.lastValue = input.value || '';
     syncInputStats();
+  }
+
+  function rememberPasteText(text) {
+    const t = String(text || '').trim();
+    if (t.length < 16) return;
+    if (!inputStats.pasteSnippets) inputStats.pasteSnippets = [];
+    inputStats.pasteSnippets.push(t.slice(0, 4000));
+    if (inputStats.pasteSnippets.length > 8) {
+      inputStats.pasteSnippets = inputStats.pasteSnippets.slice(-8);
+    }
   }
 
   function syncInputStats() {
@@ -655,16 +1146,20 @@ document.addEventListener('DOMContentLoaded', function() {
       pasted_chars: inputStats.pasted,
       typed_chars: inputStats.typed,
       paste_events: inputStats.pasteEvents,
-      compose_ms: inputStats.startedAt ? (Date.now() - inputStats.startedAt) : 0
+      compose_ms: inputStats.startedAt ? (Date.now() - inputStats.startedAt) : 0,
+      paste_snippets: inputStats.pasteSnippets || []
     };
   }
 
   input.addEventListener('paste', function(e) {
+    if (!pasteAllowed()) return;
     markStart();
     const text = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+    if (pasteMaxWords != null && wordCount(text) > pasteMaxWords) return;
     inputStats.pasteEvents += 1;
     inputStats.pasted += text.length;
     inputStats.lastPasteAt = Date.now();
+    rememberPasteText(text);
     setTimeout(function() {
       if (composerLooksLikeAi()) showAiUseWarning();
     }, 0);
@@ -674,10 +1169,15 @@ document.addEventListener('DOMContentLoaded', function() {
     markStart();
     const type = e.inputType || '';
     if (type === 'insertFromPaste' || type === 'insertFromDrop') {
+      if (!pasteAllowed()) {
+        e.preventDefault();
+        return;
+      }
       if (Date.now() - inputStats.lastPasteAt > 80) {
         inputStats.pasteEvents += 1;
         inputStats.pasted += (e.data || '').length;
         inputStats.lastPasteAt = Date.now();
+        rememberPasteText(e.data || '');
       }
       return;
     }
@@ -693,9 +1193,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const delta = next.length - (inputStats.lastValue || '').length;
     const type = e.inputType || '';
     if (delta > 12 && Date.now() - inputStats.lastPasteAt > 80 && type !== 'insertReplacementText' && !e.isComposing) {
-      inputStats.pasteEvents += 1;
-      inputStats.pasted += delta;
-      inputStats.lastPasteAt = Date.now();
+      if (pasteAllowed()) {
+        inputStats.pasteEvents += 1;
+        inputStats.pasted += delta;
+        inputStats.lastPasteAt = Date.now();
+      }
     }
     inputStats.lastValue = next;
     if (composerLooksLikeAi()) showAiUseWarning();
@@ -709,31 +1211,46 @@ document.addEventListener('DOMContentLoaded', function() {
 
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
+    if (sendInFlight || forfeitInFlight) return;
     const body = (input.value || '').trim();
+    const timerExpired = form.dataset.timerExpired === '1';
+    form.dataset.timerExpired = '';
     if (!body) {
+      if (timerExpired) {
+        await forfeitPrompt();
+        return;
+      }
       setStatus('যুক্তি লিখুন।', true);
       return;
     }
     if (composerLooksLikeAi()) showAiUseWarning();
+    sendInFlight = true;
+    stopTimer();
     sendBtn.disabled = true;
     input.disabled = true;
-    setStatus('Socrates ভাবছেন…');
+    setStatus(timerExpired ? 'সময় শেষ — লেখা পাঠানো হচ্ছে…' : 'Socrates ভাবছেন…');
     const pending = appendRow('student', studentName, body);
     const typing = typingRow();
     try {
-      const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' };
-      const csrf = window.getCsrfToken && window.getCsrfToken();
-      if (csrf) headers['X-CSRFToken'] = csrf;
+      const payload = Object.assign({ message: body }, inputMetaPayload());
+      if (timerExpired) payload.timer_expired = true;
       const res = await fetch(form.action, {
         method: 'POST',
         credentials: 'same-origin',
-        headers: headers,
-        body: JSON.stringify(Object.assign({ message: body }, inputMetaPayload()))
+        headers: jsonHeaders(),
+        body: JSON.stringify(payload)
       });
       const data = await readPayload(res);
       typing.remove();
       if (!data.success) {
         pending.remove();
+        if (timerExpired) {
+          // Race lost — fall back to consuming the empty-or-failed prompt.
+          setStatus(data.message || 'সময় শেষে পাঠানো যায়নি। প্রম্পট বাতিল হচ্ছে…', true);
+          sendInFlight = false;
+          await forfeitPrompt();
+          return;
+        }
         setStatus(data.message || 'পাঠানো ব্যর্থ হয়েছে।', true);
         sendBtn.disabled = false;
         input.disabled = false;
@@ -744,6 +1261,7 @@ document.addEventListener('DOMContentLoaded', function() {
       input.value = '';
       resetInputStats();
       resizeInput();
+      if (data.paste_events_used != null) pasteEventsUsed = data.paste_events_used;
       if (data.ai_use_warning) {
         const warn = document.getElementById('aiUseWarning');
         if (warn) {
@@ -751,29 +1269,39 @@ document.addEventListener('DOMContentLoaded', function() {
           warn.textContent = data.ai_use_warning;
         }
       }
-      setStatus('');
+      setStatus(timerExpired ? 'সময় শেষে আপনার লেখা পাঠানো হয়েছে।' : '');
       if (remainingEl) remainingEl.textContent = data.remaining;
       if (data.submitted || data.remaining <= 0) {
+        stopTimer();
         setStatus('প্রম্পট শেষ। ডিবেট স্বয়ংক্রিয়ভাবে জমা হয়েছে।');
         input.disabled = true;
         sendBtn.disabled = true;
         setTimeout(function() { window.location.reload(); }, 700);
         return;
       }
+      armTimer(data.prompt_deadline_at || '');
       sendBtn.disabled = false;
       input.disabled = false;
       input.focus();
     } catch (err) {
       typing.remove();
       pending.remove();
+      if (timerExpired) {
+        setStatus(err.message || 'পাঠানো ব্যর্থ। প্রম্পট বাতিল হচ্ছে…', true);
+        sendInFlight = false;
+        await forfeitPrompt();
+        return;
+      }
       setStatus(err.message || 'পাঠানো ব্যর্থ হয়েছে।', true);
       sendBtn.disabled = false;
       input.disabled = false;
+    } finally {
+      sendInFlight = false;
     }
   });
 
   scrollThread();
-  input.focus();
+  if (!form.hidden) input.focus();
 });
 </script>
 {% endblock %}

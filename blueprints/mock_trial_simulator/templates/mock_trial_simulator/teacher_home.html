@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Mock Trial Simulator{% endblock %}
+{% block mobile_title %}Mock Trial{% endblock %}
+
+{% block content %}
+{% include 'mock_trial_simulator/_theme.html' %}
+<div class="container my-3 my-md-4 mts-shell">
+  <div class="mb-3">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ dashboard_url }}">
+      <i class="fas fa-arrow-left me-1"></i>Dashboard
+    </a>
+  </div>
+
+  <div class="mts-hero">
+    <i class="fas fa-balance-scale mts-hero-icon"></i>
+    <div class="mts-hero-eyebrow">Hybrid courtroom · CrPC &amp; Evidence Act</div>
+    <h1>Mock Trial Simulator</h1>
+    <p class="mts-hero-sub">Open a course, create a draft, then publish. Investigation stays online; the final trial is in class.</p>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <span class="mts-chip">{{ rows|length }} course{{ 's' if rows|length != 1 else '' }}</span>
+    </div>
+  </div>
+
+  {% if not rows %}
+    <div class="card mts-panel">
+      <div class="card-body text-center py-5 text-muted">
+        <i class="fas fa-chalkboard fa-2x mb-3"></i>
+        <p class="mb-0">এই উইন্ডোতে Mock Trial চালু আছে এমন কোনো কোর্স নেই। অ্যাডমিন Admin → Mock Trial Courses থেকে কোর্স অন করলে এখানে দেখাবে।</p>
+      </div>
+    </div>
+  {% else %}
+    <div class="row g-3">
+      {% for row in rows %}
+      <div class="col-12 col-md-6">
+        <a class="mts-card h-100" href="{{ url_for('mock_trial_simulator.teacher_course', session_id=row.session.id) }}">
+          <strong class="d-block">{{ row.session.course_code or 'N/A' }}</strong>
+          <div class="small text-muted mb-2">{{ row.session.course_name or '' }}</div>
+          <div class="small">
+            {% if not row.cases %}
+              <span class="text-muted">No cases yet</span>
+            {% else %}
+              {{ row.cases|length }} case{{ 's' if row.cases|length != 1 else '' }} · {{ row.published_count }} published
+            {% endif %}
+          </div>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

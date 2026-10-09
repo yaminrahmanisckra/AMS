@@ -113,6 +113,48 @@
             <input type="date" name="deadline" class="form-control">
           </div>
         </div>
+        <div class="border rounded p-3 mt-3 bg-light">
+          <label class="form-label fw-semibold mb-2">প্রতি প্রম্পটের সময় (ঐচ্ছিক)</label>
+          <div class="row g-2 align-items-end">
+            <div class="col-sm-5">
+              <label class="form-label small">মিনিট</label>
+              <input type="number" step="0.5" min="0" max="1440" name="prompt_minutes" class="form-control"
+                     placeholder="খালি = সময় সীমা নেই">
+            </div>
+            <div class="col-sm-7">
+              <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" name="prompt_timer_include_first" value="1" id="promptTimerFirstCreate" checked>
+                <label class="form-check-label" for="promptTimerFirstCreate">প্রথম প্রম্পটেও প্রযোজ্য</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="border rounded p-3 mt-3 bg-light">
+          <label class="form-label fw-semibold mb-2">কপি-পেস্ট নিয়ম</label>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="paste_mode" id="pasteDisabledCreate" value="disabled" checked>
+            <label class="form-check-label" for="pasteDisabledCreate">সম্পূর্ণ বন্ধ</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="paste_mode" id="pasteLimitedCreate" value="limited">
+            <label class="form-check-label" for="pasteLimitedCreate">সীমিত</label>
+          </div>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="radio" name="paste_mode" id="pasteUnlimitedCreate" value="unlimited">
+            <label class="form-check-label" for="pasteUnlimitedCreate">সীমাহীন অনুমতি</label>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small">প্রতি পেস্টে সর্বোচ্চ শব্দ</label>
+              <input type="number" name="paste_max_words" class="form-control form-control-sm" min="1" max="5000">
+            </div>
+            <div class="col-6">
+              <label class="form-label small">মোট কতবার পেস্ট</label>
+              <input type="number" name="paste_max_events" class="form-control form-control-sm" min="1" max="100">
+            </div>
+          </div>
+          <div class="form-text">নিয়ম ছাত্র ইন্সট্রাকশনে অটো যুক্ত হবে।</div>
+        </div>
         <button type="submit" class="btn btn-primary w-100 mt-3">
           <i class="fas fa-plus me-1"></i>Create Assignment
         </button>

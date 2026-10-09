@@ -19,8 +19,15 @@ import traceback
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
-from flask import has_request_context, jsonify, request
+from flask import current_app, has_request_context, jsonify, request, send_file
 from werkzeug.exceptions import HTTPException
+
+_QUIET_404_PATHS = frozenset({
+    '/favicon.ico',
+    '/robots.txt',
+    '/apple-touch-icon.png',
+    '/apple-touch-icon-precomposed.png',
+})
 
 _LOGGING_CONFIGURED = False
 _LOG_DIR = None
@@ -492,6 +499,14 @@ def register_error_handlers(app):
 
     @app.errorhandler(404)
     def not_found_error(error):
+        path = (request.path or '').split('?')[0] if request else ''
+        if path == '/favicon.ico':
+            icon = os.path.join(current_app.static_folder or '', 'images', 'KU_logo_2.png')
+            if os.path.isfile(icon):
+                return send_file(icon, mimetype='image/png')
+            return ('', 204)
+        if path in _QUIET_404_PATHS or path.startswith('/apple-touch-icon'):
+            return ('', 404)
         return create_error_response(error, 404)
 
     @app.errorhandler(HTTPException)

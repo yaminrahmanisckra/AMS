@@ -11,7 +11,7 @@
     </div>
 
     {% set card_map = cards if cards is defined else {} %}
-    {% set any_card = card_map.course_files or card_map.question_bank or card_map.class_routine or card_map.academic_calendar or card_map.my_scores or card_map.course_registration or card_map.noticeboard or card_map.socrates %}
+    {% set any_card = card_map.course_files or card_map.question_bank or card_map.class_routine or card_map.academic_calendar or card_map.my_scores or card_map.course_registration or card_map.noticeboard or card_map.socrates or card_map.mock_trial_simulator or card_map.assignments %}
 
     {% if not any_card %}
     <div class="alert alert-light border text-center py-5 sd-empty">
@@ -135,6 +135,36 @@
                         </div>
                         <h5 class="card-title mb-1">Socrates</h5>
                         <p class="text-muted mb-0 sd-card-desc">Debate with the AI companion.</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        {% endif %}
+        {% if card_map.mock_trial_simulator %}
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3">
+            <a href="/mock-trial-simulator/" class="text-decoration-none sd-card-link">
+                <div class="card shadow-sm text-center course-card h-100">
+                    <div class="card-body">
+                        <div class="icon-circle mb-2" style="background-color: rgba(13,148,136,0.12);">
+                            <i class="fas fa-balance-scale fa-lg" style="color: #0d9488;"></i>
+                        </div>
+                        <h5 class="card-title mb-1">Mock Trial Simulator</h5>
+                        <p class="text-muted mb-0 sd-card-desc">Virtual courtroom mock trials.</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        {% endif %}
+        {% if card_map.assignments %}
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3">
+            <a href="/written-assignment/student" class="text-decoration-none sd-card-link">
+                <div class="card shadow-sm text-center course-card h-100">
+                    <div class="card-body">
+                        <div class="icon-circle mb-2" style="background-color: rgba(180,83,9,0.12);">
+                            <i class="fas fa-pen-nib fa-lg" style="color: #b45309;"></i>
+                        </div>
+                        <h5 class="card-title mb-1">Assignments</h5>
+                        <p class="text-muted mb-0 sd-card-desc">Write essays your teacher can see live.</p>
                     </div>
                 </div>
             </a>

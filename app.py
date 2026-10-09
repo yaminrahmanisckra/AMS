@@ -48,7 +48,16 @@ from blueprints.class_management.models import (
 from blueprints.student_management.models import Student
 from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive, ActiveSemesterConfig, CourseSessionAssignment, OperationalWindow
 from utils.ai.models import AIProviderSetting, AIOutlineGenerationJob, AIOutlineGenerationLog, AIOutlineBatchJob  # noqa: F401
-from utils.dashboard_settings import StudentDashboardCard, OfficerDashboardCard  # noqa: F401
+try:
+    from utils.dashboard_settings import StudentDashboardCard, OfficerDashboardCard, TeacherDashboardCard  # noqa: F401
+except Exception:
+    try:
+        from utils.dashboard_settings import StudentDashboardCard, OfficerDashboardCard  # noqa: F401
+    except Exception:
+        StudentDashboardCard = None  # type: ignore[misc, assignment]
+        OfficerDashboardCard = None  # type: ignore[misc, assignment]
+    TeacherDashboardCard = None  # type: ignore[misc, assignment]
+
 from blueprints.remuneration_management.models import RemunerationForm
 from utils.window_utils import query_for_window, stamp_window_id, ensure_record_in_window, get_effective_window_id, filter_by_active_window, get_for_window, get_or_404_for_window, filter_offered_courses
 from utils.ownership import resolve_caller_teacher
@@ -353,6 +362,10 @@ def create_app():
 
     db.init_app(app)
     migrate.init_app(app, db)
+    try:
+        from utils.dashboard_settings import TeacherDashboardCard  # noqa: F401
+    except Exception:
+        pass
 
     from extensions import csrf
     csrf.init_app(app)
@@ -569,6 +582,24 @@ def create_app():
         import logging
         import traceback
         logging.warning('Noticeboard blueprint not loaded: %s', e)
+        logging.warning(traceback.format_exc())
+
+    try:
+        from blueprints.mock_trial_simulator import mock_trial_simulator_bp
+        app.register_blueprint(mock_trial_simulator_bp, url_prefix='/mock-trial-simulator')
+    except Exception as e:
+        import logging
+        import traceback
+        logging.warning('Mock Trial Simulator blueprint not loaded: %s', e)
+        logging.warning(traceback.format_exc())
+
+    try:
+        from blueprints.written_assignment import written_assignment_bp
+        app.register_blueprint(written_assignment_bp, url_prefix='/written-assignment')
+    except Exception as e:
+        import logging
+        import traceback
+        logging.warning('Written Assignment blueprint not loaded: %s', e)
         logging.warning(traceback.format_exc())
 
     # Service Worker route for PWA
@@ -890,6 +921,28 @@ def create_app():
         )
         show_noticeboard = 'noticeboard.index' in current_app.view_functions
 
+        teacher_cards = {}
+        try:
+            from utils.dashboard_settings import get_teacher_dashboard_card_map
+            teacher_cards = get_teacher_dashboard_card_map()
+        except Exception:
+            teacher_cards = {}
+        if teacher_cards.get('mock_trial_simulator', True):
+            try:
+                from blueprints.class_management.models import Session
+                from blueprints.mock_trial_simulator.models import filter_mock_trial_sessions
+                teacher = resolve_caller_teacher(current_user)
+                if not teacher:
+                    teacher_cards['mock_trial_simulator'] = False
+                else:
+                    own_sessions = query_for_window(Session).filter_by(
+                        teacher_id=teacher.id, archived=False,
+                    ).all()
+                    if not filter_mock_trial_sessions(own_sessions):
+                        teacher_cards['mock_trial_simulator'] = False
+            except Exception:
+                db.session.rollback()
+
         response = make_response(render_template(
             'dashboard.html',
             show_course_registration_review=show_course_registration_review,
@@ -898,6 +951,7 @@ def create_app():
             show_leave_application=show_leave_application,
             show_noticeboard=show_noticeboard,
             officer_cards=officer_cards,
+            teacher_cards=teacher_cards,
         ))
         # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
@@ -4166,6 +4220,86 @@ def create_app():
         return render_template(
             'admin/officer_dashboard_settings.html',
             cards=cards,
+        )
+
+    @app.route('/admin/teacher-dashboard-settings', methods=['GET', 'POST'])
+    @login_required
+    def admin_teacher_dashboard_settings():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+
+        try:
+            from utils.dashboard_settings import ensure_teacher_dashboard_cards
+            cards = ensure_teacher_dashboard_cards()
+        except Exception as e:
+            db.session.rollback()
+            flash(
+                'Teacher card settings need the teacher_dashboard_card table. '
+                f'Create it in the database, then reload. ({e.__class__.__name__})',
+                'danger',
+            )
+            return redirect(url_for('admin_dashboard'))
+
+        if request.method == 'POST':
+            enabled_keys = set(request.form.getlist('enabled_cards'))
+            for card in cards:
+                card.is_enabled = card.card_key in enabled_keys
+            db.session.commit()
+            flash('Teacher dashboard card settings saved.', 'success')
+            return redirect(url_for('admin_teacher_dashboard_settings'))
+
+        return render_template(
+            'admin/teacher_dashboard_settings.html',
+            cards=cards,
+        )
+
+    @app.route('/admin/mock-trial-courses', methods=['GET', 'POST'])
+    @login_required
+    def admin_mock_trial_courses():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+
+        try:
+            from blueprints.course_management.models import Course, Curriculum
+            from blueprints.mock_trial_simulator.models import (
+                MockTrialEnabledCourse,
+                replace_enabled_courses,
+            )
+            if request.method == 'POST':
+                count = replace_enabled_courses(request.form.getlist('enabled_course_ids'))
+                flash(
+                    f'Mock Trial is on for {count} course{"s" if count != 1 else ""}. '
+                    'Only those teachers and students can use it.',
+                    'success',
+                )
+                return redirect(url_for('admin_mock_trial_courses'))
+
+            enabled_ids = {
+                row.course_id
+                for row in MockTrialEnabledCourse.query.filter_by(is_enabled=True).all()
+                if row.course_id
+            }
+            courses = (
+                Course.query
+                .outerjoin(Curriculum, Course.curriculum_id == Curriculum.id)
+                .order_by(Course.course_code.asc(), Course.course_name.asc(), Course.id.asc())
+                .all()
+            )
+        except Exception as e:
+            db.session.rollback()
+            flash(
+                'Mock Trial course settings need the mock_trial_enabled_course table. '
+                f'Create it in the database, then reload. ({e.__class__.__name__})',
+                'danger',
+            )
+            return redirect(url_for('admin_dashboard'))
+
+        return render_template(
+            'admin/mock_trial_courses.html',
+            courses=courses,
+            enabled_ids=enabled_ids,
         )
 
     @app.route('/admin/academic-rules', methods=['GET', 'POST'])
@@ -14369,7 +14503,7 @@ def create_app():
             }}
             .voucher-box {{
                 padding: {r(0.12)} {r(0.35)} {r(0.015)} {r(0.35)} !important;
-                font-size: {r(0.56)} !important;
+                font-size: {r(0.60)} !important;
                 width: {px(210)} !important;
             }}
             .voucher-box div {{
@@ -14377,48 +14511,48 @@ def create_app():
             }}
             .voucher-box span {{
                 min-width: {px(52)} !important;
-                font-size: {r(0.56)} !important;
+                font-size: {r(0.60)} !important;
             }}
             .voucher-box input {{
-                font-size: {r(0.56)} !important;
+                font-size: {r(0.60)} !important;
                 padding: {r(0.06)} {r(0.16)} !important;
             }}
             .meta-grid {{
-                margin-top: {r(0.25)} !important;
-                margin-bottom: {r(0.25)} !important;
+                margin-top: {r(0.18)} !important;
+                margin-bottom: {r(0.18)} !important;
             }}
             .meta-grid td {{
-                padding: {r(0.18)} {r(0.32)} !important;
-                font-size: {r(0.56)} !important;
+                padding: {r(0.13)} {r(0.3)} !important;
+                font-size: {r(0.76)} !important;
             }}
             .meta-label {{
-                font-size: {r(0.56)} !important;
-                width: {px(142)} !important;
+                font-size: {r(0.76)} !important;
+                width: {px(150)} !important;
             }}
             .meta-grid input,
             .meta-grid select {{
-                font-size: {r(0.56)} !important;
-                padding: {r(0.11)} {r(0.22)} !important;
+                font-size: {r(0.76)} !important;
+                padding: {r(0.1)} {r(0.2)} !important;
             }}
             .meta-value-emphasis {{
-                font-size: 11pt !important;
+                font-size: 12pt !important;
                 font-weight: 400 !important;
             }}
             .meta-exam-dates,
             .meta-exam-dates .english-text {{
-                font-size: {r(0.74)} !important;
+                font-size: {r(0.78)} !important;
                 font-weight: 600 !important;
             }}
             .rem-text-normal {{
                 font-weight: 400 !important;
             }}
             .rem-table {{
-                margin: {r(0.2)} 0 !important;
+                margin: {r(0.14)} 0 !important;
                 font-size: {r(0.66)} !important;
             }}
             .rem-table th,
             .rem-table td {{
-                padding: {r(0.08)} {r(0.27)} !important;
+                padding: {r(0.07)} {r(0.27)} !important;
                 font-size: {r(0.66)} !important;
                 line-height: 1.05 !important;
                 word-wrap: break-word !important;
@@ -14426,7 +14560,7 @@ def create_app():
                 white-space: normal !important;
             }}
             .rem-table th {{
-                padding: {r(0.1)} {r(0.27)} !important;
+                padding: {r(0.08)} {r(0.27)} !important;
                 font-size: {r(0.62)} !important;
             }}
             .rem-table td:nth-child(2) {{
@@ -14448,65 +14582,65 @@ def create_app():
                 font-weight: 700 !important;
             }}
             .section-title {{
-                margin-top: {r(0.36)} !important;
-                margin-bottom: {r(0.2)} !important;
+                margin-top: {r(0.26)} !important;
+                margin-bottom: {r(0.14)} !important;
                 padding-bottom: {r(0.05)} !important;
                 font-size: {r(0.71)} !important;
                 line-height: 1.2 !important;
             }}
             .section-title.finance {{
-                margin-top: {r(0.38)} !important;
+                margin-top: {r(0.28)} !important;
             }}
             .approval-footer-block {{
-                margin-top: {r(0.4)} !important;
+                margin-top: {r(0.28)} !important;
                 display: block !important;
                 clear: both !important;
             }}
             .approval-footer-block > .section-title {{
                 margin-top: 0 !important;
-                margin-bottom: {r(0.24)} !important;
-                padding-top: {r(0.06)} !important;
+                margin-bottom: {r(0.16)} !important;
+                padding-top: {r(0.04)} !important;
                 display: block !important;
                 clear: both !important;
             }}
             .approval-footer-block > .section-title.finance {{
-                margin-top: {r(0.32)} !important;
+                margin-top: {r(0.24)} !important;
             }}
             .approval-footer-block .info-note,
             .approval-footer-block .finance-release-note {{
                 display: block !important;
                 clear: both !important;
-                margin-top: {r(0.08)} !important;
-                margin-bottom: {r(0.22)} !important;
+                margin-top: {r(0.06)} !important;
+                margin-bottom: {r(0.16)} !important;
             }}
             .approval-footer-block .controller-signature-section,
             .approval-footer-block .finance-signature-section {{
                 display: flex !important;
                 clear: both !important;
-                margin-top: {r(0.2)} !important;
-                margin-bottom: {r(0.24)} !important;
+                margin-top: {r(0.14)} !important;
+                margin-bottom: {r(0.18)} !important;
             }}
             .audit-block {{
                 display: block !important;
                 clear: both !important;
-                margin-top: {r(0.26)} !important;
+                margin-top: {r(0.18)} !important;
             }}
             .approval-footer-block .audit-approval-text {{
                 display: block !important;
                 clear: both !important;
                 margin-top: 0 !important;
-                margin-bottom: {r(0.22)} !important;
-                padding: {r(0.1)} 0 !important;
+                margin-bottom: {r(0.16)} !important;
+                padding: {r(0.08)} 0 !important;
             }}
             .approval-footer-block .audit-approval-section {{
                 display: flex !important;
                 clear: both !important;
-                margin-top: {r(0.18)} !important;
-                margin-bottom: {r(0.16)} !important;
+                margin-top: {r(0.14)} !important;
+                margin-bottom: {r(0.12)} !important;
             }}
             .signature-box {{
-                min-height: {box_px(72)} !important;
-                padding: {px(6)} {px(8)} {px(8)} !important;
+                min-height: {box_px(66)} !important;
+                padding: {px(5)} {px(8)} {px(7)} !important;
                 font-size: {r(0.56)} !important;
                 display: block !important;
             }}
@@ -14551,24 +14685,24 @@ def create_app():
             .controller-signature-section,
             .finance-signature-section,
             .audit-approval-section {{
-                margin-top: {r(0.15)} !important;
-                margin-bottom: {r(0.12)} !important;
+                margin-top: {r(0.12)} !important;
+                margin-bottom: {r(0.1)} !important;
                 gap: {r(0.28)} !important;
             }}
             .controller-signature-box,
             .finance-signature-box,
             .audit-signature-box-single {{
-                min-height: {box_px(78)} !important;
-                padding: {px(6)} {px(8)} {px(8)} !important;
+                min-height: {box_px(70)} !important;
+                padding: {px(5)} {px(8)} {px(7)} !important;
                 display: block !important;
                 overflow: visible !important;
             }}
             .signature-signing-space {{
                 display: block !important;
-                min-height: {sig_px(26)} !important;
-                height: {sig_px(26)} !important;
-                margin: {px(4)} 0 {px(6)} !important;
-                line-height: {sig_px(26)} !important;
+                min-height: {sig_px(22)} !important;
+                height: {sig_px(22)} !important;
+                margin: {px(3)} 0 {px(5)} !important;
+                line-height: {sig_px(22)} !important;
                 overflow: hidden !important;
             }}
             .controller-designation,
@@ -14597,11 +14731,11 @@ def create_app():
                 vertical-align: bottom !important;
             }}
             .foot-table {{
-                margin: {r(0.22)} 0 {r(0.14)} 0 !important;
+                margin: {r(0.14)} 0 {r(0.1)} 0 !important;
             }}
             .foot-table td {{
-                padding: {r(0.14)} {r(0.28)} !important;
-                font-size: {r(0.56)} !important;
+                padding: {r(0.12)} {r(0.28)} !important;
+                font-size: {r(0.6)} !important;
             }}
             .foot-table input {{
                 font-size: {r(0.56)} !important;

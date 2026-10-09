@@ -277,6 +277,11 @@
                                     <i class="fas fa-home me-2"></i>Student Dashboard
                                 </a>
                             </li>
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint and request.endpoint.startswith('mock_trial_simulator.') else '' }}" href="/mock-trial-simulator/" style="white-space: nowrap;">
+                                    <i class="fas fa-balance-scale me-2"></i>Mock Trial
+                                </a>
+                            </li>
                             {% endif %}
                             <li class="nav-item">
                                 <a class="nav-link {{ 'active' if request.endpoint and 'class_management.my_invitations' in request.endpoint else '' }}" href="{{ url_for('class_management.my_invitations') }}" style="white-space: nowrap;">

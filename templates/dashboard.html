@@ -381,6 +381,7 @@ html {
     {% set is_teacher = 'teacher' in _roles and not is_teaching_assistant and not is_officer %}
     {% set is_head = 'head' in _roles or 'dean' in _roles %}
     {% set oc = officer_cards if officer_cards is defined else {} %}
+    {% set tc = teacher_cards if teacher_cards is defined else {} %}
     
     {% set cards = [
         {
@@ -414,7 +415,15 @@ html {
             'image': url_for('static', filename='images/socrates.png'),
             'color_class': 'card-purple',
             'url': url_for('class_management.socrates_home'),
-            'show': (is_teacher or is_head) and not is_teaching_assistant and not is_officer
+            'show': (is_teacher or is_head) and not is_teaching_assistant and not is_officer and tc.get('socrates', true)
+        },
+        {
+            'title': 'Mock Trial Simulator',
+            'desc': 'Build mock-trial games and run a virtual courtroom that simulates real court.',
+            'icon': 'fas fa-balance-scale',
+            'color_class': 'card-teal',
+            'url': '/mock-trial-simulator/',
+            'show': (is_teacher or is_head) and not is_teaching_assistant and not is_officer and tc.get('mock_trial_simulator', true)
         },
         {
             'title': 'Exam Paper Evaluation',

@@ -280,10 +280,12 @@
 .cm-course-actions .btn-warning { background: #f59e0b; border-color: #f59e0b; color: #fff; }
 .cm-course-actions .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
 .cm-course-actions .btn-secondary { background: #a855f7; border-color: #a855f7; color: #fff; }
+.cm-course-actions .btn-info { background: #0f766e; border-color: #0f766e; color: #fff; }
 .cm-course-actions .btn-success:hover { background: #16a34a; border-color: #16a34a; color: #fff; }
 .cm-course-actions .btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
 .cm-course-actions .btn-primary:hover { background: #2563eb; border-color: #2563eb; color: #fff; }
 .cm-course-actions .btn-secondary:hover { background: #9333ea; border-color: #9333ea; color: #fff; }
+.cm-course-actions .btn-info:hover { background: #115e59; border-color: #115e59; color: #fff; }
 
 .cm-empty { text-align: center; padding: 1rem 0.75rem; color: var(--cm-muted); }
 .cm-external-section { margin-top: 0.55rem !important; }
@@ -458,6 +460,14 @@
                                         <a href="{{ url_for('class_management.assessment', session_id=session.id) }}" class="btn btn-warning btn-sm">
                                             <i class="fas fa-chart-line me-1"></i>Assessment
                                         </a>
+                                        <a href="/written-assignment/course/{{ session.id }}" class="btn btn-info btn-sm">
+                                            <i class="fas fa-pen-nib me-1"></i>Assignment
+                                        </a>
+                                        {% if mock_trial_enabled_ids and session.id in mock_trial_enabled_ids %}
+                                        <a href="/mock-trial-simulator/course/{{ session.id }}" class="btn btn-sm text-white" style="background:#0d9488;">
+                                            <i class="fas fa-balance-scale me-1"></i>Mock Trial
+                                        </a>
+                                        {% endif %}
                                         <a href="{{ url_for('academic_calendar.assessment_schedule', session_id=session.id) }}" class="btn btn-primary btn-sm">
                                             <i class="fas fa-calendar-alt me-1"></i>Schedule
                                         </a>
@@ -569,6 +579,14 @@
                         <a href="{{ url_for('class_management.assessment', session_id=session.id) }}" class="btn btn-warning btn-sm">
                             <i class="fas fa-chart-line me-1"></i>Assessment
                         </a>
+                        <a href="/written-assignment/course/{{ session.id }}" class="btn btn-info btn-sm">
+                            <i class="fas fa-pen-nib me-1"></i>Assignment
+                        </a>
+                        {% if mock_trial_enabled_ids and session.id in mock_trial_enabled_ids %}
+                        <a href="/mock-trial-simulator/course/{{ session.id }}" class="btn btn-sm text-white" style="background:#0d9488;">
+                            <i class="fas fa-balance-scale me-1"></i>Mock Trial
+                        </a>
+                        {% endif %}
                         <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#externalStudentsModal{{ session.id }}">
                             <i class="fas fa-user-plus me-1"></i>Add Students
                         </button>

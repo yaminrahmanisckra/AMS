@@ -7,14 +7,15 @@ from html import unescape
 from markupsafe import Markup, escape
 
 _ALLOWED = {
-    'p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li',
-    'a', 'h2', 'h3', 'h4', 'span', 'div', 'blockquote', 'sup', 'sub',
+    'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'ul', 'ol', 'li',
+    'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'div', 'blockquote', 'sup', 'sub',
     'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
-    'colgroup', 'col',
+    'colgroup', 'col', 'hr',
 }
-_VOID = {'br'}
+_VOID = {'br', 'hr'}
+_FOOTNOTE_CLASSES = {'wa-fn-ref', 'wa-footnotes', 'wa-fn-rule'}
 _STYLE_SAFE = re.compile(
-    r'^(?:\s*(?:color|background-color|font-size|font-weight|font-style|text-decoration|text-align)\s*:\s*[^;]+;?\s*)+$',
+    r'^(?:\s*(?:color|background-color|font-family|font-size|font-weight|font-style|text-decoration|text-align|line-height|margin-left|padding-left)\s*:\s*[^;]+;?\s*)+$',
     re.I,
 )
 
@@ -43,10 +44,19 @@ class _HtmlSanitizer(HTMLParser):
                 href = value.strip()
                 if href.startswith(('http://', 'https://', 'mailto:', '/', '#')):
                     safe.append(('href', href))
-                    safe.append(('target', '_blank'))
-                    safe.append(('rel', 'noopener noreferrer'))
+                    if not href.startswith('#'):
+                        safe.append(('target', '_blank'))
+                        safe.append(('rel', 'noopener noreferrer'))
+            elif name == 'class':
+                kept = [part for part in str(value).split() if part in _FOOTNOTE_CLASSES]
+                if kept:
+                    safe.append(('class', ' '.join(kept)))
+            elif name == 'id' and re.match(r'^wa-fn(ref)?-[1-9]\d{0,3}$', str(value).strip()):
+                safe.append(('id', str(value).strip()))
             elif name == 'style' and _STYLE_SAFE.match(value or ''):
-                safe.append(('style', value))
+                lowered = value.lower()
+                if 'url(' not in lowered and 'expression' not in lowered:
+                    safe.append(('style', value))
             elif name in ('colspan', 'rowspan') and tag in ('th', 'td'):
                 try:
                     span = int(str(value).strip())
@@ -192,7 +202,7 @@ class _HtmlToPlain(HTMLParser):
                 self._buf.append(' ')
             else:
                 self._flush_paragraph()
-        elif tag in ('p', 'div', 'h2', 'h3', 'h4', 'blockquote') and not self._in_li:
+        elif tag in ('p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr') and not self._in_li:
             self._flush_paragraph()
 
     def handle_endtag(self, tag):
@@ -205,7 +215,7 @@ class _HtmlToPlain(HTMLParser):
             self._flush_item()
             if self._stack:
                 self._stack.pop()
-        elif tag in ('p', 'div', 'h2', 'h3', 'h4', 'blockquote') and not self._in_li:
+        elif tag in ('p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr') and not self._in_li:
             self._flush_paragraph()
 
     def handle_data(self, data):

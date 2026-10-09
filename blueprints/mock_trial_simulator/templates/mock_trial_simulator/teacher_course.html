@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Mock Trial · {{ course_label }}{% endblock %}
+{% block mobile_title %}Mock Trial{% endblock %}
+
+{% block content %}
+{% include 'mock_trial_simulator/_theme.html' %}
+{% set published_n = cases|selectattr('status', 'equalto', 'published')|list|length %}
+<div class="container my-3 my-md-4 mts-shell">
+  <div class="mb-3">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ dashboard_url }}">
+      <i class="fas fa-arrow-left me-1"></i>Courses
+    </a>
+  </div>
+
+  <div class="mts-hero">
+    <i class="fas fa-gavel mts-hero-icon"></i>
+    <div class="mts-hero-eyebrow">Mock Trial Simulator</div>
+    <h1>{{ course_label }}</h1>
+    <p class="mts-hero-sub">Create a draft, generate the pack, then publish. Students only see their side.</p>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <span class="mts-chip">{{ cases|length }} case{{ 's' if cases|length != 1 else '' }}</span>
+      <span class="mts-chip">{{ published_n }} published</span>
+    </div>
+    <div class="mts-hero-actions">
+      <button class="btn btn-light" type="button" data-bs-toggle="modal" data-bs-target="#mtsNewCase">
+        <i class="fas fa-plus me-1"></i>New case
+      </button>
+    </div>
+  </div>
+
+  <div class="mts-toolbar">
+    <h2>Cases</h2>
+    {% if cases %}
+    <button class="btn btn-teal btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#mtsNewCase">
+      <i class="fas fa-plus me-1"></i>New case
+    </button>
+    {% endif %}
+  </div>
+
+  {% if not cases %}
+    <div class="card mts-panel">
+      <div class="card-body text-center py-5 text-muted">
+        <i class="fas fa-folder-open fa-2x mb-3"></i>
+        <p class="mb-3">No cases in this course yet.</p>
+        <button class="btn btn-teal" type="button" data-bs-toggle="modal" data-bs-target="#mtsNewCase">
+          <i class="fas fa-plus me-1"></i>New case
+        </button>
+      </div>
+    </div>
+  {% else %}
+    <div class="row g-3">
+      {% for case in cases %}
+      <div class="col-12 col-md-6">
+        <a class="mts-card h-100" href="{{ url_for('mock_trial_simulator.teacher_case', case_id=case.id) }}">
+          <div class="d-flex justify-content-between gap-2 mb-2">
+            <strong>{{ case.title }}</strong>
+            <span class="badge rounded-pill {{ 'mts-badge-published' if case.is_published() else 'mts-badge-draft' }}">
+              {{ 'Published' if case.is_published() else 'Draft' }}
+            </span>
+          </div>
+          <div class="small text-muted mb-2">{{ case.case_type_label() }}</div>
+          <div class="small">{{ case.phase_label() }} · {{ case.witnesses|length }} witness{{ 'es' if case.witnesses|length != 1 else '' }}</div>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+
+<div class="modal fade mts-modal" id="mtsNewCase" tabindex="-1" aria-labelledby="mtsNewCaseTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h2 class="modal-title" id="mtsNewCaseTitle">New case</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12 col-md-5">
+              <label class="form-label" for="mtsType">Case type</label>
+              <select class="form-select" id="mtsType" name="case_type">
+                {% for key, label in case_types %}
+                  <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12 col-md-7">
+              <label class="form-label" for="mtsTitle">Working title</label>
+              <input class="form-control" id="mtsTitle" name="title" maxlength="300" placeholder="Optional — AI can name the case">
+            </div>
+            <div class="col-6">
+              <label class="form-label" for="prosecCount">Prosecution witnesses</label>
+              <input class="form-control" id="prosecCount" type="number" min="1" max="12" name="prosecution_witness_count" placeholder="e.g. 5">
+            </div>
+            <div class="col-6">
+              <label class="form-label" for="defenceCount">Defence witnesses</label>
+              <input class="form-control" id="defenceCount" type="number" min="1" max="12" name="defence_witness_count" placeholder="e.g. 3">
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="mtsBrief">Teacher brief (optional)</label>
+              <textarea class="form-control" id="mtsBrief" name="extra_brief" rows="3" placeholder="যেমন: ৫ জন প্রসিকিউশন ও ৩ জন ডিফেন্স সাক্ষী; এক্সিবিট: সিজার লিস্ট, পোস্টমর্টেম, সিসিটিভি"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-teal" type="submit">
+            <i class="fas fa-plus me-1"></i>Create draft
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

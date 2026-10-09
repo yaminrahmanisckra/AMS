@@ -83,7 +83,6 @@ def generate_socrates_reply(*, topic, instructions, course_label, history_messag
         DEBATE_SYSTEM_PROMPT,
         user_prompt,
         max_tokens=800,
-        timeout=75,
         max_retries=0,
     )
     text = (meta.get('text') or '').strip()

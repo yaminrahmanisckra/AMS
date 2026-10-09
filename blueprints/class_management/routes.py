@@ -44,7 +44,12 @@ from .models import (
     SocratesMessage,
     classify_socrates_input,
     socrates_ai_use_warning,
+    socrates_integrity_summary,
+    build_socrates_auto_instructions,
+    socrates_requires_start,
+    socrates_word_count,
     SOCRATES_AI_USE_WARNING,
+    SOCRATES_NO_PASTE_MESSAGE,
 )
 from user_models import User  # Same User as login (users table); required for StudentNotification.user_id
 try:
@@ -62,7 +67,7 @@ except ImportError:
     StudentCourseRegistration = None
 import pandas as pd
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from utils.timezone import format_bd, bd_now
 from decimal import Decimal, ROUND_HALF_UP
 import secrets
@@ -1866,11 +1871,20 @@ def restrict_to_teaching_roles():
         'class_management.student_socrates_chat',
         'class_management.student_socrates_send',
         'class_management.student_socrates_submit',
+        'class_management.student_socrates_integrity_event',
+        'class_management.student_socrates_start',
+        'class_management.student_socrates_forfeit',
     ]
     if request.endpoint in student_routes:
         return
     
     if has_teacher_privileges(current_user):
+        ep = request.endpoint or ''
+        if ep.startswith('class_management.socrates'):
+            from utils.dashboard_settings import require_teacher_dashboard_card
+            blocked = require_teacher_dashboard_card('socrates')
+            if blocked is not None:
+                return blocked
         return
 
     # AUTHZ-08: TAs may only enter attendance / marks routes (+ index listing)
@@ -3344,6 +3358,17 @@ def index():
         current_app.logger.warning(f'Could not compute credit load: {credit_error}')
         credit_load = 0
 
+    mock_trial_enabled_ids = []
+    try:
+        from blueprints.mock_trial_simulator.models import session_is_mock_trial_enabled
+        mock_trial_enabled_ids = [
+            item.id
+            for item in list(sessions) + list(external_sessions)
+            if session_is_mock_trial_enabled(item)
+        ]
+    except Exception:
+        mock_trial_enabled_ids = []
+
     return render_template(
         'class_management/index.html',
         sessions=sessions,
@@ -3362,7 +3387,8 @@ def index():
         pending_split_invites=pending_split_invites,
         batches=batches,
         assignment_map=assignment_map,
-        qa_notification_map=qa_notification_map
+        qa_notification_map=qa_notification_map,
+        mock_trial_enabled_ids=mock_trial_enabled_ids,
     )
 
 @class_management_bp.route('/create_session', methods=['POST'])
@@ -8695,12 +8721,84 @@ def assessment(session_id):
                     'viva_editable': 'sessional_viva' in editable_sessional_fields
                 }
         
+        # Written-assignment marks can be fetched into an empty assessment column.
+        assignment_fetch = None
+        try:
+            from blueprints.written_assignment.models import WrittenAssignment
+            from blueprints.written_assignment.routes import (
+                _assessment_target_fields as _wa_target_fields,
+                _assignment_mark_map as _wa_mark_map,
+            )
+            wa_options = []
+            for row in (
+                WrittenAssignment.query.filter_by(session_id=session.id)
+                .order_by(WrittenAssignment.created_at.desc())
+                .all()
+            ):
+                marked = len(_wa_mark_map(row))
+                if marked:
+                    wa_options.append({
+                        'id': row.id,
+                        'title': row.title,
+                        'marks_out_of': row.marks_out_of,
+                        'marked': marked,
+                    })
+            wa_targets = []
+            for field, label in _wa_target_fields(session):
+                occupied = ClassStudent.query.filter(
+                    ClassStudent.session_id == session.id,
+                    getattr(ClassStudent, field).isnot(None),
+                ).count()
+                wa_targets.append({'field': field, 'label': label, 'occupied': occupied})
+            if wa_options and wa_targets:
+                assignment_fetch = {'assignments': wa_options, 'targets': wa_targets}
+        except Exception:
+            assignment_fetch = None
+
+        socrates_fetch = None
+        try:
+            from blueprints.written_assignment.routes import (
+                _assessment_target_fields as _soc_target_fields,
+            )
+            soc_options = []
+            for row in (
+                SocratesAssignment.query.filter_by(session_id=session.id)
+                .order_by(SocratesAssignment.created_at.desc())
+                .all()
+            ):
+                marked = len(_socrates_mark_map(row))
+                if marked:
+                    soc_options.append({
+                        'id': row.id,
+                        'title': row.topic,
+                        'marks_out_of': 10,
+                        'marked': marked,
+                    })
+            soc_targets = (
+                assignment_fetch['targets']
+                if assignment_fetch and assignment_fetch.get('targets')
+                else []
+            )
+            if not soc_targets:
+                for field, label in _soc_target_fields(session):
+                    occupied = ClassStudent.query.filter(
+                        ClassStudent.session_id == session.id,
+                        getattr(ClassStudent, field).isnot(None),
+                    ).count()
+                    soc_targets.append({'field': field, 'label': label, 'occupied': occupied})
+            if soc_options and soc_targets:
+                socrates_fetch = {'assignments': soc_options, 'targets': soc_targets}
+        except Exception:
+            socrates_fetch = None
+
         return render_template(
             'class_management/assessment.html',
             session=session,
             students=students,
             split_meta=_build_split_context(session),
             editable_indices=editable_indices,
+            assignment_fetch=assignment_fetch,
+            socrates_fetch=socrates_fetch,
             combined_assessment_values=combined_assessment_values,
             combined_best3=combined_best3,
             combined_pg_avg=combined_pg_avg,
@@ -11282,6 +11380,7 @@ def _socrates_history_dicts(conversation):
             'body': msg.body,
         }
         for msg in (conversation.messages or [])
+        if msg.sender in (SocratesMessage.SENDER_STUDENT, SocratesMessage.SENDER_SOCRATES)
     ]
 
 
@@ -11301,6 +11400,78 @@ def _socrates_assignment_for_teacher(assignment_id):
     return assignment, session_obj
 
 
+def _socrates_mark_map(assignment):
+    """student_id -> teacher mark. A group conversation mark applies to every member."""
+    marks = {}
+    for convo in assignment.conversations or []:
+        if convo.teacher_mark is None:
+            continue
+        value = float(convo.teacher_mark)
+        if convo.group_id and convo.group:
+            for member in convo.group.members or []:
+                if member.student_id:
+                    marks[member.student_id] = value
+        elif convo.student_id:
+            marks[convo.student_id] = value
+    return marks
+
+
+@class_management_bp.route('/socrates/<int:assignment_id>/fetch-to-assessment', methods=['POST'])
+@login_required
+def socrates_fetch_to_assessment(assignment_id):
+    """Copy Socrates marks into one empty assessment column of the course."""
+    assignment, session_obj = _socrates_assignment_for_teacher(assignment_id)
+    if not assignment:
+        flash('You can fetch Socrates marks only for your own courses.', 'danger')
+        return redirect(url_for('class_management.index'))
+    back = redirect(url_for('class_management.assessment', session_id=session_obj.id))
+    from blueprints.written_assignment.routes import (
+        _assessment_slot_max,
+        _assessment_target_fields,
+        _scale_assignment_mark,
+    )
+    target = (request.form.get('target') or '').strip()
+    valid = dict(_assessment_target_fields(session_obj))
+    if target not in valid:
+        flash('Pick a valid assessment column.', 'danger')
+        return back
+    occupied = ClassStudent.query.filter(
+        ClassStudent.session_id == session_obj.id,
+        getattr(ClassStudent, target).isnot(None),
+    ).count()
+    if occupied:
+        flash(f'{valid[target]} already has marks. Marks can only be fetched into an empty column.', 'warning')
+        return back
+    marks = _socrates_mark_map(assignment)
+    if not marks:
+        flash('This Socrates assignment has no marks yet. Mark the debates first.', 'warning')
+        return back
+    slot_max = _assessment_slot_max(session_obj, target)
+    scaled_from = type('MarksOutOf', (), {'marks_out_of': 10})()
+    updated = 0
+    for student in ClassStudent.query.filter_by(session_id=session_obj.id).all():
+        value = marks.get(student.student_id)
+        if value is None or getattr(student, target, None) is not None:
+            continue
+        setattr(student, target, _scale_assignment_mark(value, scaled_from, slot_max))
+        updated += 1
+    if not updated:
+        db.session.rollback()
+        flash('No enrolled student matched the Socrates marks.', 'warning')
+        return back
+    if session_obj.course_type == 'theory':
+        try:
+            _recalculate_assessment_totals(session_obj)
+        except Exception:
+            current_app.logger.exception('Could not recalculate assessment totals after Socrates fetch')
+    db.session.commit()
+    flash(
+        f'Fetched {updated} mark(s) from Socrates "{assignment.topic}" into {valid[target]} (out of 10).',
+        'success',
+    )
+    return back
+
+
 def _socrates_conversation_label_map(assignment):
     """Build display rows for the manage page conversations table."""
     rows = []
@@ -11311,7 +11482,12 @@ def _socrates_conversation_label_map(assignment):
                 suggested = (json.loads(convo.ai_evaluation_json) or {}).get('suggested_score')
             except (json.JSONDecodeError, TypeError):
                 suggested = None
-        rows.append({'conversation': convo, 'suggested_score': suggested})
+        integrity = socrates_integrity_summary(convo)
+        rows.append({
+            'conversation': convo,
+            'suggested_score': suggested,
+            'integrity': integrity,
+        })
     return rows
 
 
@@ -11348,13 +11524,65 @@ def _socrates_read_settings(session_id):
     instructions = sanitize_outline_html(request.form.get('instructions') or '')
     if html_is_empty(instructions):
         instructions = ''
+
+    prompt_seconds = None
+    prompt_minutes_raw = (request.form.get('prompt_minutes') or '').strip()
+    if prompt_minutes_raw:
+        try:
+            minutes = float(prompt_minutes_raw)
+        except (TypeError, ValueError):
+            return None, 'প্রম্পট সময় মিনিটে দিন (যেমন 5 বা 2.5)।'
+        if minutes < 0:
+            return None, 'প্রম্পট সময় ঋণাত্মক হতে পারে না।'
+        if minutes > 0:
+            prompt_seconds = max(30, min(24 * 3600, int(round(minutes * 60))))
+    prompt_timer_include_first = request.form.get('prompt_timer_include_first') == '1'
+
+    paste_mode = (request.form.get('paste_mode') or 'disabled').strip().lower()
+    if paste_mode not in ('disabled', 'limited', 'unlimited'):
+        paste_mode = 'disabled'
+    paste_disabled = paste_mode == 'disabled'
+    paste_max_words = None
+    paste_max_events = None
+    if paste_mode == 'limited':
+        try:
+            words_raw = (request.form.get('paste_max_words') or '').strip()
+            events_raw = (request.form.get('paste_max_events') or '').strip()
+            if words_raw:
+                paste_max_words = max(1, min(5000, int(words_raw)))
+            if events_raw:
+                paste_max_events = max(1, min(100, int(events_raw)))
+        except (TypeError, ValueError):
+            return None, 'পেস্ট সীমা ভ্যালিড সংখ্যায় দিন।'
+        if not paste_max_words and not paste_max_events:
+            return None, 'সীমিত পেস্টে অন্তত শব্দ বা বার সংখ্যা দিন।'
+
     return {
         'topic': topic,
         'mode': mode,
         'prompt_limit': prompt_limit,
         'deadline': deadline,
         'instructions': instructions,
+        'prompt_seconds': prompt_seconds,
+        'prompt_timer_include_first': prompt_timer_include_first,
+        'paste_disabled': paste_disabled,
+        'paste_max_words': paste_max_words,
+        'paste_max_events': paste_max_events,
     }, None
+
+
+def _socrates_apply_settings(assignment, payload, *, allow_mode=True):
+    assignment.topic = payload['topic']
+    assignment.instructions = payload['instructions']
+    assignment.prompt_limit = payload['prompt_limit']
+    assignment.deadline = payload['deadline']
+    assignment.prompt_seconds = payload.get('prompt_seconds')
+    assignment.prompt_timer_include_first = bool(payload.get('prompt_timer_include_first', True))
+    assignment.paste_disabled = bool(payload.get('paste_disabled', True))
+    assignment.paste_max_words = payload.get('paste_max_words')
+    assignment.paste_max_events = payload.get('paste_max_events')
+    if allow_mode:
+        assignment.mode = payload['mode']
 
 
 def _socrates_assigned_student_ids(assignment, only_ids=None):
@@ -11435,13 +11663,14 @@ def _socrates_notify_assignment(assignment, *, student_ids=None, notify_in_app=T
     chat_url = _absolute_socrates_student_url(assignment.id)
     link_url = url_for('class_management.student_socrates_chat', assignment_id=assignment.id)
     deadline_label = assignment.deadline.strftime('%d %b %Y') if assignment.deadline else 'None'
-    from utils.outline_richtext import html_is_empty, html_to_plain_text, sanitize_outline_html
-    instructions_html = sanitize_outline_html(assignment.instructions or '')
+    from utils.outline_richtext import html_is_empty, html_to_plain_text
+    merged = _socrates_merged_instructions_html(assignment)
+    instructions_html = str(merged) if merged else ''
     if html_is_empty(instructions_html):
         instructions_html = ''
         instructions_plain = ''
     else:
-        instructions_plain = html_to_plain_text(assignment.instructions or '')
+        instructions_plain = html_to_plain_text(instructions_html)
     tenant = current_tenant()
     sender = (
         current_app.config.get('NOTIFICATION_MAIL_SENDER')
@@ -11645,12 +11874,10 @@ def socrates_manage(session_id, assignment_id):
                 if error:
                     flash(error, 'warning')
                     return redirect(manage_url)
-                assignment.topic = payload['topic']
-                assignment.instructions = payload['instructions']
-                assignment.prompt_limit = payload['prompt_limit']
-                assignment.deadline = payload['deadline']
-                if not assignment.conversations:
-                    assignment.mode = payload['mode']
+                _socrates_apply_settings(
+                    assignment, payload,
+                    allow_mode=not bool(assignment.conversations),
+                )
                 db.session.commit()
                 flash('অ্যাসাইনমেন্ট আপডেট হয়েছে।', 'success')
             elif action == 'toggle_active':
@@ -11733,6 +11960,20 @@ def socrates_manage(session_id, assignment_id):
         for group in assignment.groups
         for member in group.members
     }
+    for convo in list(assignment.conversations or []):
+        try:
+            # Lock only — do not run AI evaluation on the manage list (can 500/timeout).
+            _socrates_maybe_deadline_submit(convo, assignment, evaluate=False)
+        except Exception as exc:
+            current_app.logger.warning(
+                'Socrates deadline auto-submit skipped on manage for conversation %s: %s',
+                getattr(convo, 'id', None),
+                exc,
+            )
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
     conversation_rows = _socrates_conversation_label_map(assignment)
     return render_template(
         'class_management/socrates_manage.html',
@@ -11754,6 +11995,10 @@ def socrates_transcript(conversation_id):
         flash('আপনি এই কথোপকথন দেখতে পারবেন না।', 'danger')
         return redirect(url_for('class_management.index'))
 
+    if _socrates_maybe_deadline_submit(conversation, assignment):
+        conversation = SocratesConversation.query.get(conversation_id) or conversation
+        flash('ডেডলাইন পেরিয়ে গেছে। ডিবেট স্বয়ংক্রিয়ভাবে জমা হয়েছে।', 'info')
+
     evaluation = None
     if conversation.ai_evaluation_json:
         try:
@@ -11765,6 +12010,10 @@ def socrates_transcript(conversation_id):
         1 for msg in (conversation.messages or [])
         if (msg.input_signal() or {}).get('flag')
     )
+    style_flag_count = sum(
+        1 for msg in (conversation.messages or [])
+        if (msg.input_signal() or {}).get('style_flag')
+    )
     return render_template(
         'class_management/socrates_transcript.html',
         session=session_obj,
@@ -11772,6 +12021,61 @@ def socrates_transcript(conversation_id):
         conversation=conversation,
         evaluation=evaluation,
         paste_flag_count=paste_flag_count,
+        style_flag_count=style_flag_count,
+        focus_loss_count=int(conversation.focus_loss_count or 0),
+        screenshot_hint_count=int(conversation.screenshot_hint_count or 0),
+    )
+
+
+@class_management_bp.route('/socrates/conversation/<int:conversation_id>/transcript.pdf')
+@login_required
+def socrates_transcript_pdf(conversation_id):
+    """Teacher: transcript PDF with highlights, teacher mark, and integrity notes."""
+    conversation = SocratesConversation.query.get_or_404(conversation_id)
+    assignment, session_obj = _socrates_assignment_for_teacher(conversation.assignment_id)
+    if not assignment:
+        flash('আপনি এই কথোপকথন ডাউনলোড করতে পারবেন না।', 'danger')
+        return redirect(url_for('class_management.index'))
+
+    evaluation = None
+    if conversation.ai_evaluation_json:
+        try:
+            evaluation = json.loads(conversation.ai_evaluation_json)
+        except (json.JSONDecodeError, TypeError):
+            evaluation = None
+
+    integrity = socrates_integrity_summary(conversation)
+    from utils.integrity_highlight import PDF_HIGHLIGHT_CSS
+    html = render_template(
+        'class_management/socrates_transcript_pdf.html',
+        session=session_obj,
+        assignment=assignment,
+        conversation=conversation,
+        evaluation=evaluation if isinstance(evaluation, dict) else None,
+        integrity=integrity,
+        course_label=_socrates_course_label(session_obj),
+        highlight_css=PDF_HIGHLIGHT_CSS,
+    )
+    try:
+        from weasyprint import HTML
+        from utils.pdf_fonts import inject_weasyprint_fonts
+        html, base = inject_weasyprint_fonts(html)
+        data = HTML(string=html, base_url=base).write_pdf()
+    except Exception:
+        current_app.logger.exception('Socrates transcript PDF failed for conversation %s', conversation_id)
+        flash('পিডিএফ তৈরি যায়নি। পরে আবার চেষ্টা করুন।', 'danger')
+        return redirect(url_for('class_management.socrates_transcript', conversation_id=conversation_id))
+    if not data:
+        flash('পিডিএফ তৈরি যায়নি।', 'danger')
+        return redirect(url_for('class_management.socrates_transcript', conversation_id=conversation_id))
+    buf = io.BytesIO(data)
+    buf.seek(0)
+    who = secure_filename(conversation.participant_label() or 'socrates')[:40] or 'socrates'
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=f'socrates_transcript_{who}_{conversation.id}.pdf',
+        mimetype='application/pdf',
     )
 
 
@@ -11925,6 +12229,34 @@ def socrates_adjust_prompts(conversation_id):
             ' '.join(parts),
             'warning' if (reopened and not assignment.is_open()) else 'success',
         )
+    return _socrates_prompts_redirect(conversation, assignment, session_obj)
+
+
+@class_management_bp.route('/socrates/conversation/<int:conversation_id>/deadline', methods=['POST'])
+@login_required
+def socrates_set_deadline(conversation_id):
+    """Teacher: extend or clear a per-student (or group) deadline override."""
+    conversation = SocratesConversation.query.get_or_404(conversation_id)
+    assignment, session_obj = _socrates_assignment_for_teacher(conversation.assignment_id)
+    if not assignment:
+        flash('আপনি এই ডেডলাইন বদলাতে পারবেন না।', 'danger')
+        return redirect(url_for('class_management.index'))
+
+    raw = (request.form.get('deadline_override') or '').strip()
+    if not raw:
+        conversation.deadline_override = None
+        db.session.commit()
+        flash('এই ছাত্রের আলাদা ডেডলাইন সরানো হয়েছে (অ্যাসাইনমেন্ট ডেডলাইন প্রযোজ্য)।', 'info')
+    else:
+        try:
+            conversation.deadline_override = datetime.strptime(raw, '%Y-%m-%d').replace(
+                hour=23, minute=59, second=59
+            )
+        except ValueError:
+            flash('ভ্যালিড ডেডলাইন দিন (YYYY-MM-DD).', 'warning')
+            return _socrates_prompts_redirect(conversation, assignment, session_obj)
+        db.session.commit()
+        flash(f'এই ছাত্রের ডেডলাইন এখন {conversation.deadline_override.strftime("%d %b %Y")}।', 'success')
     return _socrates_prompts_redirect(conversation, assignment, session_obj)
 
 
@@ -12152,16 +12484,20 @@ def student_socrates_chat(assignment_id):
         return redirect(url_for('class_management.student_socrates_list'))
 
     conversation = _socrates_get_or_create_conversation(assignment, class_student, group)
+    if _socrates_maybe_deadline_submit(conversation, assignment):
+        flash('ডেডলাইন পেরিয়ে গেছে। ডিবেট স্বয়ংক্রিয়ভাবে জমা হয়েছে।', 'info')
+        conversation = SocratesConversation.query.get(conversation.id) or conversation
     remaining = conversation.remaining_prompts()
     prompt_cap = conversation.prompt_cap()
     student_name = (class_student.name or current_user.full_name or 'You').strip()
-    from markupsafe import Markup
-    from utils.outline_richtext import html_is_empty, sanitize_outline_html
-    instructions_html = sanitize_outline_html(assignment.instructions or '')
-    if html_is_empty(instructions_html):
-        instructions_html = None
-    else:
-        instructions_html = Markup(instructions_html)
+    instructions_html = _socrates_merged_instructions_html(assignment)
+    requires_start = socrates_requires_start(assignment)
+    # Legacy chats that already used prompts skip the Accept gate.
+    debate_started = bool(conversation.debate_started_at) or int(conversation.prompts_used or 0) > 0
+    can_chat = (
+        assignment.conversation_is_open(conversation)
+        and conversation.status == SocratesConversation.STATUS_IN_PROGRESS
+    )
     return render_template(
         'class_management/student_socrates_chat.html',
         assignment=assignment,
@@ -12172,11 +12508,225 @@ def student_socrates_chat(assignment_id):
         prompt_cap=prompt_cap,
         student_name=student_name,
         student_initial=(student_name[:1] or 'S').upper(),
-        can_chat=assignment.is_open() and conversation.status == SocratesConversation.STATUS_IN_PROGRESS,
+        can_chat=can_chat,
         instructions_html=instructions_html,
         ai_use_warning=socrates_ai_use_warning(conversation),
         ai_warning_text=SOCRATES_AI_USE_WARNING,
+        requires_start=requires_start,
+        debate_started=debate_started,
+        prompt_deadline_at=_socrates_prompt_deadline_iso(conversation),
+        paste_mode=assignment.paste_mode(),
+        paste_max_words=assignment.paste_max_words,
+        paste_max_events=assignment.paste_max_events,
+        paste_events_used=int(conversation.paste_events_used or 0),
+        start_url=url_for('class_management.student_socrates_start', assignment_id=assignment.id),
+        forfeit_url=url_for('class_management.student_socrates_forfeit', assignment_id=assignment.id),
     )
+
+
+@class_management_bp.route('/student/socrates/<int:assignment_id>/start', methods=['POST'])
+@login_required
+def student_socrates_start(assignment_id):
+    """Student: Accept instructions to begin (arms first-prompt timer when configured)."""
+    assignment, class_student, group, error = _socrates_student_context(assignment_id)
+    if error:
+        message, status = error
+        return _socrates_send_fail(assignment_id, message, status)
+
+    conversation = _socrates_get_or_create_conversation(assignment, class_student, group)
+    if _socrates_maybe_deadline_submit(conversation, assignment):
+        return _socrates_send_fail(assignment_id, 'ডেডলাইন পেরিয়ে গেছে। ডিবেট জমা হয়েছে।')
+    if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
+        return _socrates_send_fail(assignment_id, 'কথোপকথনটি ইতিমধ্যে জমা দেওয়া হয়েছে।')
+    if not assignment.conversation_is_open(conversation):
+        return _socrates_send_fail(assignment_id, 'অ্যাসাইনমেন্টটি বন্ধ বা ডেডলাইন পেরিয়ে গেছে।')
+
+    if not conversation.debate_started_at:
+        conversation.debate_started_at = datetime.utcnow()
+        _socrates_arm_prompt_timer(conversation, assignment, after_reply=False)
+        db.session.commit()
+
+    if _socrates_wants_json():
+        return jsonify({
+            'success': True,
+            'debate_started': True,
+            'instructions_accepted': True,
+            'prompt_deadline_at': _socrates_prompt_deadline_iso(conversation),
+            'remaining': conversation.remaining_prompts(),
+            'prompts_used': conversation.prompts_used,
+            'prompt_limit': conversation.prompt_cap(),
+        })
+    return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
+
+
+@class_management_bp.route('/student/socrates/<int:assignment_id>/forfeit', methods=['POST'])
+@login_required
+def student_socrates_forfeit(assignment_id):
+    """Student client: current prompt timed out — consume it (may auto-submit)."""
+    assignment, class_student, group, error = _socrates_student_context(assignment_id)
+    if error:
+        message, status = error
+        return _socrates_send_fail(assignment_id, message, status)
+
+    conversation = _socrates_get_or_create_conversation(assignment, class_student, group)
+    if _socrates_maybe_deadline_submit(conversation, assignment):
+        payload = {
+            'success': True,
+            'submitted': True,
+            'remaining': 0,
+            'message': 'ডেডলাইন পেরিয়ে গেছে। ডিবেট জমা হয়েছে।',
+        }
+        if _socrates_wants_json():
+            return jsonify(payload)
+        flash(payload['message'], 'info')
+        return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
+
+    if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
+        return _socrates_send_fail(assignment_id, 'কথোপকথনটি ইতিমধ্যে জমা দেওয়া হয়েছে।')
+
+    deadline = conversation.prompt_deadline_at
+    if not deadline:
+        return _socrates_send_fail(assignment_id, 'এখন কোনো চলমান টাইমার নেই।')
+    # Allow a small clock-skew grace so the client expiry isn't rejected.
+    if datetime.utcnow() + timedelta(seconds=2) < deadline:
+        return _socrates_send_fail(assignment_id, 'এখনও সময় বাকি আছে।')
+
+    remaining, submitted = _socrates_forfeit_current_prompt(conversation, assignment)
+    conversation = SocratesConversation.query.get(conversation.id) or conversation
+    if _socrates_wants_json():
+        return jsonify({
+            'success': True,
+            'forfeited': True,
+            'remaining': remaining,
+            'prompts_used': conversation.prompts_used,
+            'prompt_limit': conversation.prompt_cap(),
+            'prompt_deadline_at': _socrates_prompt_deadline_iso(conversation),
+            'submitted': submitted,
+            'message': 'সময় শেষ: প্রম্পট বাতিল হয়েছে।',
+        })
+    flash(
+        'প্রম্পট শেষ। ডিবেট স্বয়ংক্রিয়ভাবে জমা হয়েছে।' if submitted else 'সময় শেষ: প্রম্পট বাতিল হয়েছে।',
+        'info',
+    )
+    return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
+
+
+@class_management_bp.route('/student/socrates/<int:assignment_id>/integrity', methods=['POST'])
+@login_required
+def student_socrates_integrity_event(assignment_id):
+    """Student chat: record focus-loss or screenshot-key hints for the teacher."""
+    assignment, class_student, group, error = _socrates_student_context(assignment_id)
+    if error:
+        message, status = error
+        return jsonify({'success': False, 'message': message}), status
+
+    conversation = _socrates_get_or_create_conversation(assignment, class_student, group)
+    if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
+        return jsonify({'success': False, 'message': 'Debate closed.'}), 400
+
+    data = request.get_json(silent=True) or {}
+    event = (data.get('event') or request.form.get('event') or '').strip().lower()
+    if event == 'focus_loss':
+        conversation.focus_loss_count = int(conversation.focus_loss_count or 0) + 1
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'focus_loss_count': conversation.focus_loss_count,
+        })
+    if event == 'screenshot_hint':
+        conversation.screenshot_hint_count = int(conversation.screenshot_hint_count or 0) + 1
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'screenshot_hint_count': conversation.screenshot_hint_count,
+        })
+    return jsonify({'success': False, 'message': 'Unknown event.'}), 400
+
+
+def _socrates_merged_instructions_html(assignment):
+    """Teacher instructions + live auto rules for student/email display."""
+    from markupsafe import Markup
+    from utils.outline_richtext import html_is_empty, sanitize_outline_html
+    teacher = sanitize_outline_html(assignment.instructions or '')
+    if html_is_empty(teacher):
+        teacher = ''
+    auto = build_socrates_auto_instructions(assignment) or ''
+    combined = (teacher + auto).strip()
+    if not combined:
+        return None
+    return Markup(combined)
+
+
+def _socrates_maybe_deadline_submit(conversation, assignment, *, evaluate=True):
+    """If past effective deadline while still open, lock (and optionally AI-evaluate).
+
+    Returns True if submitted now. Use evaluate=False on teacher list pages so a
+    slow/failed AI call cannot 500 the whole manage view.
+    """
+    if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
+        return False
+    if assignment.conversation_is_open(conversation):
+        return False
+    conversation.prompt_deadline_at = None
+    if evaluate:
+        _socrates_lock_and_evaluate(conversation, assignment)
+    else:
+        conversation.status = SocratesConversation.STATUS_SUBMITTED
+        conversation.submitted_at = datetime.utcnow()
+        db.session.commit()
+    return True
+
+
+def _socrates_arm_prompt_timer(conversation, assignment, *, after_reply=False):
+    """Set prompt_deadline_at for the current waiting turn, or clear it."""
+    if not assignment.has_prompt_timer():
+        conversation.prompt_deadline_at = None
+        return None
+    seconds = int(assignment.prompt_seconds or 0)
+    # First student turn = prompts_used == 0 and not after_reply
+    is_first_turn = (not after_reply) and int(conversation.prompts_used or 0) == 0
+    if is_first_turn and not assignment.prompt_timer_include_first:
+        conversation.prompt_deadline_at = None
+        return None
+    if after_reply and conversation.remaining_prompts() <= 0:
+        conversation.prompt_deadline_at = None
+        return None
+    conversation.prompt_deadline_at = datetime.utcnow() + timedelta(seconds=seconds)
+    return conversation.prompt_deadline_at
+
+
+def _socrates_forfeit_current_prompt(conversation, assignment):
+    """Consume one prompt due to timeout; auto-submit if none remain. Returns (remaining, submitted)."""
+    if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
+        return conversation.remaining_prompts(), conversation.status != SocratesConversation.STATUS_IN_PROGRESS
+    if conversation.prompts_used >= conversation.prompt_cap():
+        conversation.prompt_deadline_at = None
+        _socrates_lock_and_evaluate(conversation, assignment)
+        return 0, True
+    conversation.prompts_used = int(conversation.prompts_used or 0) + 1
+    conversation.prompt_deadline_at = None
+    db.session.add(SocratesMessage(
+        conversation_id=conversation.id,
+        sender=SocratesMessage.SENDER_SYSTEM,
+        body='সময় শেষ: এই প্রম্পট বাতিল হয়েছে।',
+    ))
+    db.session.commit()
+    remaining = conversation.remaining_prompts()
+    submitted = False
+    if remaining <= 0:
+        _socrates_lock_and_evaluate(conversation, assignment)
+        submitted = True
+    elif assignment.has_prompt_timer():
+        # Arm timer for the next turn only if include-first logic allows (next is never "first")
+        _socrates_arm_prompt_timer(conversation, assignment, after_reply=True)
+        db.session.commit()
+    return remaining, submitted
+
+
+def _socrates_prompt_deadline_iso(conversation):
+    if not conversation.prompt_deadline_at:
+        return None
+    return conversation.prompt_deadline_at.replace(microsecond=0).isoformat() + 'Z'
 
 
 def _socrates_lock_and_evaluate(conversation, assignment):
@@ -12184,6 +12734,7 @@ def _socrates_lock_and_evaluate(conversation, assignment):
     if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
         return conversation.status == SocratesConversation.STATUS_EVALUATED
     conversation_id = conversation.id
+    conversation.prompt_deadline_at = None
     history = _socrates_history_dicts(conversation)
     ai_payload = {
         'topic': assignment.topic,
@@ -12195,6 +12746,8 @@ def _socrates_lock_and_evaluate(conversation, assignment):
     conversation.status = SocratesConversation.STATUS_SUBMITTED
     conversation.submitted_at = datetime.utcnow()
     db.session.commit()
+    if not history:
+        return False
     try:
         from utils.ai.socrates import evaluate_conversation
         evaluation = evaluate_conversation(history_messages=history, **ai_payload)
@@ -12231,16 +12784,36 @@ def student_socrates_send(assignment_id):
         message, status = error
         return _socrates_send_fail(assignment_id, message, status)
 
-    if not assignment.is_open():
+    conversation = _socrates_get_or_create_conversation(assignment, class_student, group)
+    if _socrates_maybe_deadline_submit(conversation, assignment):
+        return _socrates_send_fail(assignment_id, 'ডেডলাইন পেরিয়ে গেছে। ডিবেট জমা হয়েছে।')
+
+    if not assignment.conversation_is_open(conversation):
         return _socrates_send_fail(assignment_id, 'অ্যাসাইনমেন্টটি বন্ধ বা ডেডলাইন পেরিয়ে গেছে।')
 
-    conversation = _socrates_get_or_create_conversation(assignment, class_student, group)
     if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
         return _socrates_send_fail(assignment_id, 'কথোপকথনটি ইতিমধ্যে জমা দেওয়া হয়েছে।')
     if conversation.prompts_used >= conversation.prompt_cap():
         return _socrates_send_fail(assignment_id, 'প্রম্পট লিমিট শেষ। এখন জমা দিন।')
 
     data = request.get_json(silent=True) or {}
+    if not conversation.debate_started_at and int(conversation.prompts_used or 0) == 0:
+        return _socrates_send_fail(assignment_id, 'আগে নির্দেশনা একসেপ্ট করুন।')
+
+    # Timer auto-send may arrive a moment after client expiry — allow a short grace.
+    if conversation.prompt_deadline_at and datetime.utcnow() > conversation.prompt_deadline_at:
+        timer_expired = bool(data.get('timer_expired') or request.form.get('timer_expired'))
+        grace_ok = (
+            timer_expired
+            and datetime.utcnow() <= conversation.prompt_deadline_at + timedelta(seconds=12)
+        )
+        if not grace_ok:
+            return _socrates_send_fail(
+                assignment_id,
+                'এই প্রম্পটের সময় শেষ। পেজ রিফ্রেশ করুন — প্রম্পট বাতিল হবে।',
+            )
+        conversation.prompt_deadline_at = None
+
     body = (data.get('message') or request.form.get('message') or '').strip()
     if not body:
         return _socrates_send_fail(assignment_id, 'যুক্তি লিখুন।')
@@ -12252,6 +12825,38 @@ def student_socrates_send(assignment_id):
         'paste_events': data.get('paste_events', request.form.get('paste_events')),
         'compose_ms': data.get('compose_ms', request.form.get('compose_ms')),
     })
+    from utils.integrity_highlight import collect_ai_snippets, parse_snippet_list, remember_paste_snippets
+    remember_paste_snippets(classified, parse_snippet_list(data.get('paste_snippets')))
+    if classified.get('source') in ('pasted', 'mixed', 'burst') and not classified.get('paste_snippets'):
+        if int(classified.get('pasted_chars') or 0) >= 16 and classified.get('source') == 'pasted':
+            remember_paste_snippets(classified, [body])
+    classified['ai_snippets'] = collect_ai_snippets(body)
+
+    paste_events = int(classified.get('paste_events') or 0)
+    pasted_chars = int(classified.get('pasted_chars') or 0)
+    paste_mode = assignment.paste_mode()
+    if paste_mode == 'disabled' and (paste_events or pasted_chars > 0):
+        return _socrates_send_fail(assignment_id, SOCRATES_NO_PASTE_MESSAGE)
+    if paste_mode == 'limited' and (paste_events or pasted_chars > 0):
+        max_events = assignment.paste_max_events
+        max_words = assignment.paste_max_words
+        used = int(conversation.paste_events_used or 0)
+        if max_events is not None and used >= int(max_events):
+            return _socrates_send_fail(assignment_id, 'পেস্ট সীমা শেষ। আর পেস্ট করা যাবে না।')
+        if max_words is not None:
+            body_words = max(1, socrates_word_count(body))
+            if pasted_chars and len(body):
+                ratio = min(1.0, pasted_chars / max(1, len(body)))
+                pasted_words = max(1, int(round(body_words * ratio)))
+            else:
+                pasted_words = body_words
+            if pasted_words > int(max_words):
+                return _socrates_send_fail(
+                    assignment_id,
+                    f'প্রতি পেস্টে সর্বোচ্চ {int(max_words)} শব্দ অনুমোদিত।',
+                )
+        conversation.paste_events_used = used + max(1, paste_events)
+
     input_meta = json.dumps(classified, ensure_ascii=False)
 
     from utils.rate_limit import AI_USER, reject_if_user_limited
@@ -12286,6 +12891,7 @@ def student_socrates_send(assignment_id):
         input_meta=input_meta,
     )
     conversation.prompts_used += 1
+    conversation.prompt_deadline_at = None
     db.session.add(student_message)
     db.session.commit()
     student_message_id = student_message.id
@@ -12323,16 +12929,20 @@ def student_socrates_send(assignment_id):
         sender=SocratesMessage.SENDER_SOCRATES,
         body=reply,
     ))
-    db.session.commit()
-
     remaining = max(0, prompt_limit - convo.prompts_used)
     auto_submitted = False
     if remaining <= 0:
         auto_submitted = True
+        db.session.commit()
         evaluated = _socrates_lock_and_evaluate(convo, assignment)
         convo = SocratesConversation.query.get(conversation_id) or convo
+    else:
+        _socrates_arm_prompt_timer(convo, assignment, after_reply=True)
+        db.session.commit()
+        convo = SocratesConversation.query.get(conversation_id) or convo
     warning = None
-    if classified.get('source') in ('pasted', 'mixed', 'burst'):
+    style = (classified.get('style') or {}) if isinstance(classified, dict) else {}
+    if classified.get('source') in ('pasted', 'mixed', 'burst') or style.get('flag'):
         warning = SOCRATES_AI_USE_WARNING
     else:
         warning = socrates_ai_use_warning(convo)
@@ -12343,6 +12953,8 @@ def student_socrates_send(assignment_id):
             'prompts_used': convo.prompts_used,
             'prompt_limit': prompt_limit,
             'remaining': remaining,
+            'prompt_deadline_at': _socrates_prompt_deadline_iso(convo),
+            'paste_events_used': int(convo.paste_events_used or 0),
             'ai_use_warning': warning,
             'submitted': auto_submitted,
         }
@@ -12370,6 +12982,9 @@ def student_socrates_submit(assignment_id):
         return redirect(url_for('class_management.student_socrates_list'))
 
     conversation = _socrates_get_or_create_conversation(assignment, class_student, group)
+    if _socrates_maybe_deadline_submit(conversation, assignment):
+        flash('ডেডলাইন পেরিয়ে গেছে। ডিবেট স্বয়ংক্রিয়ভাবে জমা হয়েছে।', 'info')
+        return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))
     if conversation.status != SocratesConversation.STATUS_IN_PROGRESS:
         flash('কথোপকথনটি ইতিমধ্যে জমা দেওয়া হয়েছে।', 'info')
         return redirect(url_for('class_management.student_socrates_chat', assignment_id=assignment_id))

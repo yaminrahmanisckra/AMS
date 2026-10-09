@@ -580,7 +580,83 @@
                     </div>
                 </div>
             </details>
-            
+
+            {% if assignment_fetch %}
+            <details class="as-reveal">
+                <summary><i class="fas fa-file-import me-1 text-primary"></i>Fetch marks from Assignment</summary>
+                <div class="p-3">
+                    <p class="small text-muted mb-2">
+                        Copy written-assignment marks into an <strong>empty</strong> assessment column.
+                        A column that already has any mark cannot be used. Existing student marks are never overwritten.
+                    </p>
+                    {% for a in assignment_fetch.assignments %}
+                    <form method="POST" action="/written-assignment/{{ a.id }}/fetch-to-assessment"
+                          class="row g-2 align-items-center mb-2"
+                          onsubmit="return confirm('Fetch marks from \'{{ a.title|e }}\' into the selected empty column?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="col-md-5 small">
+                            <strong>{{ a.title }}</strong>
+                            <span class="text-muted">· out of {{ a.marks_out_of }} · {{ a.marked }} marked</span>
+                        </div>
+                        <div class="col-md-4 col-8">
+                            <select class="form-select form-select-sm" name="target" required>
+                                <option value="">Choose column…</option>
+                                {% for t in assignment_fetch.targets %}
+                                <option value="{{ t.field }}" {% if t.occupied %}disabled{% endif %}>
+                                    {{ t.label }}{% if t.occupied %} — already has marks{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3 col-4">
+                            <button class="btn btn-sm btn-outline-primary" type="submit">
+                                <i class="fas fa-download me-1"></i>Fetch
+                            </button>
+                        </div>
+                    </form>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endif %}
+
+            {% if socrates_fetch %}
+            <details class="as-reveal">
+                <summary><i class="fas fa-file-import me-1 text-primary"></i>Fetch marks from Socrates</summary>
+                <div class="p-3">
+                    <p class="small text-muted mb-2">
+                        Copy Socrates marks into an <strong>empty</strong> assessment column.
+                        A column that already has any mark cannot be used. Existing student marks are never overwritten.
+                    </p>
+                    {% for a in socrates_fetch.assignments %}
+                    <form method="POST" action="/class-management/socrates/{{ a.id }}/fetch-to-assessment"
+                          class="row g-2 align-items-center mb-2"
+                          onsubmit="return confirm('Fetch Socrates marks from \'{{ a.title|e }}\' into the selected empty column?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="col-md-5 small">
+                            <strong>{{ a.title }}</strong>
+                            <span class="text-muted">· out of {{ a.marks_out_of }} · {{ a.marked }} marked</span>
+                        </div>
+                        <div class="col-md-4 col-8">
+                            <select class="form-select form-select-sm" name="target" required>
+                                <option value="">Choose column…</option>
+                                {% for t in socrates_fetch.targets %}
+                                <option value="{{ t.field }}" {% if t.occupied %}disabled{% endif %}>
+                                    {{ t.label }}{% if t.occupied %} — already has marks{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3 col-4">
+                            <button class="btn btn-sm btn-outline-primary" type="submit">
+                                <i class="fas fa-download me-1"></i>Fetch
+                            </button>
+                        </div>
+                    </form>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endif %}
+
             <form method="POST" id="assessmentMarksForm">
                 {% if students %}
                 <div class="as-search">

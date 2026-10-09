@@ -1,0 +1,433 @@
+<section class="wa-discuss wa-panel mt-4" id="waDiscuss"
+         data-url="{{ discuss_url }}"
+         data-me="{{ discuss_me or '' }}"
+         data-people='{{ discuss_people|default([])|tojson }}'>
+  <h2 class="wa-section-title"><i class="far fa-comments"></i>Discussion</h2>
+  <p class="small text-muted">Students and the teacher can talk about this assignment here. Type @ to mention someone, or reply like Facebook.</p>
+  {% if discuss_error %}
+  <p class="small text-warning mb-2">{{ discuss_error }}</p>
+  {% endif %}
+  <div id="waThread" class="wa-thread mb-3">
+    {% for msg in messages %}
+    <article class="wa-post{{ ' wa-post-teacher' if msg.author_role == 'teacher' }}{{ ' wa-post-reply' if msg.parent_id }}" data-id="{{ msg.id }}">
+      <span class="wa-avatar{{ ' wa-avatar-teacher' if msg.author_role == 'teacher' }}">{{ (msg.author_name or '?')[:1]|upper }}</span>
+      <div class="wa-bubble">
+        <div class="wa-bubble-head">
+          <strong>{{ msg.author_name }}</strong>
+          · {{ 'Teacher' if msg.author_role == 'teacher' else 'Student' }}
+          · {{ msg.created_label }}
+        </div>
+        {% if msg.parent_name %}<div class="wa-reply-to">Replying to {{ msg.parent_name }}</div>{% endif %}
+        <p>{{ msg.body_html|safe }}</p>
+        {% if msg.files %}
+        <div class="wa-files">
+          {% for file in msg.files %}
+            {% if file.is_image %}
+            <a class="wa-file-img" href="{{ file.url }}?download=1" target="_blank" rel="noopener">
+              <img src="{{ file.url }}" alt="{{ file.name }}">
+            </a>
+            {% else %}
+            <a class="wa-file-doc" href="{{ file.url }}?download=1"><i class="fas fa-paperclip me-1"></i>{{ file.name }}</a>
+            {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div class="wa-reacts">
+          <button type="button" class="wa-react{{ ' active' if msg.my_vote == 1 }}" data-vote="1" data-id="{{ msg.id }}" aria-label="Like">
+            <i class="{{ 'fas' if msg.my_vote == 1 else 'far' }} fa-thumbs-up"></i>
+            <span>{{ msg.likes or 0 }}</span>
+          </button>
+          <button type="button" class="wa-react{{ ' active-down' if msg.my_vote == -1 }}" data-vote="-1" data-id="{{ msg.id }}" aria-label="Dislike">
+            <i class="{{ 'fas' if msg.my_vote == -1 else 'far' }} fa-thumbs-down"></i>
+            <span>{{ msg.dislikes or 0 }}</span>
+          </button>
+          <button type="button" class="wa-react wa-reply-btn" data-reply="{{ msg.id }}" data-name="{{ msg.author_name|e }}" data-key="{{ msg.author_key|e }}">Reply</button>
+        </div>
+      </div>
+    </article>
+    {% else %}
+    <p class="text-muted small mb-0 wa-thread-empty">No messages yet. Start the conversation.</p>
+    {% endfor %}
+  </div>
+  <form id="waDiscussForm">
+    <input type="hidden" id="waParentId" name="parent_id" value="">
+    <div class="wa-reply-bar" id="waReplyBar" hidden>
+      <span id="waReplyLabel"></span>
+      <button type="button" class="btn btn-link btn-sm p-0" id="waReplyClear" aria-label="Cancel reply">×</button>
+    </div>
+    <label class="form-label visually-hidden" for="waDiscussBody">Message</label>
+    <div class="wa-compose-wrap">
+      <div class="wa-mentions" id="waMentions" hidden></div>
+      <div class="wa-compose">
+        <textarea class="form-control" id="waDiscussBody" name="body" rows="2" maxlength="2000" placeholder="Write a message… use @ to mention"></textarea>
+        <label class="btn btn-outline-secondary wa-attach-btn" for="waDiscussFiles" title="Attach image or file">
+          <i class="fas fa-paperclip"></i>
+        </label>
+        <input id="waDiscussFiles" type="file" name="files" multiple hidden
+               accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.doc,.docx,application/pdf,image/*">
+        <button class="btn btn-primary" type="submit" aria-label="Post message"><i class="fas fa-paper-plane"></i></button>
+      </div>
+      <div class="wa-pending-files" id="waPendingFiles"></div>
+    </div>
+    <span class="small text-danger" id="waDiscussError"></span>
+  </form>
+</section>
+<style>
+.wa-compose-wrap { position: relative; }
+.wa-compose { display: flex; gap: 0.5rem; align-items: flex-end; }
+.wa-compose textarea { border-radius: 14px; resize: none; }
+.wa-compose .btn, .wa-attach-btn {
+  border-radius: 12px; height: 46px; width: 52px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center; margin: 0;
+}
+.wa-mentions {
+  position: absolute; left: 0; right: 56px; bottom: 100%;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15,23,42,.12); z-index: 20; max-height: 220px; overflow: auto;
+}
+.wa-mentions button {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  padding: 0.45rem 0.75rem; font-size: 0.9rem;
+}
+.wa-mentions button:hover, .wa-mentions button.active { background: #eff6ff; }
+.wa-mention { color: #1d4ed8; font-weight: 600; }
+.wa-reply-to { font-size: 0.75rem; color: #64748b; margin-bottom: 0.2rem; }
+.wa-post-reply { margin-left: 2.4rem; }
+.wa-reacts { display: flex; gap: 0.35rem; margin-top: 0.4rem; }
+.wa-react {
+  border: 0; background: transparent; color: #64748b; font-size: 0.8rem;
+  padding: 0.1rem 0.35rem; border-radius: 999px;
+}
+.wa-react.active { color: #1d4ed8; background: #eff6ff; }
+.wa-react.active-down { color: #b45309; background: #fff7ed; }
+.wa-files { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.45rem; }
+.wa-file-img img { max-width: 180px; max-height: 140px; border-radius: 10px; display: block; }
+.wa-file-doc { font-size: 0.82rem; }
+.wa-pending-files { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
+.wa-pending-files span { font-size: 0.78rem; background: #f1f5f9; border-radius: 999px; padding: 0.15rem 0.55rem; }
+.wa-reply-bar { font-size: 0.8rem; color: #1d4ed8; margin-bottom: 0.25rem; display: flex; gap: 0.4rem; align-items: center; }
+</style>
+<script>
+(function() {
+  const root = document.getElementById('waDiscuss');
+  const thread = document.getElementById('waThread');
+  const form = document.getElementById('waDiscussForm');
+  const box = document.getElementById('waDiscussBody');
+  const errorEl = document.getElementById('waDiscussError');
+  const parentInput = document.getElementById('waParentId');
+  const replyBar = document.getElementById('waReplyBar');
+  const replyLabel = document.getElementById('waReplyLabel');
+  const mentionBox = document.getElementById('waMentions');
+  const fileInput = document.getElementById('waDiscussFiles');
+  const pendingEl = document.getElementById('waPendingFiles');
+  if (!root || !thread || !form || !root.dataset.url) return;
+
+  let people = [];
+  try { people = JSON.parse(root.dataset.people || '[]'); } catch (err) { people = []; }
+  let me = root.dataset.me || '';
+  let mentionKeys = [];
+  let mentionIndex = -1;
+
+  function headers(json) {
+    const h = { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+    if (json) h['Content-Type'] = 'application/json';
+    const csrf = window.getCsrfToken && window.getCsrfToken();
+    if (csrf) h['X-CSRFToken'] = csrf;
+    return h;
+  }
+
+  function escapeReg(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function fillBody(el, text, mentions) {
+    el.textContent = '';
+    const names = (mentions || []).map(function(item) { return item.name; }).filter(Boolean)
+      .sort(function(a, b) { return b.length - a.length; });
+    if (!names.length) { el.textContent = text || ''; return; }
+    const pattern = new RegExp('(@(?:' + names.map(escapeReg).join('|') + '))', 'g');
+    const parts = String(text || '').split(pattern);
+    parts.forEach(function(part) {
+      if (part.charAt(0) === '@' && names.indexOf(part.slice(1)) !== -1) {
+        const span = document.createElement('span');
+        span.className = 'wa-mention';
+        span.textContent = part;
+        el.appendChild(span);
+      } else {
+        el.appendChild(document.createTextNode(part));
+      }
+    });
+  }
+
+  function render(messages) {
+    thread.textContent = '';
+    if (!messages || !messages.length) {
+      const empty = document.createElement('p');
+      empty.className = 'text-muted small mb-0';
+      empty.textContent = 'No messages yet. Start the conversation.';
+      thread.appendChild(empty);
+      return;
+    }
+    messages.forEach(function(msg) {
+      const isTeacher = msg.author_role === 'teacher';
+      const article = document.createElement('article');
+      article.className = 'wa-post' + (isTeacher ? ' wa-post-teacher' : '') + (msg.parent_id ? ' wa-post-reply' : '');
+      article.dataset.id = String(msg.id);
+      const avatar = document.createElement('span');
+      avatar.className = 'wa-avatar' + (isTeacher ? ' wa-avatar-teacher' : '');
+      avatar.textContent = ((msg.author_name || '?').trim()[0] || '?').toUpperCase();
+      const bubble = document.createElement('div');
+      bubble.className = 'wa-bubble';
+      const head = document.createElement('div');
+      head.className = 'wa-bubble-head';
+      const name = document.createElement('strong');
+      name.textContent = msg.author_name || '';
+      head.appendChild(name);
+      head.appendChild(document.createTextNode(
+        ' · ' + (isTeacher ? 'Teacher' : 'Student') + ' · ' + (msg.created_label || '')
+      ));
+      bubble.appendChild(head);
+      if (msg.parent_name) {
+        const to = document.createElement('div');
+        to.className = 'wa-reply-to';
+        to.textContent = 'Replying to ' + msg.parent_name;
+        bubble.appendChild(to);
+      }
+      const body = document.createElement('p');
+      fillBody(body, msg.body || '', msg.mentions || []);
+      bubble.appendChild(body);
+      if (msg.files && msg.files.length) {
+        const files = document.createElement('div');
+        files.className = 'wa-files';
+        msg.files.forEach(function(file) {
+          const link = document.createElement('a');
+          link.href = file.url + (file.is_image ? '?download=1' : '?download=1');
+          if (file.is_image) {
+            link.className = 'wa-file-img';
+            link.target = '_blank';
+            link.rel = 'noopener';
+            const img = document.createElement('img');
+            img.src = file.url;
+            img.alt = file.name || '';
+            link.appendChild(img);
+          } else {
+            link.className = 'wa-file-doc';
+            link.textContent = file.name || 'File';
+          }
+          files.appendChild(link);
+        });
+        bubble.appendChild(files);
+      }
+      const reacts = document.createElement('div');
+      reacts.className = 'wa-reacts';
+      reacts.innerHTML = '';
+      function reactBtn(value, icon, count, activeClass, pressed) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wa-react' + (pressed ? ' ' + activeClass : '');
+        btn.dataset.vote = String(value);
+        btn.dataset.id = String(msg.id);
+        btn.setAttribute('aria-label', value === 1 ? 'Like' : 'Dislike');
+        btn.innerHTML = '<i class="' + (pressed ? 'fas' : 'far') + ' ' + icon + '"></i> ';
+        const span = document.createElement('span');
+        span.textContent = String(count || 0);
+        btn.appendChild(span);
+        return btn;
+      }
+      reacts.appendChild(reactBtn(1, 'fa-thumbs-up', msg.likes, 'active', msg.my_vote === 1));
+      reacts.appendChild(reactBtn(-1, 'fa-thumbs-down', msg.dislikes, 'active-down', msg.my_vote === -1));
+      const reply = document.createElement('button');
+      reply.type = 'button';
+      reply.className = 'wa-react wa-reply-btn';
+      reply.dataset.reply = String(msg.id);
+      reply.dataset.name = msg.author_name || '';
+      reply.dataset.key = msg.author_key || '';
+      reply.textContent = 'Reply';
+      reacts.appendChild(reply);
+      bubble.appendChild(reacts);
+      article.appendChild(avatar);
+      article.appendChild(bubble);
+      thread.appendChild(article);
+    });
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function applyPayload(data) {
+    if (data.people) people = data.people;
+    if (data.me) me = data.me;
+    if (data.ok) render(data.messages || []);
+  }
+
+  async function refresh() {
+    try {
+      const res = await fetch(root.dataset.url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+      if (!res.ok) return;
+      applyPayload(await res.json());
+    } catch (err) {}
+  }
+
+  function clearReply() {
+    parentInput.value = '';
+    replyBar.hidden = true;
+    replyLabel.textContent = '';
+  }
+
+  function startReply(id, name, key) {
+    parentInput.value = id || '';
+    replyLabel.textContent = 'Replying to ' + (name || 'this message');
+    replyBar.hidden = false;
+    if (name) {
+      const token = '@' + name + ' ';
+      if (!(box.value || '').includes(token)) box.value = token + (box.value || '');
+      if (key && mentionKeys.indexOf(key) === -1 && key !== me) mentionKeys.push(key);
+    }
+    box.focus();
+  }
+
+  function hideMentions() {
+    mentionBox.hidden = true;
+    mentionBox.textContent = '';
+    mentionIndex = -1;
+  }
+
+  function mentionQuery() {
+    const value = box.value || '';
+    const start = box.selectionStart || value.length;
+    const before = value.slice(0, start);
+    const match = before.match(/(^|\s)@([^\s@]*)$/);
+    if (!match) return null;
+    return { q: match[2].toLowerCase(), prefix: match[0].replace(/@$/, '@') };
+  }
+
+  function showMentions() {
+    const ctx = mentionQuery();
+    if (!ctx) { hideMentions(); return; }
+    const matches = people.filter(function(person) {
+      if (person.key === me) return false;
+      const hay = ((person.name || '') + ' ' + (person.student_id || '')).toLowerCase();
+      return !ctx.q || hay.indexOf(ctx.q) !== -1;
+    }).slice(0, 8);
+    if (!matches.length) { hideMentions(); return; }
+    mentionBox.textContent = '';
+    matches.forEach(function(person, index) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.key = person.key;
+      btn.dataset.name = person.name;
+      btn.textContent = person.name + (person.role === 'teacher' ? ' · Teacher' : '');
+      if (index === 0) btn.className = 'active';
+      mentionBox.appendChild(btn);
+    });
+    mentionIndex = 0;
+    mentionBox.hidden = false;
+  }
+
+  function insertMention(key, name) {
+    const value = box.value || '';
+    const start = box.selectionStart || value.length;
+    const before = value.slice(0, start);
+    const after = value.slice(start);
+    const replaced = before.replace(/(^|\s)@[^\s@]*$/, '$1@' + name + ' ');
+    box.value = replaced + after;
+    if (key && mentionKeys.indexOf(key) === -1 && key !== me) mentionKeys.push(key);
+    hideMentions();
+    box.focus();
+  }
+
+  function renderPending() {
+    pendingEl.textContent = '';
+    if (!fileInput.files || !fileInput.files.length) return;
+    Array.from(fileInput.files).forEach(function(file) {
+      const chip = document.createElement('span');
+      chip.textContent = file.name;
+      pendingEl.appendChild(chip);
+    });
+  }
+
+  form.addEventListener('submit', async function(event) {
+    event.preventDefault();
+    const text = (box.value || '').trim();
+    if (!text && (!fileInput.files || !fileInput.files.length)) return;
+    if (errorEl) errorEl.textContent = '';
+    const payload = new FormData();
+    payload.append('body', text);
+    if (parentInput.value) payload.append('parent_id', parentInput.value);
+    payload.append('mentions', JSON.stringify(mentionKeys));
+    if (fileInput.files) {
+      Array.from(fileInput.files).slice(0, 3).forEach(function(file) { payload.append('files', file); });
+    }
+    try {
+      const res = await fetch(root.dataset.url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: headers(false),
+        body: payload
+      });
+      const data = await res.json().catch(function() { return {}; });
+      if (!res.ok || !data.ok) {
+        if (errorEl) errorEl.textContent = data.error || 'Could not post.';
+        return;
+      }
+      box.value = '';
+      fileInput.value = '';
+      mentionKeys = [];
+      clearReply();
+      renderPending();
+      applyPayload(data);
+    } catch (err) {
+      if (errorEl) errorEl.textContent = 'Could not post.';
+    }
+  });
+
+  thread.addEventListener('click', async function(event) {
+    const reply = event.target.closest('[data-reply]');
+    if (reply) {
+      startReply(reply.dataset.reply, reply.dataset.name, reply.dataset.key);
+      return;
+    }
+    const react = event.target.closest('[data-vote]');
+    if (!react || !react.dataset.id) return;
+    const url = root.dataset.url.replace(/\/?$/, '/') + react.dataset.id + '/vote';
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: headers(true),
+        body: JSON.stringify({ value: parseInt(react.dataset.vote, 10) })
+      });
+      const data = await res.json().catch(function() { return {}; });
+      if (data.ok) applyPayload(data);
+    } catch (err) {}
+  });
+
+  document.getElementById('waReplyClear').addEventListener('click', clearReply);
+  fileInput.addEventListener('change', renderPending);
+  box.addEventListener('input', showMentions);
+  box.addEventListener('keydown', function(event) {
+    if (mentionBox.hidden) return;
+    const buttons = mentionBox.querySelectorAll('button');
+    if (!buttons.length) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      mentionIndex = event.key === 'ArrowDown'
+        ? (mentionIndex + 1) % buttons.length
+        : (mentionIndex - 1 + buttons.length) % buttons.length;
+      buttons.forEach(function(btn, i) { btn.classList.toggle('active', i === mentionIndex); });
+    } else if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault();
+      const btn = buttons[mentionIndex] || buttons[0];
+      insertMention(btn.dataset.key, btn.dataset.name);
+    } else if (event.key === 'Escape') {
+      hideMentions();
+    }
+  });
+  mentionBox.addEventListener('mousedown', function(event) {
+    const btn = event.target.closest('button');
+    if (!btn) return;
+    event.preventDefault();
+    insertMention(btn.dataset.key, btn.dataset.name);
+  });
+
+  setInterval(refresh, 8000);
+})();
+</script>

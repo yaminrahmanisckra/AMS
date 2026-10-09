@@ -10,6 +10,7 @@ from blueprints.class_management.models import (
     SocratesGroupMember,
     SocratesMessage,
     classify_socrates_input,
+    estimate_socrates_ai_style,
 )
 from extensions import db
 from tests.conftest import TEST_PASSWORD, login_client
@@ -64,6 +65,20 @@ def test_socrates_input_classifies_paste_type_and_burst():
     assert burst['source'] == 'burst'
 
 
+def test_estimate_socrates_ai_style_flags_stock_prose():
+    plain = estimate_socrates_ai_style('I think the law is unfair because poor countries cannot negotiate.')
+    assert plain['flag'] is False
+    ai_like = estimate_socrates_ai_style(
+        'Furthermore, it is important to note that the aforementioned framework plays a crucial role. '
+        'Moreover, from a broader perspective, this multifaceted landscape underscores the pivotal role '
+        'of comprehensive understanding. In conclusion, it can be argued that the intricate relationship '
+        'remains a double-edged sword in today\'s world.'
+    )
+    assert ai_like['flag'] is True
+    assert ai_like['score'] >= 36
+    assert ai_like['label'] == 'এআই-স্টাইল সন্দেহ'
+
+
 def _ensure_student_user(username='S001', name='Student One'):
     from user_models import User
 
@@ -93,6 +108,19 @@ def _seed_assignment(session_id, teacher_id, mode='individual', prompt_limit=15)
     db.session.add(assignment)
     db.session.commit()
     return assignment.id
+
+
+def _accept_instructions(client, assignment_id):
+    """Press the first-open Accept gate so the student may send prompts."""
+    rv = client.post(
+        f'/class-management/student/socrates/{assignment_id}/start',
+        json={},
+        headers={'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'},
+    )
+    assert rv.status_code == 200, rv.get_data(as_text=True)
+    data = rv.get_json() or {}
+    assert data.get('success') is True
+    return data
 
 
 def _fake_evaluation():
@@ -170,6 +198,9 @@ def test_student_chat_page_shows_live_composer(app, client, teacher_user, class_
     assert 'লাইভ চ্যাট' in html
     assert 'socrates.png' in html
     assert 'socrates-chat-page' in html
+    assert 'instrModal' in html
+    assert 'acceptInstrBtn' in html
+    assert 'একসেপ্ট' in html
     assert 'Enter নতুন লাইন' in html
     assert 'Shift+Enter পাঠাবে' in html
     assert 'data-ai-warning=' in html
@@ -186,6 +217,7 @@ def test_student_form_post_sends_argument(mock_reply, app, client, teacher_user,
         _ensure_student_user()
 
     login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
     rv = client.post(
         f'/class-management/student/socrates/{assignment_id}/send',
         data={'message': 'The death penalty violates the right to life.'},
@@ -198,7 +230,7 @@ def test_student_form_post_sends_argument(mock_reply, app, client, teacher_user,
 
 
 @patch('utils.ai.socrates.generate_socrates_reply')
-def test_teacher_sees_paste_flag_on_transcript(mock_reply, app, client, teacher_user, class_session_w1, windows):
+def test_paste_is_rejected_on_send(mock_reply, app, client, teacher_user, class_session_w1, windows):
     mock_reply.return_value = 'What follows from that?'
     session_id = class_session_w1['session_id']
     with app.app_context():
@@ -206,6 +238,7 @@ def test_teacher_sees_paste_flag_on_transcript(mock_reply, app, client, teacher_
         _ensure_student_user()
 
     login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
     pasted = 'The death penalty cannot be justified because it is irreversible and the state may err.'
     rv = client.post(
         f'/class-management/student/socrates/{assignment_id}/send',
@@ -217,30 +250,80 @@ def test_teacher_sees_paste_flag_on_transcript(mock_reply, app, client, teacher_
             'compose_ms': 500,
         },
     )
+    assert rv.status_code == 400
+    assert 'কপি-পেস্ট' in rv.get_json().get('message', '')
+    assert mock_reply.call_count == 0
+    with app.app_context():
+        convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').first()
+        assert convo is None or convo.prompts_used == 0
+
+
+@patch('utils.ai.socrates.generate_socrates_reply')
+def test_teacher_sees_ai_style_flag_and_focus_loss(mock_reply, app, client, teacher_user, class_session_w1, windows):
+    mock_reply.return_value = 'What follows from that?'
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'])
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    chat = client.get(f'/class-management/student/socrates/{assignment_id}')
+    html = chat.get_data(as_text=True)
+    assert 'কপি-পেস্ট বন্ধ' in html
+    assert '/integrity' in html
+    assert 'instrModal' in html
+    _accept_instructions(client, assignment_id)
+
+    ai_like = (
+        'Furthermore, it is important to note that the aforementioned framework plays a crucial role. '
+        'Moreover, from a broader perspective, this multifaceted landscape underscores the pivotal role '
+        'of comprehensive understanding. In conclusion, it can be argued that the intricate relationship '
+        'remains a double-edged sword in today\'s world without meaningful reform.'
+    )
+    rv = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={
+            'message': ai_like,
+            'pasted_chars': 0,
+            'typed_chars': len(ai_like),
+            'paste_events': 0,
+            'compose_ms': 45000,
+        },
+    )
     assert rv.status_code == 200
     assert rv.get_json().get('ai_use_warning') == 'আপনি এআই ব্যবহার করছেন, ফলে কাঙ্ক্ষিত নম্বর নাও পেতে পারেন।'
-
-    chat = client.get(f'/class-management/student/socrates/{assignment_id}')
-    student_html = chat.get_data(as_text=True)
-    assert chat.status_code == 200
-    assert 'আপনি এআই ব্যবহার করছেন, ফলে কাঙ্ক্ষিত নম্বর নাও পেতে পারেন।' in student_html
-    assert 'পেস্ট করা' not in student_html
-    assert 'দ্রুত ঢোকানো' not in student_html
 
     with app.app_context():
         convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').first()
         convo_id = convo.id
         student_msg = next(m for m in convo.messages if m.sender == SocratesMessage.SENDER_STUDENT)
         signal = student_msg.input_signal()
-        assert signal['source'] == 'pasted'
-        assert signal['flag'] is True
+        assert signal['style_flag'] is True
+
+    focus = client.post(
+        f'/class-management/student/socrates/{assignment_id}/integrity',
+        json={'event': 'focus_loss'},
+    )
+    assert focus.status_code == 200
+    assert focus.get_json()['focus_loss_count'] >= 1
+    client.post(
+        f'/class-management/student/socrates/{assignment_id}/integrity',
+        json={'event': 'screenshot_hint'},
+    )
 
     teacher_client = app.test_client()
     login_client(teacher_client, teacher_user['username'], window_id=windows['w1_id'])
     page = teacher_client.get(f'/class-management/socrates/conversation/{convo_id}')
     html = page.get_data(as_text=True)
-    assert 'পেস্ট করা' in html
-    assert 'পেস্ট/দ্রুত ঢোকানো' in html
+    assert 'এআই-স্টাইল সন্দেহ' in html
+    assert 'hl-ai' in html
+    assert 'ফোকাস সরেছে' in html
+    assert 'স্ক্রিনশট ইঙ্গিত' in html
+
+    manage = teacher_client.get(f'/class-management/socrates/{session_id}/assignment/{assignment_id}')
+    manage_html = manage.get_data(as_text=True)
+    assert 'ফোকাস' in manage_html
+    assert 'এআই-স্টাইল' in manage_html
 
 
 def test_teacher_creates_assignment_and_group(app, client, teacher_user, class_session_w1, windows):
@@ -486,6 +569,7 @@ def test_student_chat_respects_prompt_limit(mock_reply, mock_eval, app, client, 
 
     page = client.get(f'/class-management/student/socrates/{assignment_id}')
     assert page.status_code == 200
+    _accept_instructions(client, assignment_id)
 
     last = None
     for _ in range(2):
@@ -528,6 +612,7 @@ def test_last_prompt_auto_submits_debate(mock_reply, mock_eval, app, client, tea
         _ensure_student_user()
 
     login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
     rv = client.post(
         f'/class-management/student/socrates/{assignment_id}/send',
         json={'message': 'IPL traps developing countries.'},
@@ -560,6 +645,7 @@ def test_prompt_refunded_when_ai_fails(mock_reply, app, client, teacher_user, cl
         _ensure_student_user()
 
     login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
     rv = client.post(
         f'/class-management/student/socrates/{assignment_id}/send',
         json={'message': 'Opening argument.'},
@@ -614,6 +700,7 @@ def test_submit_triggers_evaluation_and_teacher_marks(
         _ensure_student_user()
 
     login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
     rv = client.post(
         f'/class-management/student/socrates/{assignment_id}/send',
         json={'message': 'Retribution is not justice.'},
@@ -667,6 +754,14 @@ def test_submit_triggers_evaluation_and_teacher_marks(
     assert '8.5' in csv_text
     assert 'S001' in csv_text
 
+    pdf_page = teacher_client.get(
+        f'/class-management/socrates/conversation/{convo_id}/transcript.pdf'
+    )
+    if pdf_page.status_code == 200:
+        assert pdf_page.data[:4] == b'%PDF'
+    else:
+        assert pdf_page.status_code == 302
+
 
 @patch('utils.ai.socrates.evaluate_conversation')
 @patch('utils.ai.socrates.generate_socrates_reply')
@@ -682,6 +777,7 @@ def test_teacher_can_reopen_submitted_debate(
         _ensure_student_user()
 
     login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
     assert client.post(
         f'/class-management/student/socrates/{assignment_id}/send',
         json={'message': 'First argument.'},
@@ -736,6 +832,7 @@ def test_teacher_can_raise_and_lower_student_prompts(mock_reply, app, client, te
         _ensure_student_user()
 
     login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
     assert client.post(
         f'/class-management/student/socrates/{assignment_id}/send',
         json={'message': 'Opening argument.'},
@@ -808,6 +905,7 @@ def test_raising_prompts_on_submitted_debate_reopens(
         _ensure_student_user()
 
     login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
     assert client.post(
         f'/class-management/student/socrates/{assignment_id}/send',
         json={'message': 'Only turn.'},
@@ -859,6 +957,7 @@ def test_group_conversation_is_shared(mock_reply, app, client, teacher_user, cla
         _ensure_student_user('S002', 'Student Two')
 
     login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
     rv = client.post(
         f'/class-management/student/socrates/{assignment_id}/send',
         json={'message': 'We argue for reform.'},
@@ -867,6 +966,7 @@ def test_group_conversation_is_shared(mock_reply, app, client, teacher_user, cla
 
     second = app.test_client()
     login_client(second, 'S002', role='student', window_id=windows['w1_id'])
+    # Shared group conversation already started by S001 — S002 can send.
     rv = second.post(
         f'/class-management/student/socrates/{assignment_id}/send',
         json={'message': 'Adding to our case: recidivism data.'},
@@ -880,3 +980,406 @@ def test_group_conversation_is_shared(mock_reply, app, client, teacher_user, cla
         assert convos[0].prompts_used == 2
         senders = {m.sender_student_id for m in convos[0].messages if m.sender == SocratesMessage.SENDER_STUDENT}
         assert senders == {'S001', 'S002'}
+
+
+def test_auto_instructions_appear_when_timer_and_paste_set(app, client, teacher_user, class_session_w1, windows):
+    from blueprints.class_management.models import build_socrates_auto_instructions
+
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'], prompt_limit=3)
+        assignment = SocratesAssignment.query.get(assignment_id)
+        assignment.prompt_seconds = 120
+        assignment.prompt_timer_include_first = True
+        assignment.paste_disabled = True
+        db.session.commit()
+        auto = build_socrates_auto_instructions(assignment)
+        assert 'একসেপ্ট' in auto
+        assert 'লেখা থাকলে' in auto
+        assert 'পেস্ট' in auto or 'কপি-পেস্ট' in auto
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    rv = client.get(f'/class-management/student/socrates/{assignment_id}')
+    assert rv.status_code == 200
+    html = rv.get_data(as_text=True)
+    assert 'অটো নিয়ম' in html
+    assert 'একসেপ্ট' in html
+    assert 'acceptInstrBtn' in html or 'id="acceptInstrBtn"' in html
+    assert 'instrModal' in html
+
+
+@patch('utils.ai.socrates.evaluate_conversation')
+def test_timer_forfeit_consumes_prompt_and_auto_submits(mock_eval, app, client, teacher_user, class_session_w1, windows):
+    mock_eval.return_value = _fake_evaluation()
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'], prompt_limit=2)
+        assignment = SocratesAssignment.query.get(assignment_id)
+        assignment.prompt_seconds = 60
+        assignment.prompt_timer_include_first = True
+        db.session.commit()
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+
+    blocked = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={'message': 'Too early without accept.'},
+    )
+    assert blocked.status_code == 400
+    assert 'একসেপ্ট' in blocked.get_json().get('message', '')
+
+    start = client.post(f'/class-management/student/socrates/{assignment_id}/start', json={})
+    assert start.status_code == 200
+    start_data = start.get_json()
+    assert start_data['success'] is True
+    assert start_data.get('prompt_deadline_at')
+
+    from datetime import timedelta
+    convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').one()
+    assert convo.debate_started_at is not None
+    convo.prompt_deadline_at = datetime.utcnow() - timedelta(seconds=30)
+    db.session.commit()
+    db.session.expire_all()
+
+    first = client.post(f'/class-management/student/socrates/{assignment_id}/forfeit', json={})
+    assert first.status_code == 200, first.get_json() if first.is_json else first.get_data(as_text=True)
+    first_data = first.get_json()
+    assert first_data['forfeited'] is True
+    assert first_data['remaining'] == 1
+    assert first_data['submitted'] is False
+
+    convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').one()
+    assert convo.prompts_used == 1
+    system_msgs = [m for m in convo.messages if m.sender == SocratesMessage.SENDER_SYSTEM]
+    assert system_msgs
+    convo.prompt_deadline_at = datetime.utcnow() - timedelta(seconds=30)
+    db.session.commit()
+    db.session.expire_all()
+
+    second = client.post(f'/class-management/student/socrates/{assignment_id}/forfeit', json={})
+    assert second.status_code == 200, second.get_json() if second.is_json else second.get_data(as_text=True)
+    second_data = second.get_json()
+    assert second_data['submitted'] is True
+    assert second_data['remaining'] == 0
+
+    convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').one()
+    assert convo.status in (
+        SocratesConversation.STATUS_SUBMITTED,
+        SocratesConversation.STATUS_EVALUATED,
+    )
+    assert convo.prompts_used == 2
+
+
+@patch('utils.ai.socrates.generate_socrates_reply')
+def test_timer_expired_partial_text_is_sent(mock_reply, app, client, teacher_user, class_session_w1, windows):
+    mock_reply.return_value = 'What follows from that partial claim?'
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'], prompt_limit=3)
+        assignment = SocratesAssignment.query.get(assignment_id)
+        assignment.prompt_seconds = 60
+        assignment.prompt_timer_include_first = True
+        db.session.commit()
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
+
+    from datetime import timedelta
+    convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').one()
+    convo.prompt_deadline_at = datetime.utcnow() - timedelta(seconds=2)
+    db.session.commit()
+    db.session.expire_all()
+
+    partial = 'I argue that capital punishment lacks deterrence.'
+    blocked = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={'message': partial},
+    )
+    assert blocked.status_code == 400, blocked.get_json() if blocked.is_json else blocked.get_data(as_text=True)
+    assert 'সময় শেষ' in blocked.get_json().get('message', '')
+
+    ok = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={'message': partial, 'timer_expired': True},
+    )
+    assert ok.status_code == 200, ok.get_json() if ok.is_json else ok.get_data(as_text=True)
+    data = ok.get_json()
+    assert data['success'] is True
+    assert data['remaining'] == 2
+    assert mock_reply.call_count == 1
+
+    with app.app_context():
+        convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').one()
+        assert convo.prompts_used == 1
+        bodies = [m.body for m in convo.messages if m.sender == SocratesMessage.SENDER_STUDENT]
+        assert partial in bodies
+
+
+@patch('utils.ai.socrates.generate_socrates_reply')
+def test_paste_quota_allows_then_rejects(mock_reply, app, client, teacher_user, class_session_w1, windows):
+    mock_reply.return_value = 'What is the warrant for that claim?'
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'], prompt_limit=5)
+        assignment = SocratesAssignment.query.get(assignment_id)
+        assignment.paste_disabled = False
+        assignment.paste_max_words = 20
+        assignment.paste_max_events = 2
+        db.session.commit()
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
+    short_paste = 'Death penalty is irreversible and unjust.'
+    ok = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={
+            'message': short_paste,
+            'pasted_chars': len(short_paste),
+            'typed_chars': 0,
+            'paste_events': 1,
+            'compose_ms': 400,
+        },
+    )
+    assert ok.status_code == 200
+    assert ok.get_json()['success'] is True
+
+    over_words = ' '.join(['word'] * 25)
+    rejected_words = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={
+            'message': over_words,
+            'pasted_chars': len(over_words),
+            'typed_chars': 0,
+            'paste_events': 1,
+            'compose_ms': 400,
+        },
+    )
+    assert rejected_words.status_code == 400
+    assert 'শব্দ' in rejected_words.get_json().get('message', '')
+
+    second_ok = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={
+            'message': 'Another short paste.',
+            'pasted_chars': 20,
+            'typed_chars': 0,
+            'paste_events': 1,
+            'compose_ms': 400,
+        },
+    )
+    assert second_ok.status_code == 200
+
+    rejected_events = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={
+            'message': 'Third paste should fail.',
+            'pasted_chars': 24,
+            'typed_chars': 0,
+            'paste_events': 1,
+            'compose_ms': 400,
+        },
+    )
+    assert rejected_events.status_code == 400
+    assert 'পেস্ট সীমা' in rejected_events.get_json().get('message', '')
+
+    typed_ok = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={
+            'message': 'I typed this without paste.',
+            'pasted_chars': 0,
+            'typed_chars': 28,
+            'paste_events': 0,
+            'compose_ms': 9000,
+        },
+    )
+    assert typed_ok.status_code == 200
+
+
+def test_deadline_auto_submit_and_override_keeps_open(app, client, teacher_user, class_session_w1, windows):
+    from datetime import timedelta
+
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'], prompt_limit=3)
+        assignment = SocratesAssignment.query.get(assignment_id)
+        assignment.deadline = datetime.utcnow() - timedelta(days=2)
+        db.session.commit()
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    rv = client.get(f'/class-management/student/socrates/{assignment_id}')
+    assert rv.status_code == 200
+    html = rv.get_data(as_text=True)
+    assert 'জমা' in html
+    with app.app_context():
+        convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').one()
+        assert convo.status in (
+            SocratesConversation.STATUS_SUBMITTED,
+            SocratesConversation.STATUS_EVALUATED,
+        )
+
+        override_id = _seed_assignment(session_id, teacher_user['teacher_id'], prompt_limit=3)
+        override_assignment = SocratesAssignment.query.get(override_id)
+        override_assignment.deadline = datetime.utcnow() - timedelta(days=1)
+        db.session.add(SocratesConversation(
+            assignment_id=override_id,
+            student_id='S001',
+            student_name='Student One',
+            deadline_override=datetime.utcnow() + timedelta(days=3),
+            status=SocratesConversation.STATUS_IN_PROGRESS,
+        ))
+        db.session.commit()
+
+    rv = client.get(f'/class-management/student/socrates/{override_id}')
+    assert rv.status_code == 200
+    html = rv.get_data(as_text=True)
+    assert 'name="message"' in html
+    assert 'লাইভ চ্যাট' in html
+    with app.app_context():
+        open_convo = SocratesConversation.query.filter_by(assignment_id=override_id, student_id='S001').one()
+        assert open_convo.status == SocratesConversation.STATUS_IN_PROGRESS
+
+
+def test_socrates_marks_fetch_into_empty_assessment(app, client, teacher_user, class_session_w1, windows):
+    from blueprints.class_management.models import ClassStudent
+
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        _ensure_student_user()
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'])
+        db.session.add(SocratesConversation(
+            assignment_id=assignment_id,
+            student_id='S001',
+            student_name='Student One',
+            status=SocratesConversation.STATUS_EVALUATED,
+            teacher_mark=8.5,
+            ai_evaluation_json=json.dumps({'suggested_score': 3.0}),
+        ))
+        db.session.commit()
+
+    login_client(client, teacher_user['username'], window_id=windows['w1_id'])
+    page = client.get(f'/class-management/assessment/{session_id}')
+    html = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert 'Fetch marks from Socrates' in html
+    assert 'Capital punishment should be abolished in Bangladesh' in html
+
+    fetched = client.post(
+        f'/class-management/socrates/{assignment_id}/fetch-to-assessment',
+        data={'target': 'assessment1'},
+        follow_redirects=True,
+    )
+    assert fetched.status_code == 200
+    with app.app_context():
+        row = ClassStudent.query.filter_by(session_id=session_id, student_id='S001').one()
+        assert row.assessment1 == 8.5
+
+    blocked = client.post(
+        f'/class-management/socrates/{assignment_id}/fetch-to-assessment',
+        data={'target': 'assessment1'},
+        follow_redirects=True,
+    )
+    assert 'already has marks' in blocked.get_data(as_text=True)
+    with app.app_context():
+        row = ClassStudent.query.filter_by(session_id=session_id, student_id='S001').one()
+        row.assessment2 = 3
+        db.session.commit()
+    refused = client.post(
+        f'/class-management/socrates/{assignment_id}/fetch-to-assessment',
+        data={'target': 'assessment2'},
+        follow_redirects=True,
+    )
+    assert 'already has marks' in refused.get_data(as_text=True)
+    with app.app_context():
+        row = ClassStudent.query.filter_by(session_id=session_id, student_id='S001').one()
+        assert row.assessment1 == 8.5
+        assert row.assessment2 == 3
+
+
+def test_socrates_group_marks_fetch_to_all_members(app, client, teacher_user, class_session_w1, windows):
+    from blueprints.class_management.models import ClassStudent
+    from blueprints.student_management.models import Student as StudentMgmt
+
+    session_id = class_session_w1['session_id']
+    with app.app_context():
+        _ensure_student_user('S001', 'Student One')
+        _ensure_student_user('S002', 'Student Two')
+        db.session.add(StudentMgmt(student_id='S002', name='Student Two'))
+        db.session.add(ClassStudent(
+            student_id='S002', name='Student Two',
+            session_id=session_id, teacher_id=teacher_user['teacher_id'],
+        ))
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'], mode='group')
+        group = SocratesGroup(assignment_id=assignment_id, name='Bench A')
+        db.session.add(group)
+        db.session.flush()
+        db.session.add(SocratesGroupMember(group_id=group.id, student_id='S001', student_name='Student One'))
+        db.session.add(SocratesGroupMember(group_id=group.id, student_id='S002', student_name='Student Two'))
+        db.session.add(SocratesConversation(
+            assignment_id=assignment_id,
+            group_id=group.id,
+            status=SocratesConversation.STATUS_EVALUATED,
+            teacher_mark=7,
+        ))
+        db.session.commit()
+
+    login_client(client, teacher_user['username'], window_id=windows['w1_id'])
+    fetched = client.post(
+        f'/class-management/socrates/{assignment_id}/fetch-to-assessment',
+        data={'target': 'assessment1'},
+        follow_redirects=True,
+    )
+    assert fetched.status_code == 200
+    with app.app_context():
+        one = ClassStudent.query.filter_by(session_id=session_id, student_id='S001').one()
+        two = ClassStudent.query.filter_by(session_id=session_id, student_id='S002').one()
+        assert one.assessment1 == 7
+        assert two.assessment1 == 7
+
+
+@patch('utils.ai.socrates.generate_socrates_reply')
+def test_teacher_sees_pasted_span_highlighted(mock_reply, app, client, teacher_user, class_session_w1, windows):
+    mock_reply.return_value = 'What follows from that?'
+    session_id = class_session_w1['session_id']
+    snippet = 'Death penalty is irreversible and the state may err in judgment.'
+    with app.app_context():
+        assignment_id = _seed_assignment(session_id, teacher_user['teacher_id'])
+        assignment = SocratesAssignment.query.get(assignment_id)
+        assignment.paste_disabled = False
+        db.session.commit()
+        _ensure_student_user()
+
+    login_client(client, 'S001', role='student', window_id=windows['w1_id'])
+    _accept_instructions(client, assignment_id)
+    rv = client.post(
+        f'/class-management/student/socrates/{assignment_id}/send',
+        json={
+            'message': f'I think {snippet}',
+            'pasted_chars': len(snippet),
+            'typed_chars': 8,
+            'paste_events': 1,
+            'compose_ms': 9000,
+            'paste_snippets': [snippet],
+        },
+    )
+    assert rv.status_code == 200, rv.get_data(as_text=True)
+
+    with app.app_context():
+        convo = SocratesConversation.query.filter_by(assignment_id=assignment_id, student_id='S001').first()
+        convo_id = convo.id
+
+    teacher_client = app.test_client()
+    login_client(teacher_client, teacher_user['username'], window_id=windows['w1_id'])
+    page = teacher_client.get(f'/class-management/socrates/conversation/{convo_id}')
+    html = page.get_data(as_text=True)
+    assert 'hl-paste' in html
+    assert snippet in html
+    assert 'মার্কসহ PDF' in html
+    manage = teacher_client.get(
+        f'/class-management/socrates/{session_id}/assignment/{assignment_id}'
+    )
+    assert f'/conversation/{convo_id}/transcript.pdf' in manage.get_data(as_text=True)

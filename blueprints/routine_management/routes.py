@@ -3560,7 +3560,50 @@ def download_pdf():
         elements.append(Paragraph("Year/Term-wise Course Summary", h1_centered))
         elements.append(Spacer(1, 0.08*inch))
 
-        # Build mapping: (year, term, course_code) -> {name, teachers}
+        def _teacher_label_from_info(t):
+            name = (t.get('name') or '').strip()
+            short = (t.get('short_name') or '').strip()
+            if name and short:
+                return f"{name} ({short})"
+            if name:
+                return name
+            if short:
+                return short
+            return ''
+
+        def _teacher_labels_from_item(item):
+            """Return ordered teacher labels for a routine item (no alphabetical reorder)."""
+            labels = []
+            seen = set()
+            for t in (item.get('teachers') or []):
+                label = _teacher_label_from_info(t)
+                if label and label not in seen:
+                    seen.add(label)
+                    labels.append(label)
+
+            # Fallback: if no detailed teachers info, use teacher_short_name from routine item
+            if not labels:
+                short_str = (item.get('teacher_short_name') or '').strip()
+                if short_str:
+                    # Shared teachers may be separated by '/' (A then B order when present)
+                    for short in [s.strip() for s in short_str.split('/') if s.strip()]:
+                        teacher_obj = Teacher.query.filter(
+                            (Teacher.short_name == short) | (Teacher.call_sign == short)
+                        ).first()
+                        if teacher_obj:
+                            label = f"{(teacher_obj.name or '').strip()} ({(teacher_obj.call_sign or teacher_obj.short_name or short).strip()})"
+                        else:
+                            label = short
+                        if label and label not in seen:
+                            seen.add(label)
+                            labels.append(label)
+            return labels
+
+        def _add_teacher_label(bucket, label):
+            if label and label not in bucket:
+                bucket.append(label)
+
+        # Build mapping: (year, term, course_code) -> {name, part_a/part_b/other teachers}
         summary_map = {}
         for item in routine_list:
             # Skip custom entries (e.g., Academic Committee Meeting)
@@ -3572,43 +3615,88 @@ def download_pdf():
                 continue
             year_key = (item.get('year') or '').strip() or 'N/A'
             term_key = (item.get('term') or '').strip() or 'N/A'
+            part_raw = str(item.get('part') or '').strip()
+            part_norm = part_raw.lower().replace(' ', '')
 
-            # Build teacher labels from embedded teachers info if available
-            teacher_labels = set()
-            teachers_info = item.get('teachers') or []
-            for t in teachers_info:
-                name = (t.get('name') or '').strip()
-                short = (t.get('short_name') or '').strip()
-                if name and short:
-                    teacher_labels.add(f"{name} ({short})")
-                elif name:
-                    teacher_labels.add(name)
-                elif short:
-                    teacher_labels.add(short)
-
-            # Fallback: if no detailed teachers info, use teacher_short_name from routine item
-            if not teacher_labels:
-                short_str = (item.get('teacher_short_name') or '').strip()
-                if short_str:
-                    # Shared teachers may be separated by '/'
-                    for short in [s.strip() for s in short_str.split('/') if s.strip()]:
-                        teacher_obj = Teacher.query.filter(
-                            (Teacher.short_name == short) | (Teacher.call_sign == short)
-                        ).first()
-                        if teacher_obj:
-                            label = f"{(teacher_obj.name or '').strip()} ({(teacher_obj.call_sign or teacher_obj.short_name or short).strip()})"
-                        else:
-                            label = short
-                        teacher_labels.add(label)
+            teacher_labels = _teacher_labels_from_item(item)
 
             key = (year_key, term_key, course_code)
             if key not in summary_map:
                 summary_map[key] = {
                     'course_code': course_code,
                     'course_name': '',
-                    'teachers': set()
+                    'part_a_teachers': [],
+                    'part_b_teachers': [],
+                    'other_teachers': [],
                 }
-            summary_map[key]['teachers'].update(teacher_labels)
+
+            info = summary_map[key]
+            if part_norm in ('parta', 'a'):
+                for label in teacher_labels:
+                    _add_teacher_label(info['part_a_teachers'], label)
+            elif part_norm in ('partb', 'b'):
+                for label in teacher_labels:
+                    _add_teacher_label(info['part_b_teachers'], label)
+            elif part_norm == 'shared' or item.get('is_shared') or item.get('is_shared_slot'):
+                # Shared slots store teachers as [Part A, Part B]
+                if len(teacher_labels) >= 1:
+                    _add_teacher_label(info['part_a_teachers'], teacher_labels[0])
+                if len(teacher_labels) >= 2:
+                    _add_teacher_label(info['part_b_teachers'], teacher_labels[1])
+            else:
+                for label in teacher_labels:
+                    _add_teacher_label(info['other_teachers'], label)
+
+        # Prefer curriculum Part A/B assignments as the source of truth for split-course
+        # teacher order and (A)/(B) labels on the summary page.
+        try:
+            from blueprints.course_management.models import CourseSessionAssignment
+            split_by_key = {}  # (code, year, term) -> {'A': label, 'B': label}
+            split_by_code = {}  # code -> {'A': label, 'B': label}
+            for assignment in _query_for_routine_window(CourseSessionAssignment).all():
+                section = str(assignment.section or '').strip()
+                if section not in ('A', 'B'):
+                    continue
+                course = assignment.course
+                code = str((course.course_code if course else '') or '').strip()
+                if not code:
+                    continue
+                teacher = assignment.teacher
+                if not teacher and assignment.teacher_id:
+                    teacher = Teacher.query.get(assignment.teacher_id)
+                if not teacher:
+                    continue
+                label = _teacher_label_from_info({
+                    'name': teacher.name,
+                    'short_name': teacher.call_sign or getattr(teacher, 'short_name', ''),
+                })
+                if not label:
+                    continue
+                year = str(assignment.year or '').strip()
+                term = str(assignment.term or '').strip()
+                ab_yt = split_by_key.setdefault((code, year, term), {})
+                ab_code = split_by_code.setdefault(code, {})
+                # Prefer higher assignment id when duplicates exist
+                prev_yt = ab_yt.get(section)
+                prev_code = ab_code.get(section)
+                if not prev_yt or (assignment.id or 0) >= (prev_yt[1] or 0):
+                    ab_yt[section] = (label, assignment.id)
+                if not prev_code or (assignment.id or 0) >= (prev_code[1] or 0):
+                    ab_code[section] = (label, assignment.id)
+
+            for (year_key, term_key, code), info in summary_map.items():
+                parts = split_by_key.get((code, year_key, term_key)) or split_by_code.get(code) or {}
+                if not parts:
+                    continue
+                if 'A' in parts or 'B' in parts:
+                    info['part_a_teachers'] = [parts['A'][0]] if 'A' in parts else []
+                    info['part_b_teachers'] = [parts['B'][0]] if 'B' in parts else []
+                    info['other_teachers'] = []
+        except Exception as enrich_err:
+            current_app.logger.warning(
+                'Could not enrich routine PDF course summary with split teachers: %s',
+                enrich_err,
+            )
 
         # Resolve course names in one query
         all_codes = {k[2] for k in summary_map.keys() if k[2]}
@@ -3668,7 +3756,15 @@ def download_pdf():
 
             data = [["SI", "Course Code", "Course Name", "Teacher(s)"]]
             for idx, info in enumerate(sorted(courses_in_group, key=lambda c: c['course_code']), 1):
-                teacher_text = ', '.join(sorted(info['teachers'])) if info['teachers'] else ''
+                part_a = info.get('part_a_teachers') or []
+                part_b = info.get('part_b_teachers') or []
+                other = info.get('other_teachers') or []
+                if part_a or part_b:
+                    # Split courses: Part A teacher first, then Part B, with (A)/(B) labels
+                    labeled = [f"{label} (A)" for label in part_a] + [f"{label} (B)" for label in part_b]
+                    teacher_text = ', '.join(labeled)
+                else:
+                    teacher_text = ', '.join(other) if other else ''
                 data.append([
                     Paragraph(str(idx), body_text_style),
                     Paragraph(info['course_code'], body_text_style),

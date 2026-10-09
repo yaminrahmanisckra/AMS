@@ -64,6 +64,19 @@ PATCHES = {
     ],
     'socrates_conversation': [
         ('extra_prompts', 'extra_prompts INTEGER NOT NULL DEFAULT 0'),
+        ('focus_loss_count', 'focus_loss_count INTEGER NOT NULL DEFAULT 0'),
+        ('screenshot_hint_count', 'screenshot_hint_count INTEGER NOT NULL DEFAULT 0'),
+        ('paste_events_used', 'paste_events_used INTEGER NOT NULL DEFAULT 0'),
+        ('debate_started_at', 'debate_started_at DATETIME'),
+        ('prompt_deadline_at', 'prompt_deadline_at DATETIME'),
+        ('deadline_override', 'deadline_override DATETIME'),
+    ],
+    'socrates_assignment': [
+        ('prompt_seconds', 'prompt_seconds INTEGER'),
+        ('prompt_timer_include_first', 'prompt_timer_include_first BOOLEAN NOT NULL DEFAULT 1'),
+        ('paste_disabled', 'paste_disabled BOOLEAN NOT NULL DEFAULT 1'),
+        ('paste_max_words', 'paste_max_words INTEGER'),
+        ('paste_max_events', 'paste_max_events INTEGER'),
     ],
     'socrates_message': [
         ('input_meta', 'input_meta TEXT'),

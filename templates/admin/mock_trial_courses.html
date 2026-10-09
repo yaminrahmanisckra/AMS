@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Mock Trial Courses{% endblock %}
+{% block mobile_title %}Mock Trial{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <h1 class="mb-1">Mock Trial Courses</h1>
+            <p class="text-muted mb-0">Turn Mock Trial on only for selected courses. Teachers and students of those courses can use the simulator; everyone else is blocked.</p>
+        </div>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Admin Dashboard
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-light d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <h5 class="mb-0"><i class="fas fa-balance-scale me-2"></i>Enable / Disable Courses</h5>
+            <input type="search" class="form-control form-control-sm" id="mtsCourseFilter" placeholder="Filter by code or name" style="max-width: 16rem;">
+        </div>
+        <div class="card-body">
+            {% if not courses %}
+                <p class="text-muted mb-0">No catalog courses found. Add courses in Curriculum Management first.</p>
+            {% else %}
+            <form method="POST" action="{{ url_for('admin_mock_trial_courses') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0" id="mtsCourseTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 90px;">Enabled</th>
+                                <th>Course</th>
+                                <th>Curriculum</th>
+                                <th>Year / Term</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for course in courses %}
+                            <tr data-filter="{{ (course.course_code or '')|lower }} {{ (course.course_name or '')|lower }} {{ (course.curriculum.name if course.curriculum else '')|lower }}">
+                                <td>
+                                    <div class="form-check form-switch m-0">
+                                        <input class="form-check-input"
+                                               type="checkbox"
+                                               role="switch"
+                                               id="course_{{ course.id }}"
+                                               name="enabled_course_ids"
+                                               value="{{ course.id }}"
+                                               {% if course.id in enabled_ids %}checked{% endif %}>
+                                        <label class="form-check-label visually-hidden" for="course_{{ course.id }}">
+                                            Enable {{ course.course_code }}
+                                        </label>
+                                    </div>
+                                </td>
+                                <td>
+                                    <strong>{{ course.course_code }}</strong>
+                                    <div class="text-muted small">{{ course.course_name }}</div>
+                                </td>
+                                <td class="text-muted small">{{ course.curriculum.name if course.curriculum else '—' }}</td>
+                                <td class="text-muted small">{{ course.display_year or '—' }} / {{ course.display_term or '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-2"></i>Save Settings
+                    </button>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+  const input = document.getElementById('mtsCourseFilter');
+  const rows = document.querySelectorAll('#mtsCourseTable tbody tr');
+  if (!input) return;
+  input.addEventListener('input', function () {
+    const q = (input.value || '').toLowerCase().trim();
+    rows.forEach(function (row) {
+      row.style.display = !q || (row.getAttribute('data-filter') || '').indexOf(q) !== -1 ? '' : 'none';
+    });
+  });
+})();
+</script>
+{% endblock %}

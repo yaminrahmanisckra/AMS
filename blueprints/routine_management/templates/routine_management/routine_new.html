@@ -4939,6 +4939,9 @@ const RoutineManager = {
                     color_code: item.colorCode || '',
                     year: item.year || '',
                     term: item.term || '',
+                    part: item.part || 'Full',
+                    is_shared: !!(item.isSharedSlot || item.is_shared || item.is_shared_slot),
+                    is_shared_slot: !!(item.isSharedSlot || item.is_shared || item.is_shared_slot),
                     // full teacher info array for PDF summary (name + short_name)
                     teachers: Array.isArray(item.teachers) ? item.teachers : [],
                     is_custom: item.isCustom || false,

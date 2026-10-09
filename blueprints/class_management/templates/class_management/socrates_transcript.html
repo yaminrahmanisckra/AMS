@@ -10,9 +10,14 @@
         {{ conversation.participant_label() }} — {{ assignment.topic }}
       </p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.socrates_manage', session_id=session.id, assignment_id=assignment.id) }}">
-      <i class="fas fa-arrow-left me-1"></i>Back to Socrates
-    </a>
+    <div class="d-flex gap-2 flex-wrap">
+      <a class="btn btn-outline-danger btn-sm" href="{{ url_for('class_management.socrates_transcript_pdf', conversation_id=conversation.id) }}">
+        <i class="fas fa-file-pdf me-1"></i>মার্কসহ PDF
+      </a>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.socrates_manage', session_id=session.id, assignment_id=assignment.id) }}">
+        <i class="fas fa-arrow-left me-1"></i>Back to Socrates
+      </a>
+    </div>
   </div>
 
   <div class="row g-4">
@@ -40,9 +45,18 @@
               </form>
             </div>
           </div>
-          <div class="d-flex gap-1 align-items-center">
+          <div class="d-flex gap-1 align-items-center flex-wrap">
+            {% if focus_loss_count %}
+              <span class="badge bg-warning text-dark">{{ focus_loss_count }} বার ফোকাস সরেছে</span>
+            {% endif %}
+            {% if style_flag_count %}
+              <span class="badge bg-danger">{{ style_flag_count }}টি এআই-স্টাইল সন্দেহ</span>
+            {% endif %}
             {% if paste_flag_count %}
               <span class="badge bg-warning text-dark">{{ paste_flag_count }}টি পেস্ট/দ্রুত ঢোকানো</span>
+            {% endif %}
+            {% if screenshot_hint_count %}
+              <span class="badge bg-secondary">{{ screenshot_hint_count }}টি স্ক্রিনশট ইঙ্গিত</span>
             {% endif %}
             <span class="badge bg-{{ 'success' if conversation.status == 'evaluated' else ('info' if conversation.status == 'submitted' else 'secondary') }}">
               {{ conversation.status.replace('_', ' ') }}
@@ -51,10 +65,12 @@
         </div>
         <div class="card-body socrates-transcript">
           {% for msg in conversation.messages %}
-            <div class="mb-3 {% if msg.sender == 'socrates' %}socrates-msg{% else %}student-msg{% endif %}">
+            <div class="mb-3 {% if msg.sender == 'socrates' %}socrates-msg{% elif msg.sender == 'system' %}system-msg{% else %}student-msg{% endif %}">
               <div class="small text-muted mb-1">
                 {% if msg.sender == 'socrates' %}
                   <i class="fas fa-robot me-1"></i>Socrates
+                {% elif msg.sender == 'system' %}
+                  <i class="fas fa-hourglass-end me-1"></i>সিস্টেম
                 {% else %}
                   <i class="fas fa-user me-1"></i>{{ msg.sender_student_name or msg.sender_student_id or 'Student' }}
                   {% if conversation.group_id %}({{ msg.sender_student_id }}){% endif %}
@@ -62,20 +78,31 @@
                 · {{ msg.created_at|bd('%Y-%m-%d %H:%M') }}
                 {% set signal = msg.input_signal() %}
                 {% if signal %}
+                  {% if signal.label %}
                   <span class="badge ms-1 bg-{{ 'warning text-dark' if signal.flag else 'secondary' }}"
                         title="পেস্ট {{ signal.pasted_chars }} অক্ষর · টাইপ {{ signal.typed_chars }} অক্ষর{% if signal.compose_ms %} · {{ (signal.compose_ms / 1000)|round(1) }} সেকেন্ড{% endif %}">
                     {{ signal.label }}
                   </span>
+                  {% endif %}
+                  {% if signal.style_flag %}
+                  <span class="badge ms-1 bg-danger"
+                        title="হিউরিস্টিক স্কোর {{ signal.style_score }} — প্রমাণ নয়, রিভিউ করুন">
+                    {{ signal.style_label }}
+                  </span>
+                  {% endif %}
                 {% endif %}
               </div>
-              <div class="border rounded p-2 msg-body">{{ msg.body }}</div>
+              <div class="border rounded p-2 msg-body {{ msg.teacher_body_classes() if msg.sender == 'student' else '' }} {% if msg.sender == 'system' %}bg-light text-muted{% endif %}">{% if msg.sender == 'student' %}{{ msg.teacher_body_html() }}{% else %}{{ msg.body }}{% endif %}</div>
             </div>
           {% else %}
             <p class="text-muted mb-0">কোনো বার্তা নেই।</p>
           {% endfor %}
         </div>
         <div class="card-footer small text-muted">
-          পেস্ট বা খুব দ্রুত ঢোকানো ধরা যায়। অন্য এআই থেকে কপি করা কি না নিশ্চিত করে বলা যায় না।
+          <span class="hl-paste px-1">হলুদ = পেস্ট</span>
+          <span class="hl-ai px-1 ms-1">গোলাপি = এআই-স্টাইল</span>
+          — হিউরিস্টিক মাত্র, প্রমাণ নয়। অফিসিয়াল নম্বর শুধু শিক্ষকের মার্ক।
+          ওয়েব থেকে স্ক্রিনশট পুরোপুরি আটকানো যায় না; PrintScreen ইঙ্গিত লগ হয়।
         </div>
       </div>
     </div>
@@ -189,6 +216,10 @@
   .socrates-transcript .msg-body { white-space: pre-wrap; }
   .socrates-transcript .socrates-msg .msg-body { background: #eef6fb; }
   .socrates-transcript .student-msg .msg-body { background: #f8f9fa; }
+  mark.hl-paste, .hl-paste { background: #fde68a; }
+  mark.hl-ai, .hl-ai { background: #f9a8d4; }
+  .hl-paste-block { background: #fef3c7; }
+  .hl-ai-block { box-shadow: inset 0 0 0 2px #f9a8d4; }
 </style>
 
 <script>

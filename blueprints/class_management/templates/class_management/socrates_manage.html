@@ -3,102 +3,63 @@
 {% block extra_css %}
 <style>
 .tox-tinymce { border-radius: 6px !important; }
+#socratesSettingsModal .modal-dialog { max-width: 640px; }
+#socratesSettingsModal .modal-body { max-height: min(70vh, 640px); overflow-y: auto; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container mt-4">
-  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <div>
+  <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+    <div class="me-auto">
       <h4 class="mb-1"><i class="fas fa-comments me-2 text-primary"></i>Socrates — AI Debate Assignment</h4>
       <p class="text-muted small mb-0">{{ session.course_code or '' }} {{ session.course_name or '' }} — students argue with the AI companion on your topic.</p>
+      {% if assignment %}
+      <p class="small mb-0 mt-1">
+        <span class="text-muted">টপিক:</span>
+        <strong>{{ assignment.topic }}</strong>
+        {% if assignment.deadline %}
+          <span class="text-muted ms-2">· ডেডলাইন {{ assignment.deadline.strftime('%d %b %Y') }}</span>
+        {% endif %}
+        <span class="badge ms-2 bg-{{ 'success' if assignment.is_active else 'secondary' }}">
+          {{ 'Active' if assignment.is_active else 'Paused' }}
+        </span>
+      </p>
+      {% endif %}
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.socrates_course', session_id=session.id) }}">
-      <i class="fas fa-arrow-left me-1"></i>All assignments
-    </a>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#socratesSettingsModal">
+        <i class="fas fa-cog me-1"></i>Assignment Settings
+      </button>
+      {% if assignment %}
+      <form method="POST" class="d-inline">
+        <input type="hidden" name="action" value="toggle_active">
+        <button type="submit" class="btn btn-{{ 'warning' if assignment.is_active else 'success' }} btn-sm">
+          <i class="fas fa-{{ 'pause' if assignment.is_active else 'play' }} me-1"></i>{{ 'Pause' if assignment.is_active else 'Activate' }}
+        </button>
+      </form>
+      <form method="POST" class="d-inline">
+        <input type="hidden" name="action" value="send_email">
+        <button type="submit" class="btn btn-outline-success btn-sm"
+                onclick="return confirm('নির্ধারিত ছাত্রদের অ্যাসাইনমেন্ট মেইল পাঠাবেন?');">
+          <i class="fas fa-envelope me-1"></i>Email
+        </button>
+      </form>
+      {% endif %}
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.socrates_course', session_id=session.id) }}">
+        <i class="fas fa-arrow-left me-1"></i>All assignments
+      </a>
+    </div>
   </div>
 
-  <div class="row g-4">
-    <div class="col-lg-5">
-      <div class="card shadow-sm">
-        <div class="card-header bg-primary text-white">
-          <h6 class="mb-0">Assignment Settings</h6>
-        </div>
-        <div class="card-body">
-          <form method="POST" id="socratesSettingsForm">
-            <input type="hidden" name="action" value="update">
-            <div class="mb-3">
-              <label class="form-label">Debate Topic <span class="text-danger">*</span></label>
-              <input type="text" name="topic" class="form-control" required maxlength="300"
-                     value="{{ assignment.topic if assignment else '' }}"
-                     placeholder="যেমন: Capital punishment should be abolished in Bangladesh">
-            </div>
-            <div class="mb-3">
-              <label class="form-label" for="socratesInstructions">Instructions (optional)</label>
-              <textarea name="instructions" id="socratesInstructions" class="form-control" rows="6"
-                        placeholder="Students-দের জন্য নির্দেশনা — নম্বর সিরিয়াল বা বুলেট লিস্ট দিতে পারেন">{{ assignment.instructions if assignment else '' }}</textarea>
-              <div class="form-text">নম্বর সিরিয়াল (১, ২, ৩) বা বুলেট লিস্ট ব্যবহার করতে টুলবারের তালিকা বাটন চাপুন।</div>
-            </div>
-            <div class="row g-2">
-              <div class="col-sm-4">
-                <label class="form-label">Mode</label>
-                <select name="mode" class="form-select" {% if assignment and assignment.conversations %}disabled{% endif %}>
-                  <option value="individual" {% if assignment and assignment.mode == 'individual' %}selected{% endif %}>Individual</option>
-                  <option value="group" {% if assignment and assignment.mode == 'group' %}selected{% endif %}>Group</option>
-                </select>
-                {% if assignment and assignment.conversations %}
-                  <div class="form-text">কথোপকথন শুরু হওয়ায় mode বদলানো যাবে না।</div>
-                {% endif %}
-              </div>
-              <div class="col-sm-4">
-                <label class="form-label">Prompt Limit</label>
-                <input type="number" name="prompt_limit" class="form-control" min="1" max="100"
-                       value="{{ assignment.prompt_limit if assignment else 15 }}">
-              </div>
-              <div class="col-sm-4">
-                <label class="form-label">Deadline</label>
-                <input type="date" name="deadline" class="form-control"
-                       value="{{ assignment.deadline.strftime('%Y-%m-%d') if assignment and assignment.deadline else '' }}">
-              </div>
-            </div>
-            <button type="submit" class="btn btn-primary w-100 mt-3">
-              <i class="fas fa-save me-1"></i>{{ 'Update Assignment' if assignment else 'Create Assignment' }}
-            </button>
-          </form>
-
-          {% if assignment %}
-          <div class="d-flex gap-2 mt-3">
-            <form method="POST" class="flex-grow-1">
-              <input type="hidden" name="action" value="toggle_active">
-              <button type="submit" class="btn btn-{{ 'warning' if assignment.is_active else 'success' }} w-100">
-                <i class="fas fa-{{ 'pause' if assignment.is_active else 'play' }} me-1"></i>{{ 'Pause' if assignment.is_active else 'Activate' }}
-              </button>
-            </form>
-            <form method="POST">
-              <input type="hidden" name="action" value="delete">
-              <button type="submit" class="btn btn-outline-danger" onclick="return confirm('সতর্কতা: অ্যাসাইনমেন্ট, গ্রুপ ও সব কথোপকথন মুছে যাবে। নিশ্চিত?');">
-                <i class="fas fa-trash"></i>
-              </button>
-            </form>
-          </div>
-          <form method="POST" class="mt-2">
-            <input type="hidden" name="action" value="send_email">
-            <button type="submit" class="btn btn-outline-success w-100"
-                    onclick="return confirm('নির্ধারিত ছাত্রদের অ্যাসাইনমেন্ট মেইল পাঠাবেন?');">
-              <i class="fas fa-envelope me-1"></i>Send assignment email
-            </button>
-          </form>
-          <div class="form-text">Individual: কোর্সের সব ছাত্র। Group: শুধু গ্রুপ সদস্য।</div>
-          {% endif %}
-        </div>
-      </div>
-
-      {% if assignment and assignment.mode == 'group' %}
-      <div class="card shadow-sm mt-4">
-        <div class="card-header bg-secondary text-white">
-          <h6 class="mb-0">Groups</h6>
-        </div>
-        <div class="card-body">
+  {% if assignment and assignment.mode == 'group' %}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+      <h6 class="mb-0">Groups</h6>
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-lg-7">
           {% for grp in assignment.groups %}
             <div class="border rounded p-2 mb-2 d-flex justify-content-between align-items-start">
               <div>
@@ -116,10 +77,10 @@
               </form>
             </div>
           {% else %}
-            <p class="text-muted small">এখনও কোনো গ্রুপ তৈরি হয়নি।</p>
+            <p class="text-muted small mb-0">এখনও কোনো গ্রুপ তৈরি হয়নি।</p>
           {% endfor %}
-
-          <hr>
+        </div>
+        <div class="col-lg-5">
           <form method="POST">
             <input type="hidden" name="action" value="create_group">
             <div class="mb-2">
@@ -144,110 +105,270 @@
           </form>
         </div>
       </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card shadow-sm">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <h6 class="mb-0 text-secondary">Conversations ({{ conversation_rows|length }})</h6>
+      {% if assignment and conversation_rows %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.socrates_marks_csv', session_id=session.id, assignment_id=assignment.id) }}">
+          <i class="fas fa-file-csv me-1"></i>Export Marks CSV
+        </a>
       {% endif %}
     </div>
-
-    <div class="col-lg-7">
-      <div class="card shadow-sm">
-        <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
-          <h6 class="mb-0 text-secondary">Conversations ({{ conversation_rows|length }})</h6>
-          {% if assignment and conversation_rows %}
-            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.socrates_marks_csv', session_id=session.id, assignment_id=assignment.id) }}">
-              <i class="fas fa-file-csv me-1"></i>Export Marks CSV
-            </a>
-          {% endif %}
+    <div class="card-body">
+      {% if not assignment %}
+        <p class="text-muted mb-0">আগে অ্যাসাইনমেন্ট তৈরি করুন।</p>
+      {% elif not conversation_rows %}
+        <p class="text-muted mb-0">এখনও কোনো শিক্ষার্থী ডিবেট শুরু করেনি।</p>
+      {% else %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>Participant</th>
+                <th class="text-center">Prompts</th>
+                <th class="text-center">Deadline</th>
+                <th class="text-center">Signals</th>
+                <th class="text-center">Status</th>
+                <th class="text-center">AI Score</th>
+                <th class="text-center">Mark</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in conversation_rows %}
+                {% set convo = row.conversation %}
+                {% set integrity = row.integrity or {} %}
+                <tr>
+                  <td>{{ convo.participant_label() }}</td>
+                  <td class="text-center">
+                    <div class="d-inline-flex align-items-center justify-content-center gap-1 soc-prompt-adjust">
+                      <form method="POST" action="{{ url_for('class_management.socrates_adjust_prompts', conversation_id=convo.id) }}" class="m-0">
+                        <input type="hidden" name="delta" value="-1">
+                        <input type="hidden" name="next" value="manage">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary px-2 py-0"
+                                title="প্রম্পট কমান"
+                                {% if convo.prompt_cap() <= convo.prompts_used %}disabled{% endif %}>−</button>
+                      </form>
+                      <span class="small fw-semibold text-nowrap" title="ব্যবহৃত / মোট · বাকি {{ convo.remaining_prompts() }}">
+                        {{ convo.prompts_used }}/{{ convo.prompt_cap() }}
+                      </span>
+                      <form method="POST" action="{{ url_for('class_management.socrates_adjust_prompts', conversation_id=convo.id) }}" class="m-0">
+                        <input type="hidden" name="delta" value="1">
+                        <input type="hidden" name="next" value="manage">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary px-2 py-0"
+                                title="প্রম্পট বাড়ান">+</button>
+                      </form>
+                    </div>
+                  </td>
+                  <td class="text-center">
+                    <form method="POST" action="{{ url_for('class_management.socrates_set_deadline', conversation_id=convo.id) }}"
+                          class="d-inline-flex align-items-center gap-1 m-0">
+                      <input type="hidden" name="next" value="manage">
+                      <input type="date" name="deadline_override" class="form-control form-control-sm"
+                             style="width: 8.5rem"
+                             value="{{ convo.deadline_override.strftime('%Y-%m-%d') if convo.deadline_override else '' }}"
+                             title="এই ছাত্রের ডেডলাইন (খালি = অ্যাসাইনমেন্ট ডেডলাইন)">
+                      <button type="submit" class="btn btn-sm btn-outline-secondary px-1" title="ডেডলাইন সেভ">✓</button>
+                    </form>
+                    {% if not convo.deadline_override and assignment.deadline %}
+                      <div class="small text-muted">ডিফল্ট {{ assignment.deadline.strftime('%d %b') }}</div>
+                    {% endif %}
+                  </td>
+                  <td class="text-center">
+                    <div class="d-flex flex-wrap justify-content-center gap-1">
+                      {% if integrity.focus_loss_count %}
+                        <span class="badge bg-warning text-dark" title="অন্য ট্যাব/অ্যাপে গেছে">ফোকাস {{ integrity.focus_loss_count }}</span>
+                      {% endif %}
+                      {% if integrity.style_flag_count %}
+                        <span class="badge bg-danger" title="লেখার ধরন এআই-স্টাইল মনে হচ্ছে">এআই-স্টাইল {{ integrity.style_flag_count }}</span>
+                      {% endif %}
+                      {% if integrity.paste_flag_count %}
+                        <span class="badge bg-dark" title="পেস্ট/দ্রুত ঢোকানো">পেস্ট {{ integrity.paste_flag_count }}</span>
+                      {% endif %}
+                      {% if integrity.screenshot_hint_count %}
+                        <span class="badge bg-secondary" title="PrintScreen চাপার ইঙ্গিত">স্ক্রিন {{ integrity.screenshot_hint_count }}</span>
+                      {% endif %}
+                      {% if not integrity.focus_loss_count and not integrity.style_flag_count and not integrity.paste_flag_count and not integrity.screenshot_hint_count %}
+                        <span class="text-muted">—</span>
+                      {% endif %}
+                    </div>
+                  </td>
+                  <td class="text-center">
+                    <span class="badge bg-{{ 'success' if convo.status == 'evaluated' else ('info' if convo.status == 'submitted' else 'secondary') }}">
+                      {{ convo.status.replace('_', ' ') }}
+                    </span>
+                  </td>
+                  <td class="text-center">{{ row.suggested_score if row.suggested_score is not none else '—' }}</td>
+                  <td class="text-center">{{ convo.teacher_mark if convo.teacher_mark is not none else '—' }}</td>
+                  <td class="text-end">
+                    <div class="d-inline-flex gap-1">
+                      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('class_management.socrates_transcript', conversation_id=convo.id) }}">
+                        <i class="fas fa-eye me-1"></i>View
+                      </a>
+                      <a class="btn btn-sm btn-outline-danger" href="{{ url_for('class_management.socrates_transcript_pdf', conversation_id=convo.id) }}" title="মার্কসহ PDF">
+                        <i class="fas fa-file-pdf"></i>
+                      </a>
+                      {% if convo.status != 'in_progress' %}
+                      <form method="POST" action="{{ url_for('class_management.socrates_reopen', conversation_id=convo.id) }}">
+                        <button type="submit" class="btn btn-sm btn-outline-success" title="আবার ডিবেট করার সুযোগ দিন"
+                                onclick="return confirm('ছাত্রকে আবার ডিবেট করার সুযোগ দেবেন?');">
+                          <i class="fas fa-redo me-1"></i>Reopen
+                        </button>
+                      </form>
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-        <div class="card-body">
-          {% if not assignment %}
-            <p class="text-muted mb-0">আগে অ্যাসাইনমেন্ট তৈরি করুন।</p>
-          {% elif not conversation_rows %}
-            <p class="text-muted mb-0">এখনও কোনো শিক্ষার্থী ডিবেট শুরু করেনি।</p>
-          {% else %}
-            <div class="table-responsive">
-              <table class="table table-sm table-hover align-middle">
-                <thead class="table-light">
-                  <tr>
-                    <th>Participant</th>
-                    <th class="text-center">Prompts</th>
-                    <th class="text-center">Status</th>
-                    <th class="text-center">AI Score</th>
-                    <th class="text-center">Mark</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in conversation_rows %}
-                    {% set convo = row.conversation %}
-                    <tr>
-                      <td>{{ convo.participant_label() }}</td>
-                      <td class="text-center">
-                        <div class="d-inline-flex align-items-center justify-content-center gap-1 soc-prompt-adjust">
-                          <form method="POST" action="{{ url_for('class_management.socrates_adjust_prompts', conversation_id=convo.id) }}" class="m-0">
-                            <input type="hidden" name="delta" value="-1">
-                            <input type="hidden" name="next" value="manage">
-                            <button type="submit" class="btn btn-sm btn-outline-secondary px-2 py-0"
-                                    title="প্রম্পট কমান"
-                                    {% if convo.prompt_cap() <= convo.prompts_used %}disabled{% endif %}>−</button>
-                          </form>
-                          <span class="small fw-semibold text-nowrap" title="ব্যবহৃত / মোট · বাকি {{ convo.remaining_prompts() }}">
-                            {{ convo.prompts_used }}/{{ convo.prompt_cap() }}
-                          </span>
-                          <form method="POST" action="{{ url_for('class_management.socrates_adjust_prompts', conversation_id=convo.id) }}" class="m-0">
-                            <input type="hidden" name="delta" value="1">
-                            <input type="hidden" name="next" value="manage">
-                            <button type="submit" class="btn btn-sm btn-outline-secondary px-2 py-0"
-                                    title="প্রম্পট বাড়ান">+</button>
-                          </form>
-                        </div>
-                      </td>
-                      <td class="text-center">
-                        <span class="badge bg-{{ 'success' if convo.status == 'evaluated' else ('info' if convo.status == 'submitted' else 'secondary') }}">
-                          {{ convo.status.replace('_', ' ') }}
-                        </span>
-                      </td>
-                      <td class="text-center">{{ row.suggested_score if row.suggested_score is not none else '—' }}</td>
-                      <td class="text-center">{{ convo.teacher_mark if convo.teacher_mark is not none else '—' }}</td>
-                      <td class="text-end">
-                        <div class="d-inline-flex gap-1">
-                          <a class="btn btn-sm btn-outline-primary" href="{{ url_for('class_management.socrates_transcript', conversation_id=convo.id) }}">
-                            <i class="fas fa-eye me-1"></i>View
-                          </a>
-                          {% if convo.status != 'in_progress' %}
-                          <form method="POST" action="{{ url_for('class_management.socrates_reopen', conversation_id=convo.id) }}">
-                            <button type="submit" class="btn btn-sm btn-outline-success" title="আবার ডিবেট করার সুযোগ দিন"
-                                    onclick="return confirm('ছাত্রকে আবার ডিবেট করার সুযোগ দেবেন?');">
-                              <i class="fas fa-redo me-1"></i>Reopen
-                            </button>
-                          </form>
-                          {% endif %}
-                        </div>
-                      </td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          {% endif %}
-        </div>
-      </div>
+      {% endif %}
     </div>
   </div>
 </div>
+
+{# —— Assignment Settings modal —— #}
+<div class="modal fade" id="socratesSettingsModal" tabindex="-1" aria-labelledby="socratesSettingsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="socratesSettingsModalLabel">
+          <i class="fas fa-cog me-2"></i>Assignment Settings
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="POST" id="socratesSettingsForm">
+        <div class="modal-body">
+          <input type="hidden" name="action" value="update">
+          <div class="mb-3">
+            <label class="form-label">Debate Topic <span class="text-danger">*</span></label>
+            <input type="text" name="topic" class="form-control" required maxlength="300"
+                   value="{{ assignment.topic if assignment else '' }}"
+                   placeholder="যেমন: Capital punishment should be abolished in Bangladesh">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="socratesInstructions">Instructions (optional)</label>
+            <textarea name="instructions" id="socratesInstructions" class="form-control" rows="6"
+                      placeholder="Students-দের জন্য নির্দেশনা — নম্বর সিরিয়াল বা বুলেট লিস্ট দিতে পারেন">{{ assignment.instructions if assignment else '' }}</textarea>
+            <div class="form-text">নম্বর সিরিয়াল (১, ২, ৩) বা বুলেট লিস্ট ব্যবহার করতে টুলবারের তালিকা বাটন চাপুন।</div>
+          </div>
+          <div class="row g-2">
+            <div class="col-sm-4">
+              <label class="form-label">Mode</label>
+              <select name="mode" class="form-select" {% if assignment and assignment.conversations %}disabled{% endif %}>
+                <option value="individual" {% if assignment and assignment.mode == 'individual' %}selected{% endif %}>Individual</option>
+                <option value="group" {% if assignment and assignment.mode == 'group' %}selected{% endif %}>Group</option>
+              </select>
+              {% if assignment and assignment.conversations %}
+                <div class="form-text">কথোপকথন শুরু হওয়ায় mode বদলানো যাবে না।</div>
+              {% endif %}
+            </div>
+            <div class="col-sm-4">
+              <label class="form-label">Prompt Limit</label>
+              <input type="number" name="prompt_limit" class="form-control" min="1" max="100"
+                     value="{{ assignment.prompt_limit if assignment else 15 }}">
+            </div>
+            <div class="col-sm-4">
+              <label class="form-label">Deadline</label>
+              <input type="date" name="deadline" class="form-control"
+                     value="{{ assignment.deadline.strftime('%Y-%m-%d') if assignment and assignment.deadline else '' }}">
+            </div>
+          </div>
+          <div class="border rounded p-3 mt-3 bg-light">
+            <label class="form-label fw-semibold mb-2">প্রতি প্রম্পটের সময় (ঐচ্ছিক)</label>
+            <div class="row g-2 align-items-end">
+              <div class="col-sm-5">
+                <label class="form-label small">মিনিট</label>
+                <input type="number" step="0.5" min="0" max="1440" name="prompt_minutes" class="form-control"
+                       value="{% if assignment and assignment.prompt_seconds %}{{ (assignment.prompt_seconds / 60)|round(1) }}{% endif %}"
+                       placeholder="খালি = সময় সীমা নেই">
+              </div>
+              <div class="col-sm-7">
+                <div class="form-check mt-2">
+                  <input class="form-check-input" type="checkbox" name="prompt_timer_include_first" value="1" id="promptTimerFirst"
+                         {% if not assignment or assignment.prompt_timer_include_first %}checked{% endif %}>
+                  <label class="form-check-label" for="promptTimerFirst">প্রথম প্রম্পটেও প্রযোজ্য</label>
+                </div>
+              </div>
+            </div>
+            <div class="form-text">ছাত্র “শুরু করুন” চাপলে টাইমার চালু। সময় শেষে প্রম্পট বাতিল → সব শেষে অটো-জমা।</div>
+          </div>
+          <div class="border rounded p-3 mt-3 bg-light">
+            <label class="form-label fw-semibold mb-2">কপি-পেস্ট নিয়ম</label>
+            {% set paste_mode = assignment.paste_mode() if assignment else 'disabled' %}
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="paste_mode" id="pasteDisabled" value="disabled"
+                     {% if paste_mode == 'disabled' %}checked{% endif %}>
+              <label class="form-check-label" for="pasteDisabled">সম্পূর্ণ বন্ধ</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="paste_mode" id="pasteLimited" value="limited"
+                     {% if paste_mode == 'limited' %}checked{% endif %}>
+              <label class="form-check-label" for="pasteLimited">সীমিত</label>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="radio" name="paste_mode" id="pasteUnlimited" value="unlimited"
+                     {% if paste_mode == 'unlimited' %}checked{% endif %}>
+              <label class="form-check-label" for="pasteUnlimited">সীমাহীন অনুমতি</label>
+            </div>
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label small">প্রতি পেস্টে সর্বোচ্চ শব্দ</label>
+                <input type="number" name="paste_max_words" class="form-control form-control-sm" min="1" max="5000"
+                       value="{{ assignment.paste_max_words if assignment and assignment.paste_max_words else '' }}">
+              </div>
+              <div class="col-6">
+                <label class="form-label small">মোট কতবার পেস্ট</label>
+                <input type="number" name="paste_max_events" class="form-control form-control-sm" min="1" max="100"
+                       value="{{ assignment.paste_max_events if assignment and assignment.paste_max_events else '' }}">
+              </div>
+            </div>
+            <div class="form-text">এই নিয়মগুলো ছাত্র ইন্সট্রাকশনে অটো যুক্ত হবে।</div>
+          </div>
+        </div>
+        <div class="modal-footer flex-wrap gap-2">
+          {% if assignment %}
+          <button type="submit" form="socratesDeleteForm" class="btn btn-outline-danger me-auto"
+                  onclick="return confirm('সতর্কতা: অ্যাসাইনমেন্ট, গ্রুপ ও সব কথোপকথন মুছে যাবে। নিশ্চিত?');">
+            <i class="fas fa-trash me-1"></i>Delete
+          </button>
+          {% endif %}
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save me-1"></i>{{ 'Update Assignment' if assignment else 'Create Assignment' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% if assignment %}
+<form method="POST" id="socratesDeleteForm" class="d-none">
+  <input type="hidden" name="action" value="delete">
+</form>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js" referrerpolicy="origin"></script>
 <script>
 (function () {
-  function boot() {
-    if (!window.tinymce) {
-      setTimeout(boot, 50);
+  var editorReady = false;
+
+  function initEditor() {
+    if (!window.tinymce) return;
+    if (tinymce.get('socratesInstructions')) {
+      editorReady = true;
       return;
     }
-    if (tinymce.get('socratesInstructions')) return;
     tinymce.init({
       selector: '#socratesInstructions',
-      height: 240,
+      height: 220,
       menubar: false,
       branding: false,
       promotion: false,
@@ -257,11 +378,40 @@
       convert_urls: false,
       link_default_target: '_blank',
       link_assume_external_targets: true,
-      content_style: 'body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; } ol, ul { margin-left: 1.2rem; }'
+      content_style: 'body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; } ol, ul { margin-left: 1.2rem; }',
+      setup: function (editor) {
+        editor.on('init', function () { editorReady = true; });
+      }
     });
   }
-  boot();
-  const form = document.getElementById('socratesSettingsForm');
+
+  function bootWhenTinyReady(cb) {
+    if (window.tinymce) {
+      cb();
+      return;
+    }
+    setTimeout(function () { bootWhenTinyReady(cb); }, 50);
+  }
+
+  var modalEl = document.getElementById('socratesSettingsModal');
+  if (modalEl) {
+    modalEl.addEventListener('shown.bs.modal', function () {
+      bootWhenTinyReady(function () {
+        initEditor();
+        var ed = tinymce.get('socratesInstructions');
+        if (ed) {
+          try { ed.focus(); } catch (err) {}
+        }
+      });
+    });
+    modalEl.addEventListener('hidden.bs.modal', function () {
+      if (window.tinymce) {
+        try { tinymce.triggerSave(); } catch (err) {}
+      }
+    });
+  }
+
+  var form = document.getElementById('socratesSettingsForm');
   if (form) {
     form.addEventListener('submit', function () {
       if (window.tinymce) {

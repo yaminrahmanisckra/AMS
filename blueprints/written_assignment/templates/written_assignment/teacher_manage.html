@@ -1,0 +1,397 @@
+{% extends "base.html" %}
+{% block title %}{{ assignment.title }}{% endblock %}
+{% block content %}
+<div class="container my-4 wa-shell wa-manage">
+  <div class="mb-3">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('written_assignment.teacher_course', session_id=session.id) }}">
+      <i class="fas fa-arrow-left me-1"></i>Assignments
+    </a>
+  </div>
+
+  <div class="wa-hero">
+    <i class="fas fa-pen-nib wa-hero-icon"></i>
+    <div class="wa-hero-eyebrow">{{ course_label }}</div>
+    <h1>{{ assignment.title }}</h1>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      <span class="wa-chip"><i class="fas {{ 'fa-users' if assignment.mode == 'group' else 'fa-user' }}"></i>{{ 'Group' if assignment.mode == 'group' else 'Individual' }}</span>
+      <span class="wa-chip"><i class="fas fa-star"></i>Out of {{ assignment.marks_out_of }}</span>
+      {% if assignment.deadline_label() %}
+      <span class="wa-chip"><i class="far fa-clock"></i>Due {{ assignment.deadline_label() }}</span>
+      {% endif %}
+      <span class="wa-chip"><i class="fas fa-door-open"></i><span id="waOpenState">{{ 'Open' if assignment.is_open() else 'Closed' }}</span></span>
+    </div>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <a class="btn btn-light btn-sm" href="{{ url_for('written_assignment.teacher_download', assignment_id=assignment.id, fmt='docx', scope='all') }}"><i class="fas fa-file-word me-1"></i>DOCX</a>
+      <a class="btn btn-light btn-sm" href="{{ url_for('written_assignment.teacher_download', assignment_id=assignment.id, fmt='pdf', scope='all') }}"><i class="fas fa-file-pdf me-1"></i>PDF</a>
+      <a class="btn btn-light btn-sm" href="{{ url_for('written_assignment.teacher_download', assignment_id=assignment.id, fmt='pdf', scope='all', marked=1) }}"><i class="fas fa-highlighter me-1"></i>PDF with marks</a>
+      <form method="POST" action="{{ url_for('written_assignment.delete_assignment', assignment_id=assignment.id) }}" onsubmit="return confirm('Delete this assignment and all writing?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-light btn-sm" type="submit"><i class="far fa-trash-can me-1"></i>Delete</button>
+      </form>
+    </div>
+  </div>
+
+  {% if instructions_html %}
+  <details class="wa-panel mb-3" open>
+    <summary><i class="fas fa-list-check me-1"></i>Instructions</summary>
+    <div class="wa-instructions wa-rich mt-2">{{ instructions_html }}</div>
+  </details>
+  {% endif %}
+
+  <div class="wa-panel mb-4">
+      <h2 class="wa-section-title"><i class="fas fa-sliders"></i>Settings</h2>
+      <form method="POST" id="waSettingsForm" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label" for="waTitle">Title</label>
+          <input class="form-control" id="waTitle" name="title" maxlength="300" required value="{{ assignment.title }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="waInstructions">Instructions</label>
+          <textarea class="form-control" id="waInstructions" name="instructions" rows="5">{{ (assignment.instructions or '')|replace('</textarea', '&lt;/textarea')|safe }}</textarea>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label" for="waDeadline">Deadline</label>
+            <input class="form-control" type="date" id="waDeadline" name="deadline" value="{{ assignment.deadline.strftime('%Y-%m-%d') if assignment.deadline else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="waMarks">Marks out of</label>
+            <input class="form-control" type="number" id="waMarks" name="marks_out_of" min="1" max="100" value="{{ assignment.marks_out_of or 10 }}">
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="is_active" id="waActive" value="1" {% if assignment.is_active %}checked{% endif %}>
+              <label class="form-check-label" for="waActive">Active</label>
+            </div>
+          </div>
+        </div>
+        <fieldset class="mt-3">
+          <legend class="form-label mb-2">Copy / paste</legend>
+          {% set mode = assignment.paste_mode() %}
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="paste_mode" id="pasteOff" value="disabled" {% if mode == 'disabled' %}checked{% endif %}>
+            <label class="form-check-label" for="pasteOff">Off</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="paste_mode" id="pasteLimited" value="limited" {% if mode == 'limited' %}checked{% endif %}>
+            <label class="form-check-label" for="pasteLimited">Limited</label>
+          </div>
+          <div class="row g-2 ms-4 mt-1 mb-2">
+            <div class="col-sm-6">
+              <input class="form-control form-control-sm" type="number" name="paste_max_words" min="1" max="5000" placeholder="Max words per paste" value="{{ assignment.paste_max_words or '' }}">
+            </div>
+            <div class="col-sm-6">
+              <input class="form-control form-control-sm" type="number" name="paste_max_events" min="1" max="100" placeholder="Max paste times" value="{{ assignment.paste_max_events or '' }}">
+            </div>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="paste_mode" id="pasteOn" value="unlimited" {% if mode == 'unlimited' %}checked{% endif %}>
+            <label class="form-check-label" for="pasteOn">On</label>
+          </div>
+        </fieldset>
+        <p class="small text-muted mt-2">Type stays {{ 'group' if assignment.mode == 'group' else 'individual' }}. Focus loss, screenshot hints, and AI-style prose update live below.</p>
+        <button class="btn btn-primary btn-sm" type="submit"><i class="far fa-floppy-disk me-1"></i>Save settings</button>
+      </form>
+  </div>
+
+  {% if assignment.mode == 'group' %}
+  <div class="wa-panel mb-4">
+      <h2 class="wa-section-title"><i class="fas fa-users"></i>Groups</h2>
+      <p class="small text-muted mb-1">Each member gets their own editor. You see who wrote which part.</p>
+      <p class="wa-hl-legend small text-muted mb-2">
+        <span class="hl-paste">Yellow = pasted</span>
+        <span class="hl-ai">Pink = AI-style</span>
+        <span>Heuristic only — not proof.</span>
+      </p>
+      {% if unassigned|length >= 2 %}
+      <form method="POST" action="{{ url_for('written_assignment.create_group', assignment_id=assignment.id) }}" class="mb-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label" for="groupName">Group name</label>
+            <input class="form-control" id="groupName" name="group_name" maxlength="120" placeholder="Group 1">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Members</label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for stu in unassigned %}
+              <label class="wa-check">
+                <input type="checkbox" name="student_ids" value="{{ stu.student_id }}">
+                {{ stu.name or stu.student_id }} <span class="text-muted">({{ stu.student_id }})</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-outline-primary btn-sm mt-2" type="submit">Create group</button>
+      </form>
+      {% elif not blocks %}
+      <p class="text-muted small">Add at least two students to the course before creating a group.</p>
+      {% endif %}
+
+      {% for block in blocks %}
+      <section class="wa-group" data-group="{{ block.id }}">
+        <div class="d-flex justify-content-between flex-wrap gap-2 align-items-center">
+          <h3 class="h6 mb-0">{{ block.name }}</h3>
+          <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('written_assignment.teacher_download', assignment_id=assignment.id, fmt='docx', scope='group', group_id=block.id) }}"><i class="fas fa-file-word me-1"></i>DOCX</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('written_assignment.teacher_download', assignment_id=assignment.id, fmt='pdf', scope='group', group_id=block.id) }}"><i class="fas fa-file-pdf me-1"></i>PDF</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('written_assignment.teacher_download', assignment_id=assignment.id, fmt='pdf', scope='group', group_id=block.id, marked=1) }}"><i class="fas fa-highlighter me-1"></i>PDF with marks</a>
+            <form method="POST" action="{{ url_for('written_assignment.delete_group', group_id=block.id) }}" onsubmit="return confirm('Delete this group and its writing?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-outline-danger btn-sm" type="submit"><i class="far fa-trash-can me-1"></i>Delete group</button>
+            </form>
+          </div>
+        </div>
+        {% if unassigned %}
+        <form method="POST" action="{{ url_for('written_assignment.add_member', group_id=block.id) }}" class="d-flex gap-2 mt-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <select class="form-select form-select-sm" name="student_id" required>
+            <option value="">Add a student…</option>
+            {% for stu in unassigned %}
+            <option value="{{ stu.student_id }}">{{ stu.name or stu.student_id }} ({{ stu.student_id }})</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-outline-primary btn-sm" type="submit">Add</button>
+        </form>
+        {% endif %}
+        {% set ordered = section_map.get(block.id) or [] %}
+        {% if ordered %}
+        <div class="wa-order-panel mt-3">
+          <div class="small fw-bold text-uppercase mb-2" style="color:#334155; letter-spacing:0.06em;"><i class="fas fa-list-ol me-1"></i>Section order</div>
+          {% for sec in ordered %}
+          <div class="wa-order-row">
+            <span class="wa-order-num">{{ sec.index }}</span>
+            <div class="flex-grow-1">
+              <strong class="small">{{ sec.title }}</strong>
+              <span class="text-muted small">— {{ sec.author_name }} ({{ sec.author_id }}) · {{ sec.word_count }} words</span>
+            </div>
+            <div class="wa-order-btns">
+              <form method="POST" action="{{ url_for('written_assignment.teacher_move_section', section_id=sec.id) }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="direction" value="up">
+                <button class="btn btn-outline-secondary btn-sm" type="submit" {% if loop.first %}disabled{% endif %} aria-label="Move up"><i class="fas fa-arrow-up"></i></button>
+              </form>
+              <form method="POST" action="{{ url_for('written_assignment.teacher_move_section', section_id=sec.id) }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="direction" value="down">
+                <button class="btn btn-outline-secondary btn-sm" type="submit" {% if loop.last %}disabled{% endif %} aria-label="Move down"><i class="fas fa-arrow-down"></i></button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <p class="wa-group-progress small text-muted mt-2" {% if block.submitted_count %}hidden{% endif %}>Member drafts stay visible. Evaluation opens after at least one member submits.</p>
+        <div class="wa-group-evaluate" {% if not block.submitted_count %}hidden{% endif %}>
+        {% set evaluation = block.evaluation %}
+        {% include 'written_assignment/_evaluation.html' %}
+        <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+          <button class="btn btn-sm btn-info text-white wa-ai-eval" type="button" data-url="{{ url_for('written_assignment.evaluate_group', group_id=block.id) }}">
+            <i class="fas fa-magic me-1"></i>{{ 'Regenerate AI evaluation' if block.evaluation else 'Evaluate group with AI' }}
+          </button>
+          <span class="small wa-ai-status text-muted"></span>
+        </div>
+        <p class="small text-muted mt-2 mb-1">Optional shared group mark. Each member still gets their own mark in their card below.</p>
+        <form method="POST" action="{{ url_for('written_assignment.mark_group', group_id=block.id) }}" class="row g-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="col-sm-3">
+            <input class="form-control form-control-sm wa-mark-input" name="teacher_mark" type="number" step="0.5" min="0" max="{{ assignment.marks_out_of }}" placeholder="Group / {{ assignment.marks_out_of }}" value="{{ block.teacher_mark if block.teacher_mark is not none else '' }}">
+          </div>
+          <div class="col-sm-7">
+            <input class="form-control form-control-sm" name="teacher_comment" maxlength="4000" placeholder="Shared group comment" value="{{ block.teacher_comment }}">
+          </div>
+          <div class="col-sm-2">
+            <button class="btn btn-sm btn-outline-primary w-100" type="submit">Save group</button>
+          </div>
+          {% if block.evaluation and block.evaluation.suggested_mark is not none %}
+          <div class="col-12">
+            <button class="btn btn-sm btn-outline-secondary wa-use-mark" type="button" data-mark="{{ block.evaluation.suggested_mark }}">Use suggested {{ block.evaluation.suggested_mark }}</button>
+          </div>
+          {% endif %}
+        </form>
+        </div>
+        <div class="wa-parts mt-3">
+          {% for row in block.rows %}
+          {% include 'written_assignment/_live_part.html' %}
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+  </div>
+  {% else %}
+  <div class="wa-section-title mt-4"><i class="fas fa-chart-line"></i>Student progress</div>
+  <p class="small text-muted mb-1">Drafts update every few seconds. Marks and AI evaluation open after a student submits.</p>
+  <p class="wa-hl-legend small text-muted mb-2">
+    <span class="hl-paste">Yellow = pasted</span>
+    <span class="hl-ai">Pink = AI-style</span>
+    <span>Heuristic only — not proof.</span>
+  </p>
+  <div class="wa-parts" id="waIndividualParts">
+    {% for row in rows %}
+    {% include 'written_assignment/_live_part.html' %}
+    {% endfor %}
+    {% if not rows %}
+    <p class="text-muted">No students are enrolled in this course yet.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% include 'written_assignment/_discussion.html' %}
+</div>
+{% include 'written_assignment/_theme.html' %}
+<style>
+.wa-manage { max-width: 1100px; }
+.wa-instructions { font-size: 0.95rem; }
+.wa-order-panel { background: #fff; border: 1px solid #eef0f4; border-radius: 12px; padding: 0.7rem 0.8rem; }
+.wa-order-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.3rem 0; border-top: 1px solid #f8fafc; }
+.wa-order-row:first-of-type { border-top: 0; }
+.wa-order-num {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  border: none;
+  background: var(--theme-gradient, linear-gradient(135deg, #667eea 0%, #764ba2 100%));
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+.wa-order-btns { display: flex; gap: 0.25rem; }
+.wa-order-btns .btn { padding: 0.15rem 0.45rem; }
+@media (max-width: 575.98px) {
+  .wa-manage .wa-group .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js" referrerpolicy="origin"></script>
+<script>
+(function() {
+  if (window.tinymce) {
+    tinymce.init({
+      selector: '#waInstructions',
+      height: 240,
+      menubar: false,
+      branding: false,
+      promotion: false,
+      plugins: 'lists link table autoresize code',
+      toolbar: 'undo redo | blocks | bold italic underline | bullist numlist | link table | removeformat',
+      content_style: "body { font-family: Kalpurush, Georgia, serif; font-size: 16px; }"
+    });
+  }
+  const form = document.getElementById('waSettingsForm');
+  if (form) form.addEventListener('submit', function() {
+    if (window.tinymce) tinymce.triggerSave();
+  });
+
+  const liveUrl = {{ live_url|tojson }};
+  const seen = {};
+
+  function badge(text, kind) {
+    return '<span class="badge wa-flag text-bg-' + kind + ' me-1">' + text + '</span>';
+  }
+
+  function paint(row) {
+    const root = document.querySelector('[data-live-key="' + row.key + '"]');
+    if (!root) return;
+    if (seen[row.key] === row.updated_at && root.dataset.ready === '1') return;
+    seen[row.key] = row.updated_at;
+    root.dataset.ready = '1';
+    const body = root.querySelector('.wa-live-body');
+    if (body) {
+      body.className = 'wa-live-body' + (row.hl_classes ? ' ' + row.hl_classes : '');
+      body.innerHTML = row.html || '';
+    }
+    const meta = root.querySelector('.wa-live-meta');
+    if (!meta) return;
+    const integrity = row.integrity || {};
+    let html = '';
+    html += badge((row.word_count || 0) + ' words', 'light');
+    html += badge(row.status === 'submitted' ? 'Submitted' : (row.status === 'draft' ? 'Draft' : 'Not started'), row.status === 'submitted' ? 'success' : 'secondary');
+    if (integrity.focus_loss_count) html += badge('Focus lost ' + integrity.focus_loss_count, 'warning');
+    if (integrity.screenshot_hint_count) html += badge('Screenshot hint ' + integrity.screenshot_hint_count, 'warning');
+    if (integrity.paste_events_used) html += badge('Paste ' + integrity.paste_events_used, 'info');
+    if (integrity.source_label && integrity.source && integrity.source !== 'typed') html += badge(integrity.source_label, 'info');
+    if (integrity.style_flag) html += badge('AI-style', 'danger');
+    if (row.updated_label) html += badge('Saved ' + row.updated_label, 'light');
+    meta.innerHTML = html;
+    root.dataset.status = row.status || '';
+    const submitted = row.status === 'submitted';
+    const progress = root.querySelector('.wa-progress-note');
+    const evaluate = root.querySelector('.wa-evaluate');
+    const reload = root.querySelector('.wa-eval-reload');
+    if (progress) progress.hidden = submitted;
+    if (evaluate) evaluate.hidden = !submitted;
+    if (reload) reload.hidden = !(submitted && !evaluate);
+  }
+
+  function syncGroups() {
+    document.querySelectorAll('.wa-group').forEach(function(section) {
+      const any = section.querySelector('.wa-part[data-status="submitted"]');
+      const box = section.querySelector('.wa-group-evaluate');
+      const note = section.querySelector('.wa-group-progress');
+      if (box) box.hidden = !any;
+      if (note) note.hidden = !!any;
+    });
+  }
+
+  function apply(data) {
+    (data.rows || []).forEach(paint);
+    (data.blocks || []).forEach(function(block) {
+      (block.rows || []).forEach(paint);
+    });
+    const state = document.getElementById('waOpenState');
+    if (state && typeof data.open === 'boolean') state.textContent = data.open ? 'Open' : 'Closed';
+    syncGroups();
+  }
+
+  document.addEventListener('click', async function(event) {
+    const useMark = event.target.closest('.wa-use-mark');
+    if (useMark) {
+      const form = useMark.closest('form');
+      const input = form && form.querySelector('.wa-mark-input, input[name="teacher_mark"]');
+      if (input) input.value = useMark.dataset.mark || '';
+      return;
+    }
+    const button = event.target.closest('.wa-ai-eval');
+    if (!button || !button.dataset.url) return;
+    const status = button.parentElement.querySelector('.wa-ai-status');
+    button.disabled = true;
+    if (status) status.textContent = 'Evaluating…';
+    try {
+      const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+      const csrf = window.getCsrfToken && window.getCsrfToken();
+      if (csrf) headers['X-CSRFToken'] = csrf;
+      const res = await fetch(button.dataset.url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: headers,
+        body: '{}'
+      });
+      const data = await res.json().catch(function() { return {}; });
+      if (!res.ok || !data.success) {
+        if (status) status.textContent = data.message || 'Evaluation failed.';
+        button.disabled = false;
+        return;
+      }
+      window.location.reload();
+    } catch (err) {
+      if (status) status.textContent = 'Evaluation failed.';
+      button.disabled = false;
+    }
+  });
+
+  async function poll() {
+    try {
+      const res = await fetch(liveUrl, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+      if (!res.ok) return;
+      apply(await res.json());
+    } catch (err) {}
+  }
+  poll();
+  setInterval(poll, 3000);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,655 @@
+{% extends "base.html" %}
+{% block title %}{{ case.title }} · Mock Trial{% endblock %}
+{% block mobile_title %}Case draft{% endblock %}
+
+{% block content %}
+{% include 'mock_trial_simulator/_theme.html' %}
+{% from 'mock_trial_simulator/_macros.html' import overview_card, step_head %}
+{% set p_prosec = petitions.prosecution %}
+{% set p_def = petitions.defence %}
+{% set witness_ids = case.witnesses|map(attribute='assigned_student_id')|list %}
+{% set w_assigned = witness_ids|select|list|length %}
+{% set quiz_n = quiz_pack.questions|length %}
+{% set home = url_for('mock_trial_simulator.teacher_case', case_id=case.id) %}
+<div class="container my-3 my-md-4 mts-shell{% if panel %} is-inside{% endif %}">
+  <div class="mts-actions mb-3">
+    {% if panel %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ home }}">
+      <i class="fas fa-th-large me-1"></i>All cards
+    </a>
+    {% else %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ dashboard_url }}">
+      <i class="fas fa-arrow-left me-1"></i>{{ course_label }}
+    </a>
+    {% endif %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('mock_trial_simulator.student_case', case_id=case.id) }}">
+      Preview student view
+    </a>
+  </div>
+
+  <div class="mts-hero">
+    <i class="fas fa-scroll mts-hero-icon"></i>
+    <div class="mts-hero-eyebrow">Mock Trial Simulator · {{ case.case_type_label() }}</div>
+    <h1>{{ case.title }}</h1>
+    <p class="mts-hero-sub">Generate the pack, assign prosecution / defence / witnesses from this course, then publish. Each student sees only their side.</p>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <span class="mts-chip">{{ 'Published' if case.is_published() else 'Draft' }}</span>
+      <span class="mts-chip">{{ case.phase_label() }}</span>
+    </div>
+  </div>
+
+  {% if not panel %}
+  <nav class="mts-step-grid" aria-label="Case sections">
+    {{ overview_card(url_for('mock_trial_simulator.teacher_case', case_id=case.id, panel='settings'), 'sliders-h', 'Setup', 'Case settings', case.case_type_label(), case.current_phase == 1 and not case.is_published()) }}
+    {{ overview_card(url_for('mock_trial_simulator.teacher_case', case_id=case.id, panel='pack'), 'magic', 'Pack', 'Case pack', (case.witnesses|length)|string ~ ' witnesses · ' ~ (case.exhibits|length)|string ~ ' exhibits', case.current_phase == 1) }}
+    {{ overview_card(url_for('mock_trial_simulator.teacher_case', case_id=case.id, panel='cast'), 'users', 'Roles', 'Cast & teams', 'P ' ~ (prosec_ids|length) ~ ' · D ' ~ (defence_ids|length) ~ ' · W ' ~ w_assigned) }}
+    {% if case.is_published() %}
+      {{ overview_card(url_for('mock_trial_simulator.teacher_case', case_id=case.id, panel='gateway'), 'door-open', 'Phase 2', 'Discovery gateway', (p_prosec.status if p_prosec else 'waiting') ~ ' / ' ~ (p_def.status if p_def else 'waiting'), case.current_phase == 2) }}
+    {% endif %}
+    {{ overview_card(url_for('mock_trial_simulator.teacher_case', case_id=case.id, panel='quiz'), 'question-circle', 'Phase 3', 'Quiz', (quiz_n|string) ~ ' question' ~ ('s' if quiz_n != 1 else ''), case.current_phase == 3) }}
+    {{ overview_card(url_for('mock_trial_simulator.teacher_case', case_id=case.id, panel='witnesses'), 'id-card', 'Hidden', 'Instruction cards', (case.witnesses|length)|string ~ ' cards') }}
+    {{ overview_card(url_for('mock_trial_simulator.teacher_case', case_id=case.id, panel='exhibits'), 'folder-open', 'Evidence', 'Exhibits', (case.exhibits|length)|string ~ ' items') }}
+    {{ overview_card(url_for('mock_trial_simulator.teacher_case', case_id=case.id, panel='papers'), 'file-pdf', 'PDF', 'Download papers', 'FIR · exhibits · witness list') }}
+  </nav>
+  {% endif %}
+
+  {% if panel == 'papers' %}
+  <section class="mts-step" id="mts-papers">
+    {{ step_head('file-pdf', 'PDF', 'Download papers') }}
+    <div class="mts-step-body">
+      <p class="text-muted small mb-3">PDF copies of the ওকালতনামা, FIR, exhibits, and witness list. Students only get the papers their role may see.</p>
+      <div class="mts-dl-row">
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='pack') }}"><i class="fas fa-file-pdf"></i>All papers</a>
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='factsheet') }}"><i class="fas fa-file-pdf"></i>Factsheet</a>
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='fir') }}"><i class="fas fa-file-pdf"></i>FIR</a>
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='accused') }}"><i class="fas fa-file-pdf"></i>Accused statement</a>
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='witnesses') }}"><i class="fas fa-file-pdf"></i>Witness list</a>
+        {% if case.exhibits %}
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='exhibits') }}"><i class="fas fa-file-pdf"></i>All exhibits</a>
+        {% endif %}
+        {% if petitions.prosecution and petitions.prosecution.draft_text %}
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.vakalatnama_pdf', case_id=case.id, side='prosecution') }}"><i class="fas fa-file-pdf"></i>Prosecution ওকালতনামা</a>
+        {% endif %}
+        {% if petitions.defence and petitions.defence.draft_text %}
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.vakalatnama_pdf', case_id=case.id, side='defence') }}"><i class="fas fa-file-pdf"></i>Defence ওকালতনামা</a>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if panel == 'gateway' and case.is_published() %}
+  <section class="mts-step" id="mts-gateway">
+    {{ step_head('door-open', 'Phase 2', 'Discovery gateway', 'both accepted' if p_prosec and p_prosec.status == 'accepted' and p_def and p_def.status == 'accepted' else 'waiting', 'mts-status-accepted' if p_prosec and p_prosec.status == 'accepted' and p_def and p_def.status == 'accepted' else '') }}
+    <div class="mts-step-body">
+      <p class="text-muted small mb-3">s.103 / s.207 applications are not used here. Both prosecution and defence must file a vakalatnama (ওকালতনামা). Accept both to open Phase 3.</p>
+      <div class="mts-side-grid">
+        <div class="mts-cast-col">
+          <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+            <h3 class="h6 mb-0">Prosecution ওকালতনামা</h3>
+            <div class="d-flex align-items-center gap-2">
+              {% if p_prosec and p_prosec.draft_text %}
+                <a class="mts-dl" href="{{ url_for('mock_trial_simulator.vakalatnama_pdf', case_id=case.id, side='prosecution') }}"><i class="fas fa-file-pdf"></i>PDF</a>
+              {% endif %}
+              {% if p_prosec %}
+                <span class="mts-status mts-status-{{ p_prosec.status }}">{{ p_prosec.status }}</span>
+              {% endif %}
+            </div>
+          </div>
+          {% if not p_prosec or not p_prosec.draft_text %}
+            <p class="text-muted small mb-0">Waiting for the prosecution team to submit their ওকালতনামা.</p>
+          {% else %}
+            <div class="mts-paper mb-3">{{ p_prosec.draft_text }}</div>
+            {% if p_prosec.teacher_note() %}
+              <p class="small mb-3"><strong>Your note:</strong> {{ p_prosec.teacher_note() }}</p>
+            {% endif %}
+            <form method="POST">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="panel" value="gateway">
+              <input type="hidden" name="petition_id" value="{{ p_prosec.id }}">
+              <label class="form-label" for="note_prosec">Note to students (optional)</label>
+              <textarea class="form-control mb-2" id="note_prosec" name="teacher_note" rows="2">{{ p_prosec.teacher_note() }}</textarea>
+              <div class="mts-actions">
+                <button class="btn btn-success" type="submit" name="action" value="accept_petition">Accept prosecution vakalatnama</button>
+                <button class="btn btn-outline-danger" type="submit" name="action" value="reject_petition">Return for revision</button>
+              </div>
+            </form>
+          {% endif %}
+        </div>
+        <div class="mts-cast-col">
+          <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+            <h3 class="h6 mb-0">Defence ওকালতনামা</h3>
+            <div class="d-flex align-items-center gap-2">
+              {% if p_def and p_def.draft_text %}
+                <a class="mts-dl" href="{{ url_for('mock_trial_simulator.vakalatnama_pdf', case_id=case.id, side='defence') }}"><i class="fas fa-file-pdf"></i>PDF</a>
+              {% endif %}
+              {% if p_def %}
+                <span class="mts-status mts-status-{{ p_def.status }}">{{ p_def.status }}</span>
+              {% endif %}
+            </div>
+          </div>
+          {% if not p_def or not p_def.draft_text %}
+            <p class="text-muted small mb-0">Waiting for the defence team to submit their ওকালতনামা.</p>
+          {% else %}
+            <div class="mts-paper mb-3">{{ p_def.draft_text }}</div>
+            {% if p_def.teacher_note() %}
+              <p class="small mb-3"><strong>Your note:</strong> {{ p_def.teacher_note() }}</p>
+            {% endif %}
+            <form method="POST">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="panel" value="gateway">
+              <input type="hidden" name="petition_id" value="{{ p_def.id }}">
+              <label class="form-label" for="note_def">Note to students (optional)</label>
+              <textarea class="form-control mb-2" id="note_def" name="teacher_note" rows="2">{{ p_def.teacher_note() }}</textarea>
+              <div class="mts-actions">
+                <button class="btn btn-success" type="submit" name="action" value="accept_petition">Accept defence vakalatnama</button>
+                <button class="btn btn-outline-danger" type="submit" name="action" value="reject_petition">Return for revision</button>
+              </div>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if panel == 'quiz' %}
+  <form method="POST" class="mb-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="panel" value="quiz">
+    <section class="mts-step" id="mts-quiz">
+      {{ step_head('question-circle', 'Phase 3', 'Quiz', (quiz_n|string) ~ ' Q') }}
+      <div class="mts-step-body">
+        <p class="text-muted small mb-3">প্রতিটি অপশনের পাশে <strong>সঠিক</strong> বেছে দিন — সেটাই গ্রেড হবে। স্টুডেন্ট জমা দেওয়ার পর শুধু সঠিক/ভুল দেখবে; ভুল হলে সঠিক অপশন দেখানো হয় না।</p>
+        <div class="row g-3 mb-3">
+          <div class="col-12">
+            <label class="form-label" for="quiz_brief">Topics / laws for AI (and your notes)</label>
+            <textarea class="form-control" id="quiz_brief" name="quiz_brief" rows="3" placeholder="যেমন: CrPC s.103 সার্চ সাক্ষী, Evidence Act s.27, Penal Code s.302 — প্রসিকিউশন ও ডিফেন্স উভয়ের জন্য">{{ quiz_pack.brief }}</textarea>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label" for="quiz_pass_score">Pass mark (%)</label>
+            <input class="form-control" id="quiz_pass_score" type="number" min="0" max="100" name="quiz_pass_score" value="{{ quiz_pack.pass_score }}">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label" for="quiz_witness_unlock_score">Default witness unlock (%)</label>
+            <input class="form-control" id="quiz_witness_unlock_score" type="number" min="0" max="100" name="quiz_witness_unlock_score" value="{{ quiz_pack.witness_unlock_score }}">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label" for="quiz_count">AI question count</label>
+            <input class="form-control" id="quiz_count" type="number" min="1" max="20" name="quiz_count" value="5">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label" for="quiz_gen_side">AI / new question side</label>
+            <select class="form-select" id="quiz_gen_side" name="quiz_gen_side">
+              <option value="both">Both teams</option>
+              <option value="prosecution">Prosecution only</option>
+              <option value="defence">Defence only</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <input type="hidden" name="quiz_allow_retake_present" value="1">
+            <label class="mts-student-check mb-0">
+              <input class="form-check-input" type="checkbox" name="quiz_allow_retake" value="1"{% if quiz_pack.allow_retake %} checked{% endif %}>
+              <span>স্টুডেন্ট আবার চেষ্টা করতে পারবে</span>
+            </label>
+          </div>
+          <div class="col-12">
+            <label class="mts-student-check mb-0">
+              <input class="form-check-input" type="checkbox" name="quiz_replace" value="1">
+              <span>Replace existing on AI generate</span>
+            </label>
+          </div>
+        </div>
+        <div class="mts-actions mb-3">
+          <button class="btn btn-teal btn-primary" type="submit" name="action" value="generate_quiz">
+            <i class="fas fa-magic me-1"></i>Generate with AI
+          </button>
+          <button class="btn btn-outline-primary" type="submit" name="action" value="add_quiz_question">
+            <i class="fas fa-plus me-1"></i>Add blank question
+          </button>
+          <button class="btn btn-outline-secondary" type="submit" name="action" value="save_quiz">
+            <i class="fas fa-save me-1"></i>Save quiz
+          </button>
+        </div>
+        {% if not quiz_pack.questions %}
+          <p class="text-muted mb-0">No questions yet. Add one manually or generate from the prompt above.</p>
+        {% endif %}
+        {% for q in quiz_pack.questions %}
+          {% set ns = namespace(ans_idx=1) %}
+          {% for choice in q.choices %}
+            {% if choice and q.answer_label and choice == q.answer_label %}
+              {% set ns.ans_idx = loop.index %}
+            {% endif %}
+          {% endfor %}
+          <input type="hidden" name="quiz_id" value="{{ q.id }}">
+          <div class="mts-q-card">
+            <div class="d-flex justify-content-between gap-2 mb-2">
+              <h3 class="h6 mb-0">Question {{ loop.index }}</h3>
+              <label class="form-check small mb-0">
+                <input class="form-check-input" type="checkbox" name="quiz_{{ q.id }}_delete" value="1">
+                <span class="form-check-label">Delete</span>
+              </label>
+            </div>
+            <div class="mb-2">
+              <label class="form-label" for="quiz_{{ q.id }}_prompt">Prompt</label>
+              <textarea class="form-control" id="quiz_{{ q.id }}_prompt" name="quiz_{{ q.id }}_prompt" rows="2">{{ q.prompt }}</textarea>
+            </div>
+            <div class="row g-2 mb-2">
+              {% for choice in q.choices %}
+              <div class="col-md-6">
+                <label class="form-label" for="quiz_{{ q.id }}_c{{ loop.index }}">Choice {{ loop.index }}</label>
+                <div class="mts-choice-edit{% if loop.index == ns.ans_idx %} is-correct{% endif %}">
+                  <input class="form-control" id="quiz_{{ q.id }}_c{{ loop.index }}" name="quiz_{{ q.id }}_c{{ loop.index }}" value="{{ choice }}">
+                  <label class="mts-correct-pick" for="quiz_{{ q.id }}_ans_{{ loop.index }}">
+                    <input type="radio" id="quiz_{{ q.id }}_ans_{{ loop.index }}" name="quiz_{{ q.id }}_answer_index" value="{{ loop.index }}" {% if loop.index == ns.ans_idx %}checked{% endif %} required>
+                    <span>সঠিক</span>
+                  </label>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label" for="quiz_{{ q.id }}_side">Shown to</label>
+                <select class="form-select" id="quiz_{{ q.id }}_side" name="quiz_{{ q.id }}_side">
+                  <option value="both" {% if q.side == 'both' %}selected{% endif %}>Both teams</option>
+                  <option value="prosecution" {% if q.side == 'prosecution' %}selected{% endif %}>Prosecution only</option>
+                  <option value="defence" {% if q.side == 'defence' %}selected{% endif %}>Defence only</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  </form>
+  {% endif %}
+
+  {% if panel == 'cast' %}
+  <form method="POST" class="mb-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="assign">
+    <input type="hidden" name="panel" value="cast">
+    <section class="mts-step" id="mts-cast">
+      {{ step_head('users', 'Roles', 'Cast & teams', 'P ' ~ (prosec_ids|length) ~ ' · D ' ~ (defence_ids|length) ~ ' · W ' ~ w_assigned) }}
+      <div class="mts-step-body">
+        <p class="text-muted small mb-2">One student, one role. P = prosecution (FIR), D = defence (accused), W = witness card.</p>
+        {% if not roster %}
+          <p class="text-muted mb-0">No students in this class session yet. Add them in Class Management first.</p>
+        {% else %}
+          {% set witness_ids = case.witnesses|map(attribute='assigned_student_id')|list %}
+          <div class="mts-cast-summary">
+            <span class="mts-role mts-role-prosecution">P {{ prosec_ids|length }}</span>
+            <span class="mts-role mts-role-defence">D {{ defence_ids|length }}</span>
+            <span class="mts-role mts-role-witness">W {{ witness_ids|select|list|length }}</span>
+            <span class="mts-role mts-role-none">{{ roster|length }} in class</span>
+          </div>
+          <div class="mts-cast-grid mb-3">
+            <div>
+              <h3 class="h6 mb-2">Counsel</h3>
+              <div class="mts-cast-scroll">
+                {% for stu in roster %}
+                  {% set is_w = stu.student_id in witness_ids %}
+                  <div class="mts-cast-row">
+                    <div class="mts-cast-name">{{ stu.name or stu.student_id }}{% if stu.name and stu.student_id and stu.name != stu.student_id %} <span class="mts-cast-id">{{ stu.student_id }}</span>{% endif %}</div>
+                    <div class="mts-seg" role="group" aria-label="Role for {{ stu.student_id }}">
+                      {% if is_w %}
+                        <label class="mts-seg-w">W</label>
+                      {% else %}
+                        <label class="mts-seg-off"><input type="radio" name="cast_{{ stu.student_id }}" value="" {% if stu.student_id not in prosec_ids and stu.student_id not in defence_ids %}checked{% endif %}>—</label>
+                        <label class="mts-seg-p"><input type="radio" name="cast_{{ stu.student_id }}" value="prosecution" {% if stu.student_id in prosec_ids %}checked{% endif %}>P</label>
+                        <label class="mts-seg-d"><input type="radio" name="cast_{{ stu.student_id }}" value="defence" {% if stu.student_id in defence_ids %}checked{% endif %}>D</label>
+                      {% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+            <div>
+              <h3 class="h6 mb-2">Witness players</h3>
+              {% if not case.witnesses %}
+                <p class="text-muted small mb-0">Add witnesses from Instruction cards, or generate the AI pack, then pick who plays each one.</p>
+              {% else %}
+                {% for witness in case.witnesses %}
+                <div class="mts-wit-row">
+                  <div class="mts-wit-name">{{ witness.name }} <small>{{ witness.side_label() }} · {{ witness.role_label() }}</small></div>
+                  <select class="form-select form-select-sm" name="witness_{{ witness.id }}">
+                    <option value="">— Free —</option>
+                    {% for stu in roster %}
+                      <option value="{{ stu.student_id }}" {% if witness.assigned_student_id == stu.student_id %}selected{% endif %}>{{ roster_label(stu) }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% endfor %}
+              {% endif %}
+            </div>
+          </div>
+          <button class="btn btn-teal btn-primary w-100" type="submit">
+            <i class="fas fa-user-check me-1"></i>Save assignments
+          </button>
+        {% endif %}
+      </div>
+    </section>
+  </form>
+  {% endif %}
+
+  {% if panel in ('pack', 'settings', 'witnesses', 'exhibits') %}
+  <form method="POST" class="mb-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="panel" value="{{ panel }}">
+    {% if panel == 'pack' %}
+    <section class="mts-step" id="mts-pack">
+      {{ step_head('magic', 'Pack', 'Case pack', (case.witnesses|length)|string ~ ' witnesses') }}
+      <div class="mts-step-body">
+        <p class="text-muted small mb-3">Generate or regenerate the AI pack, then save and publish when the papers look right.</p>
+        <div class="mts-actions">
+          <button class="btn btn-teal btn-primary" type="submit" name="action" value="generate">
+            <i class="fas fa-magic me-1"></i>{{ 'Regenerate AI pack' if case.witnesses else 'Generate AI pack' }}
+          </button>
+          <button class="btn btn-outline-primary" type="submit" name="action" value="save">
+            <i class="fas fa-save me-1"></i>Save draft
+          </button>
+          {% if case.is_published() %}
+            <button class="btn btn-outline-warning" type="submit" name="action" value="unpublish">Unpublish</button>
+          {% else %}
+            <button class="btn btn-success" type="submit" name="action" value="publish">
+              <i class="fas fa-bullhorn me-1"></i>Publish
+            </button>
+          {% endif %}
+          <button class="btn btn-outline-danger" type="submit" name="action" value="archive" onclick="return confirm('Archive this case?');">Archive</button>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if panel == 'settings' %}
+    <section class="mts-step" id="mts-settings">
+      {{ step_head('sliders-h', 'Setup', 'Case settings', 'Published' if case.is_published() else 'Draft', 'mts-status-accepted' if case.is_published() else 'mts-status-draft') }}
+      <div class="mts-step-body">
+        <div class="row g-3">
+          <div class="col-12 col-md-8">
+            <label class="form-label" for="title">Title</label>
+            <input class="form-control" id="title" name="title" value="{{ case.title }}" maxlength="300" required>
+          </div>
+          <div class="col-12 col-md-4">
+            <label class="form-label" for="case_type">Type</label>
+            <select class="form-select" id="case_type" name="case_type">
+              {% for key, label in case_types %}
+                <option value="{{ key }}" {% if case.case_type == key %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="prosecution_witness_count">Prosecution witnesses</label>
+            <input class="form-control" id="prosecution_witness_count" type="number" min="1" max="12" name="prosecution_witness_count" value="{{ case.prosecution_witness_count or '' }}" placeholder="Follow brief / default 3">
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="defence_witness_count">Defence witnesses</label>
+            <input class="form-control" id="defence_witness_count" type="number" min="1" max="12" name="defence_witness_count" value="{{ case.defence_witness_count or '' }}" placeholder="Follow brief / default 2">
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="extra_brief">Teacher brief (sent to AI)</label>
+            <textarea class="form-control" id="extra_brief" name="extra_brief" rows="3" placeholder="সাক্ষীর সংখ্যা, পক্ষ, এবং যে এক্সিবিট লাগবে তা এখানে লিখুন">{{ case.extra_brief or '' }}</textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if panel == 'pack' %}
+    <section class="mts-step" id="mts-factsheet">
+      {{ step_head('book', 'Facts', 'Master factsheet') }}
+      <div class="mts-step-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="date_time">Date / time</label>
+            <input class="form-control" id="date_time" name="date_time" value="{{ sheet.date_time or '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="place">Place</label>
+            <input class="form-control" id="place" name="place" value="{{ sheet.place or '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="incident_summary">Incident summary</label>
+            <textarea class="form-control" id="incident_summary" name="incident_summary" rows="5">{{ sheet.incident_summary or '' }}</textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="legal_provisions">Legal provisions (one per line)</label>
+            <textarea class="form-control" id="legal_provisions" name="legal_provisions" rows="4">{{ (sheet.legal_provisions or [])|join('\n') }}</textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="facts">Key facts (one per line)</label>
+            <textarea class="form-control" id="facts" name="facts" rows="4">{{ (sheet.facts or [])|join('\n') }}</textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <section class="mts-step h-100 mb-0">
+          {{ step_head('file-alt', 'Prosecution', 'FIR (prosecution starting paper)') }}
+          <div class="mts-step-body">
+            <div class="mb-3">
+              <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='fir') }}"><i class="fas fa-file-pdf"></i>PDF</a>
+            </div>
+            <div class="mb-2">
+              <label class="form-label" for="fir_police_station">Police station</label>
+              <input class="form-control" id="fir_police_station" name="fir_police_station" value="{{ fir.police_station or '' }}">
+            </div>
+            <div class="mb-2">
+              <label class="form-label" for="fir_gd_entry">GD / FIR no.</label>
+              <input class="form-control" id="fir_gd_entry" name="fir_gd_entry" value="{{ fir.gd_entry or '' }}">
+            </div>
+            <label class="form-label" for="fir_narrative">Narrative</label>
+            <textarea class="form-control" id="fir_narrative" name="fir_narrative" rows="8">{{ fir.narrative or '' }}</textarea>
+          </div>
+        </section>
+      </div>
+      <div class="col-md-6">
+        <section class="mts-step h-100 mb-0">
+          {{ step_head('user-shield', 'Defence', 'Accused’s first statement (defence)') }}
+          <div class="mts-step-body">
+            <div class="mb-3">
+              <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='accused') }}"><i class="fas fa-file-pdf"></i>PDF</a>
+            </div>
+            <label class="form-label" for="accused_narrative">Narrative</label>
+            <textarea class="form-control" id="accused_narrative" name="accused_narrative" rows="12">{{ accused.narrative or '' }}</textarea>
+          </div>
+        </section>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if panel == 'witnesses' %}
+    <section class="mts-step" id="mts-witnesses">
+      {{ step_head('id-card', 'Hidden', 'Instruction cards', (case.witnesses|length)|string ~ ' cards') }}
+      <div class="mts-step-body">
+        <div class="mb-2">
+          <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='witnesses') }}"><i class="fas fa-file-pdf"></i>Witness list</a>
+        </div>
+        <p class="mts-hidden-note mb-3"><i class="fas fa-eye-slash me-1"></i>Hidden from students. Used in Phase 4 interviews and the physical trial.</p>
+        <div class="mts-q-card mb-3">
+          <h3 class="h6 mb-3">Add witness</h3>
+          <div class="row g-3">
+            <div class="col-12 col-md-4">
+              <label class="form-label" for="new_witness_name">Name</label>
+              <input class="form-control" id="new_witness_name" name="new_witness_name" maxlength="120" placeholder="e.g. Fatema Begum">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label" for="new_witness_role">Role</label>
+              <select class="form-select" id="new_witness_role" name="new_witness_role">
+                {% for key, label in witness_roles %}
+                  <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label" for="new_witness_called_by">Called by</label>
+              <select class="form-select" id="new_witness_called_by" name="new_witness_called_by">
+                <option value="prosecution">Prosecution</option>
+                <option value="defence">Defence</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-8">
+              <label class="form-label" for="new_witness_designation">Designation (optional)</label>
+              <input class="form-control" id="new_witness_designation" name="new_witness_designation" maxlength="200" placeholder="Neighbour, IO, forensic expert…">
+            </div>
+            <div class="col-12 col-md-4 d-flex align-items-end">
+              <button class="btn btn-teal w-100" type="submit" name="action" value="add_witness">
+                <i class="fas fa-plus me-1"></i>Add witness
+              </button>
+            </div>
+          </div>
+        </div>
+        {% if not case.witnesses %}
+          <p class="text-muted mb-0">No witnesses yet. Add one above, or generate the AI pack.</p>
+        {% endif %}
+        <div class="accordion" id="mtsWitnesses">
+          {% for witness in case.witnesses %}
+          {% set card = witness.card() %}
+          <div class="accordion-item">
+            <h3 class="accordion-header">
+              <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#w{{ witness.id }}">
+                {{ witness.name }} · {{ witness.side_label() }} · {{ witness.role_label() }}{% if witness.assigned_student_name %} · played by {{ witness.assigned_student_name }}{% endif %}
+              </button>
+            </h3>
+            <div id="w{{ witness.id }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" data-bs-parent="#mtsWitnesses">
+              <div class="accordion-body">
+                <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
+                  <a class="mts-dl" href="{{ url_for('mock_trial_simulator.witness_card_pdf', case_id=case.id, witness_id=witness.id) }}"><i class="fas fa-file-pdf"></i>Card PDF</a>
+                  <button class="btn btn-outline-danger btn-sm" type="submit" name="delete_witness_id" value="{{ witness.id }}" onclick="return confirm('Delete this witness?');">
+                    <i class="fas fa-trash-alt me-1"></i>Delete
+                  </button>
+                </div>
+                <div class="row g-3">
+                  <div class="col-md-4">
+                    <label class="form-label">Name</label>
+                    <input class="form-control" name="w{{ witness.id }}_name" value="{{ witness.name }}">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label">Called by</label>
+                    {% if witness.is_official_prosecution() %}
+                      <input type="hidden" name="w{{ witness.id }}_called_by" value="prosecution">
+                      <div class="form-control-plaintext">Prosecution <span class="text-muted">(always)</span></div>
+                    {% else %}
+                    <select class="form-select" name="w{{ witness.id }}_called_by">
+                      <option value="prosecution" {% if witness.called_by != 'defence' %}selected{% endif %}>Prosecution</option>
+                      <option value="defence" {% if witness.called_by == 'defence' %}selected{% endif %}>Defence</option>
+                    </select>
+                    {% endif %}
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label">Designation</label>
+                    <input class="form-control" name="w{{ witness.id }}_designation" value="{{ witness.designation or '' }}">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label">Unlock name + player ID at (%)</label>
+                    {% if witness.is_official_prosecution() %}
+                      <div class="form-control-plaintext">Not locked — prosecution can see this witness</div>
+                    {% else %}
+                    <input class="form-control" type="number" min="0" max="100" name="w{{ witness.id }}_unlock_min_score" value="{{ witness.unlock_min_score if witness.unlock_min_score is not none else 60 }}">
+                    {% endif %}
+                  </div>
+                  {% if witness.role == 'io' %}
+                    <div class="col-12"><label class="form-label">Investigation timeline &amp; seizure</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_timeline" rows="3">{{ card.timeline or '' }}</textarea></div>
+                    <div class="col-12"><label class="form-label">Seizure notes</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_seizure" rows="3">{{ card.seizure or '' }}</textarea></div>
+                    <div class="col-12"><label class="form-label">s.161 summaries</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_s161_summaries" rows="3">{{ card.s161_summaries or '' }}</textarea></div>
+                    <div class="col-12"><label class="form-label">Hidden truth / procedural flaws (CrPC 103 etc.)</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_procedural_flaws" rows="3">{{ card.procedural_flaws or '' }}</textarea></div>
+                  {% elif witness.role == 'expert' %}
+                    <div class="col-12"><label class="form-label">Professional experience</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_expertise" rows="3">{{ card.expertise or '' }}</textarea></div>
+                    <div class="col-12"><label class="form-label">Scientific findings (Evidence Act s.45)</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_findings" rows="3">{{ card.findings or '' }}</textarea></div>
+                    <div class="col-12"><label class="form-label">Hidden margin of error</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_margin_of_error" rows="3">{{ card.margin_of_error or '' }}</textarea></div>
+                  {% else %}
+                    <div class="col-12"><label class="form-label">1) Direct evidence</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_direct_evidence" rows="3">{{ card.direct_evidence or '' }}</textarea></div>
+                    <div class="col-12"><label class="form-label">2) s.161 statement (small inconsistencies)</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_section_161" rows="3">{{ card.section_161 or '' }}</textarea></div>
+                    <div class="col-12"><label class="form-label">3) Hidden truth</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_hidden_truth" rows="3">{{ card.hidden_truth or '' }}</textarea></div>
+                    <div class="col-12"><label class="form-label">4) Hearsay</label>
+                      <textarea class="form-control" name="w{{ witness.id }}_hearsay" rows="3">{{ card.hearsay or '' }}</textarea></div>
+                  {% endif %}
+                  <div class="col-12"><label class="form-label">Behavioural notes</label>
+                    <textarea class="form-control" name="w{{ witness.id }}_behaviour" rows="2">{{ card.behaviour or '' }}</textarea></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if panel == 'exhibits' %}
+    <section class="mts-step" id="mts-exhibits">
+      {{ step_head('folder-open', 'Evidence', 'Exhibits', (case.exhibits|length)|string ~ ' items') }}
+      <div class="mts-step-body">
+        {% if case.exhibits %}
+        <div class="mb-2">
+          <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='exhibits') }}"><i class="fas fa-file-pdf"></i>All PDF</a>
+        </div>
+        {% endif %}
+        <p class="mts-hidden-note mb-3"><i class="fas fa-eye-slash me-1"></i>You can review and edit these now. Students only unlock them in Phase 3, after the quiz score.</p>
+        {% if not case.exhibits %}
+          <p class="text-muted mb-0">Generate the AI pack to create seizure list, PM report, and case diary items.</p>
+        {% endif %}
+        {% for exhibit in case.exhibits %}
+          {% set ebody = exhibit.body() %}
+          <div class="mts-q-card">
+            <div class="d-flex justify-content-end mb-2">
+              <a class="mts-dl" href="{{ url_for('mock_trial_simulator.exhibit_pdf', case_id=case.id, exhibit_id=exhibit.id) }}"><i class="fas fa-file-pdf"></i>PDF</a>
+            </div>
+            <div class="row g-3">
+              <div class="col-12 col-md-6">
+                <label class="form-label">Title</label>
+                <input class="form-control" name="e{{ exhibit.id }}_title" value="{{ exhibit.title }}">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label">Type</label>
+                <input class="form-control" value="{{ exhibit.exhibit_key }}" disabled>
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label">Student unlock score (0–100)</label>
+                <input class="form-control" type="number" min="0" max="100" name="e{{ exhibit.id }}_unlock_min_score" value="{{ exhibit.unlock_min_score }}">
+              </div>
+              <div class="col-12">
+                <label class="form-label">Summary</label>
+                <textarea class="form-control" name="e{{ exhibit.id }}_summary" rows="2">{{ exhibit.summary or '' }}</textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label">Full text (teacher review)</label>
+                <textarea class="form-control" name="e{{ exhibit.id }}_body" rows="8">{{ ebody.body or '' }}</textarea>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    <div class="mts-sticky-actions">
+      <div class="mts-actions">
+        <button class="btn btn-outline-primary" type="submit" name="action" value="save">
+          <i class="fas fa-save me-1"></i>Save draft
+        </button>
+        {% if case.is_published() %}
+          <button class="btn btn-outline-warning" type="submit" name="action" value="unpublish">Unpublish</button>
+        {% else %}
+          <button class="btn btn-success" type="submit" name="action" value="publish">
+            <i class="fas fa-bullhorn me-1"></i>Publish
+          </button>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

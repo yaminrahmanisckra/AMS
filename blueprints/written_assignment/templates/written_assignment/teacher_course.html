@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Assignments · {{ course_label }}{% endblock %}
+{% block content %}
+<div class="container my-4 wa-shell">
+  <div class="mb-3">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.index') }}">
+      <i class="fas fa-arrow-left me-1"></i>Courses
+    </a>
+  </div>
+
+  <div class="wa-hero">
+    <i class="fas fa-pen-nib wa-hero-icon"></i>
+    <div class="wa-hero-eyebrow">{{ course_label }}</div>
+    <h1>Assignments</h1>
+    <p class="wa-hero-sub">Watch drafts grow live, discuss with the class, and evaluate with AI after submission.</p>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      <span class="wa-chip"><i class="fas fa-layer-group"></i>{{ assignments|length }} assignment{{ 's' if assignments|length != 1 else '' }}</span>
+    </div>
+  </div>
+
+  <div class="card wa-panel border-0 mb-4">
+    <h2 class="wa-section-title mb-0">
+      <button class="btn btn-link p-0 text-decoration-none wa-create-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#waCreateBody" aria-expanded="{{ 'false' if assignments else 'true' }}">
+        <i class="fas fa-plus-circle me-1"></i>New assignment
+        <i class="fas fa-chevron-down small ms-1"></i>
+      </button>
+    </h2>
+    <div class="collapse {{ '' if assignments else 'show' }} mt-2" id="waCreateBody">
+      <form method="POST" id="waCreateForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label" for="waTitle">Title</label>
+          <input class="form-control" id="waTitle" name="title" maxlength="300" required placeholder="Essay title">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="waInstructions">Instructions</label>
+          <textarea class="form-control" id="waInstructions" name="instructions" rows="6"></textarea>
+        </div>
+        <div class="row g-3">
+          <div class="col-12 col-md-4">
+            <label class="form-label" for="waMode">Type</label>
+            <select class="form-select" id="waMode" name="mode">
+              <option value="individual">Individual</option>
+              <option value="group">Group</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-4">
+            <label class="form-label" for="waDeadline">Deadline</label>
+            <input class="form-control" type="date" id="waDeadline" name="deadline">
+          </div>
+          <div class="col-6 col-md-4">
+            <label class="form-label" for="waMarks">Marks out of</label>
+            <input class="form-control" type="number" id="waMarks" name="marks_out_of" min="1" max="100" value="10">
+          </div>
+        </div>
+        <fieldset class="mt-3">
+          <legend class="form-label mb-2">Copy / paste</legend>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="paste_mode" id="pasteOff" value="disabled" checked>
+            <label class="form-check-label" for="pasteOff">Off — students must type</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="paste_mode" id="pasteLimited" value="limited">
+            <label class="form-check-label" for="pasteLimited">Limited</label>
+          </div>
+          <div class="row g-2 ms-4 mt-1 mb-2" id="pasteLimits">
+            <div class="col-sm-6">
+              <input class="form-control form-control-sm" type="number" name="paste_max_words" min="1" max="5000" placeholder="Max words per paste">
+            </div>
+            <div class="col-sm-6">
+              <input class="form-control form-control-sm" type="number" name="paste_max_events" min="1" max="100" placeholder="Max paste times">
+            </div>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="paste_mode" id="pasteOn" value="unlimited">
+            <label class="form-check-label" for="pasteOn">On — no limit</label>
+          </div>
+        </fieldset>
+        <p class="small text-muted mt-3 mb-3">Focus changes and screenshot shortcuts are recorded while a student is writing. Very fast bursts and AI-like prose are flagged for you, the same way Socrates does. Group assignments give each member their own editor.</p>
+        <button class="btn btn-primary" type="submit"><i class="fas fa-plus me-1"></i>Create assignment</button>
+      </form>
+    </div>
+  </div>
+
+  {% if assignments %}
+  <div class="row g-3">
+    {% for assignment in assignments %}
+    {% set dl = assignment.days_left() %}
+    <div class="col-12 col-md-6">
+      <a class="wa-card {{ 'wa-stripe-submitted' if assignment.is_open() else 'wa-stripe-closed' }}" href="{{ url_for('written_assignment.teacher_manage', assignment_id=assignment.id) }}">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <h2 class="h6 mb-2">{{ assignment.title }}</h2>
+          <span class="wa-badge {{ 'wa-badge-submitted' if assignment.is_open() else 'wa-badge-closed' }}">
+            <i class="fas {{ 'fa-door-open' if assignment.is_open() else 'fa-lock' }}"></i>{{ 'Open' if assignment.is_open() else 'Closed' }}
+          </span>
+        </div>
+        <div class="wa-card-foot d-flex flex-wrap gap-2">
+          <span><i class="fas {{ 'fa-users' if assignment.mode == 'group' else 'fa-user' }} me-1"></i>{{ 'Group' if assignment.mode == 'group' else 'Individual' }}</span>
+          <span><i class="fas fa-star me-1"></i>/{{ assignment.marks_out_of }}</span>
+          {% if dl is not none %}
+          <span class="{{ 'text-danger fw-semibold' if 0 <= dl <= 1 else '' }}">
+            <i class="far fa-clock me-1"></i>
+            {%- if dl < 0 %}Deadline passed
+            {%- elif dl == 0 %}Due today
+            {%- elif dl == 1 %}Due tomorrow
+            {%- else %}Due {{ assignment.deadline_label() }}{% endif %}
+          </span>
+          {% endif %}
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="wa-panel text-center py-4">
+    <i class="fas fa-feather-pointed fa-2x mb-3 text-secondary"></i>
+    <p class="mb-0 text-muted">No assignments for this course yet. Create the first one above.</p>
+  </div>
+  {% endif %}
+</div>
+{% include 'written_assignment/_theme.html' %}
+<style>
+.wa-create-toggle { color: #334155; font-weight: 700; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.wa-create-toggle:hover { color: #0f172a; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js" referrerpolicy="origin"></script>
+<script>
+(function() {
+  if (!window.tinymce) return;
+  let inited = false;
+  function initEditor() {
+    if (inited) return;
+    inited = true;
+    tinymce.init({
+      selector: '#waInstructions',
+      height: 280,
+      menubar: false,
+      branding: false,
+      promotion: false,
+      plugins: 'lists link table autoresize code',
+      toolbar: 'undo redo | blocks | bold italic underline | bullist numlist | link table | removeformat',
+      content_style: "body { font-family: Kalpurush, Georgia, serif; font-size: 16px; }"
+    });
+  }
+  const body = document.getElementById('waCreateBody');
+  if (body && body.classList.contains('show')) {
+    initEditor();
+  } else if (body) {
+    body.addEventListener('shown.bs.collapse', initEditor);
+  }
+  const form = document.getElementById('waCreateForm');
+  if (form) form.addEventListener('submit', function() {
+    if (window.tinymce) tinymce.triggerSave();
+  });
+})();
+</script>
+{% endblock %}

@@ -142,7 +142,14 @@ def _http_post_json(url, headers, body, timeout=120, provider=None):
     req = urllib.request.Request(url, data=data, headers=headers, method='POST')
     try:
         with _ai_opener().open(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode('utf-8'))
+            raw = resp.read().decode('utf-8', errors='replace')
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise AIClientError(
+                'AI API থেকে অবৈধ উত্তর এসেছে। আবার চেষ্টা করুন।',
+                retryable=True,
+            ) from exc
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode('utf-8', errors='replace')
         raise AIClientError(
@@ -275,6 +282,59 @@ def _normalize_gemini_model(model_name):
     return lowered
 
 
+def _gemini_safety_settings():
+    """Fictional classroom crime facts must not be blocked (law-school AMS)."""
+    categories = (
+        'HARM_CATEGORY_HARASSMENT',
+        'HARM_CATEGORY_HATE_SPEECH',
+        'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+        'HARM_CATEGORY_DANGEROUS_CONTENT',
+        'HARM_CATEGORY_CIVIC_INTEGRITY',
+    )
+    return [{'category': cat, 'threshold': 'BLOCK_NONE'} for cat in categories]
+
+
+def _gemini_refusal_message(response, candidate=None):
+    feedback = response.get('promptFeedback') or {}
+    if not isinstance(feedback, dict):
+        feedback = {}
+    block_reason = feedback.get('blockReason') or feedback.get('block_reason')
+    finish = ''
+    if isinstance(candidate, dict):
+        finish = candidate.get('finishReason') or candidate.get('finish_reason') or ''
+    finish = str(finish).upper()
+    if block_reason or finish == 'SAFETY':
+        return (
+            'Gemini এই শিক্ষামূলক মামলার খসড়া সেফটি ফিল্টারে আটকেছে। '
+            'আবার Generate চাপুন, অথবা Admin → AI Settings থেকে Claude/OpenAI বেছে নিন।'
+        )
+    if finish == 'MAX_TOKENS':
+        return 'AI-এর উত্তর অসম্পূর্ণ ছিল (টোকেন শেষ)। আবার Generate চাপুন।'
+    return None
+
+
+def extract_gemini_text(response):
+    """Pull text from a Gemini payload; never crash when safety returns content=null."""
+    response = response if isinstance(response, dict) else {}
+    candidates = response.get('candidates') or []
+    candidate = candidates[0] if candidates and isinstance(candidates[0], dict) else {}
+    refusal = _gemini_refusal_message(response, candidate or None)
+    if not candidate:
+        raise AIClientError(refusal or 'Gemini response missing candidates')
+    content = candidate.get('content')
+    if not isinstance(content, dict):
+        content = {}
+    parts = content.get('parts') or []
+    text = '\n'.join(
+        (part.get('text') or '')
+        for part in parts
+        if isinstance(part, dict)
+    ).strip()
+    if not text:
+        raise AIClientError(refusal or 'Gemini response missing text')
+    return text, _normalize_usage(response.get('usageMetadata') or {})
+
+
 def _call_gemini(cfg, system_prompt, user_prompt, timeout=120, json_mode=True, images=None, pdf_bytes=None):
     import base64
 
@@ -306,18 +366,11 @@ def _call_gemini(cfg, system_prompt, user_prompt, timeout=120, json_mode=True, i
         'systemInstruction': {'parts': [{'text': system_prompt}]},
         'contents': [{'role': 'user', 'parts': parts}],
         'generationConfig': generation_config,
+        'safetySettings': _gemini_safety_settings(),
     }
     headers = {'Content-Type': 'application/json'}
     response = _http_post_json(url, headers, body, timeout=timeout, provider='gemini')
-    candidates = response.get('candidates') or []
-    if not candidates:
-        raise AIClientError('Gemini response missing candidates')
-    parts = candidates[0].get('content', {}).get('parts', [])
-    text = '\n'.join(p.get('text', '') for p in parts if isinstance(p, dict))
-    if not text:
-        raise AIClientError('Gemini response missing text')
-    usage = _normalize_usage(response.get('usageMetadata') or {})
-    return text, usage
+    return extract_gemini_text(response)
 
 
 def _call_anthropic(cfg, system_prompt, user_prompt, timeout=120, images=None):
@@ -428,9 +481,11 @@ def _generate_with_retries(system_prompt, user_prompt, json_mode=True, max_token
     raise last_exc
 
 
-def generate_outline_json_with_meta(system_prompt, user_prompt, max_tokens=None):
+def generate_outline_json_with_meta(system_prompt, user_prompt, max_tokens=None, max_retries=None):
     """Call AI and return text plus provider/model/token usage."""
-    return _generate_with_retries(system_prompt, user_prompt, json_mode=True, max_tokens=max_tokens)
+    return _generate_with_retries(
+        system_prompt, user_prompt, json_mode=True, max_tokens=max_tokens, max_retries=max_retries,
+    )
 
 
 def generate_outline_json(system_prompt, user_prompt):

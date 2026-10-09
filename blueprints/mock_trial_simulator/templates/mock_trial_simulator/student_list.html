@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Mock Trial Simulator{% endblock %}
+{% block mobile_title %}Mock Trial{% endblock %}
+
+{% block content %}
+{% include 'mock_trial_simulator/_theme.html' %}
+<div class="container my-3 my-md-4 mts-shell">
+  <div class="mb-3">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ dashboard_url }}">
+      <i class="fas fa-arrow-left me-1"></i>Dashboard
+    </a>
+  </div>
+
+  <div class="mts-hero">
+    <i class="fas fa-balance-scale mts-hero-icon"></i>
+    <div class="mts-hero-eyebrow">Investigation online · Trial in class</div>
+    <h1>Mock Trial Simulator</h1>
+    <p class="mts-hero-sub">Open a published case. You will not see the other side’s papers — that is the point.</p>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <span class="mts-chip">{{ cards|length }} published case{{ 's' if cards|length != 1 else '' }}</span>
+    </div>
+  </div>
+
+  {% if not cards %}
+    <div class="card mts-panel">
+      <div class="card-body text-center py-5 text-muted">
+        <i class="fas fa-folder-open fa-2x mb-3"></i>
+        <p class="mb-0">No published mock trial in your enabled courses yet.</p>
+      </div>
+    </div>
+  {% else %}
+    <div class="row g-3">
+      {% for card in cards %}
+      <div class="col-12 col-md-6">
+        <a class="mts-card h-100" href="{{ url_for('mock_trial_simulator.student_case', case_id=card.case.id) }}">
+          <div class="small text-muted mb-1">{{ card.course_label }}</div>
+          <strong class="d-block mb-1">{{ card.case.title }}</strong>
+          <div class="small text-muted">{{ card.caption.case_type }}</div>
+          {% if card.role_label %}
+            <div class="mt-2"><span class="mts-role {% if card.role_label.startswith('Witness') %}mts-role-witness{% elif card.role_label == 'Defence' %}mts-role-defence{% else %}mts-role-prosecution{% endif %}">{{ card.role_label }}</span></div>
+          {% else %}
+            <div class="mt-2"><span class="mts-role mts-role-none">Not assigned yet</span></div>
+          {% endif %}
+          {% if card.caption.place %}
+            <div class="small mt-2">{{ card.caption.place }}</div>
+          {% endif %}
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

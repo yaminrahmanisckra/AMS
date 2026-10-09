@@ -494,6 +494,11 @@ class SocratesAssignment(db.Model):
     instructions = db.Column(db.Text, nullable=True)
     mode = db.Column(db.String(20), nullable=False, default=MODE_INDIVIDUAL)  # individual | group
     prompt_limit = db.Column(db.Integer, nullable=False, default=15)
+    prompt_seconds = db.Column(db.Integer, nullable=True)  # per-prompt time limit; null = none
+    prompt_timer_include_first = db.Column(db.Boolean, nullable=False, default=True)
+    paste_disabled = db.Column(db.Boolean, nullable=False, default=True)
+    paste_max_words = db.Column(db.Integer, nullable=True)  # per paste event
+    paste_max_events = db.Column(db.Integer, nullable=True)  # total pastes per conversation
     deadline = db.Column(db.DateTime, nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -509,6 +514,31 @@ class SocratesAssignment(db.Model):
         if self.deadline and datetime.utcnow().date() > self.deadline.date():
             return False
         return True
+
+    def effective_deadline(self, conversation=None):
+        """Inclusive calendar-day deadline; conversation override wins when set."""
+        if conversation is not None and getattr(conversation, 'deadline_override', None):
+            return conversation.deadline_override
+        return self.deadline
+
+    def conversation_is_open(self, conversation=None):
+        if not self.is_active:
+            return False
+        deadline = self.effective_deadline(conversation)
+        if deadline and datetime.utcnow().date() > deadline.date():
+            return False
+        return True
+
+    def has_prompt_timer(self):
+        return bool(self.prompt_seconds and int(self.prompt_seconds) > 0)
+
+    def paste_mode(self):
+        """disabled | limited | unlimited"""
+        if self.paste_disabled:
+            return 'disabled'
+        if self.paste_max_words or self.paste_max_events:
+            return 'limited'
+        return 'unlimited'
 
 
 class SocratesGroup(db.Model):
@@ -544,6 +574,12 @@ class SocratesConversation(db.Model):
     student_name = db.Column(db.String(100), nullable=True)
     prompts_used = db.Column(db.Integer, nullable=False, default=0)
     extra_prompts = db.Column(db.Integer, nullable=False, default=0)
+    focus_loss_count = db.Column(db.Integer, nullable=False, default=0)
+    screenshot_hint_count = db.Column(db.Integer, nullable=False, default=0)
+    paste_events_used = db.Column(db.Integer, nullable=False, default=0)
+    debate_started_at = db.Column(db.DateTime, nullable=True)
+    prompt_deadline_at = db.Column(db.DateTime, nullable=True)
+    deadline_override = db.Column(db.DateTime, nullable=True)
     status = db.Column(db.String(20), nullable=False, default=STATUS_IN_PROGRESS)
     ai_evaluation_json = db.Column(db.Text, nullable=True)
     teacher_mark = db.Column(db.Float, nullable=True)
@@ -578,6 +614,7 @@ class SocratesMessage(db.Model):
     __tablename__ = 'socrates_message'
     SENDER_STUDENT = 'student'
     SENDER_SOCRATES = 'socrates'
+    SENDER_SYSTEM = 'system'
 
     id = db.Column(db.Integer, primary_key=True)
     conversation_id = db.Column(db.Integer, db.ForeignKey('socrates_conversation.id'), nullable=False, index=True)
@@ -589,7 +626,7 @@ class SocratesMessage(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def input_signal(self):
-        """Paste/type signal for teacher review. None for Socrates replies or old rows."""
+        """Paste/type/style signal for teacher review. None for Socrates replies or old rows."""
         if self.sender != self.SENDER_STUDENT or not self.input_meta:
             return None
         try:
@@ -606,13 +643,59 @@ class SocratesMessage(db.Model):
             'burst': 'খুব দ্রুত ঢোকানো',
         }
         label = labels.get(source)
-        if not label:
+        style = data.get('style') if isinstance(data.get('style'), dict) else {}
+        style_flag = bool(style.get('flag'))
+        style_label = style.get('label') if style_flag else None
+        if not label and not style_flag:
             return None
         data = dict(data)
         data['source'] = source
         data['label'] = label
         data['flag'] = source in ('pasted', 'mixed', 'burst')
+        data['style_flag'] = style_flag
+        data['style_label'] = style_label
+        data['style_label_en'] = 'AI-style' if style_flag else None
+        data['style_score'] = style.get('score')
+        data['label_en'] = {
+            'typed': 'Typed',
+            'pasted': 'Pasted',
+            'mixed': 'Pasted + typed',
+            'burst': 'Entered very fast',
+        }.get(source)
+        data['paste_snippets'] = data.get('paste_snippets') if isinstance(data.get('paste_snippets'), list) else []
+        data['ai_snippets'] = data.get('ai_snippets') if isinstance(data.get('ai_snippets'), list) else []
         return data
+
+    def teacher_body_html(self):
+        """Escaped student text with paste/AI spans marked for teacher review."""
+        from utils.integrity_highlight import (
+            collect_ai_snippets,
+            highlight_integrity_plain,
+            parse_snippet_list,
+        )
+
+        signal = self.input_signal() or {}
+        paste = parse_snippet_list(signal.get('paste_snippets'))
+        ai = parse_snippet_list(signal.get('ai_snippets'))
+        if not ai and signal.get('style_flag'):
+            ai = collect_ai_snippets(self.body or '')
+        pasted = bool(signal.get('flag'))
+        return highlight_integrity_plain(
+            self.body or '',
+            paste_snippets=paste,
+            ai_snippets=ai,
+            whole_paste=pasted and not paste,
+            whole_ai=bool(signal.get('style_flag')) and not ai and not paste,
+        )
+
+    def teacher_body_classes(self):
+        from utils.integrity_highlight import block_classes
+
+        signal = self.input_signal() or {}
+        return block_classes(
+            pasted=bool(signal.get('flag')),
+            ai=bool(signal.get('style_flag')),
+        )
 
 
 def classify_socrates_input(body, raw=None):
@@ -643,7 +726,7 @@ def classify_socrates_input(body, raw=None):
         source = 'typed'
     else:
         source = 'unknown'
-    return {
+    result = {
         'source': source,
         'pasted_chars': pasted,
         'typed_chars': typed,
@@ -651,15 +734,179 @@ def classify_socrates_input(body, raw=None):
         'compose_ms': compose_ms,
         'length': length,
     }
+    result['style'] = estimate_socrates_ai_style(body)
+    return result
+
+
+def estimate_socrates_ai_style(body):
+    """Heuristic guess that text looks like generic AI prose. Not proof.
+
+    Returns score 0–100 and flag when score is high enough for teacher review.
+    """
+    import re
+
+    text = (body or '').strip()
+    if len(text) < 90:
+        return {'score': 0, 'flag': False, 'label': None, 'reasons': []}
+
+    lower = text.lower()
+    score = 0
+    reasons = []
+
+    stock_phrases = (
+        'furthermore', 'moreover', 'in conclusion', 'it is important to note',
+        'it is worth noting', "in today's world", 'plays a crucial role',
+        'multifaceted', 'delve into', 'landscape of', 'aforementioned',
+        'it can be argued that', 'from a broader perspective', 'underscores the',
+        'pivotal role', 'comprehensive understanding', 'intricate',
+        'in this regard', 'to summarize', 'as previously mentioned',
+        'a double-edged sword', 'at the end of the day',
+        'এছাড়াও উল্লেখযোগ্য', 'উপসংহারে বলা যায়', 'এটি অত্যন্ত গুরুত্বপূর্ণ',
+    )
+    hits = [p for p in stock_phrases if p in lower]
+    if hits:
+        score += min(42, 14 * len(hits))
+        reasons.append(f'stock:{len(hits)}')
+
+    sentences = [s.strip() for s in re.split(r'[.!?।]+', text) if len(s.strip()) > 8]
+    if len(sentences) >= 3:
+        lengths = [len(re.findall(r'\S+', s)) for s in sentences]
+        avg = sum(lengths) / len(lengths)
+        if avg >= 22:
+            score += 16
+            reasons.append('long_sentences')
+        if len(lengths) >= 4:
+            var = sum((x - avg) ** 2 for x in lengths) / len(lengths)
+            if var < 28 and avg >= 14:
+                score += 14
+                reasons.append('uniform_rhythm')
+
+    formal_marks = text.count('—') + text.count('–') + text.count(';')
+    if formal_marks >= 2:
+        score += 10
+        reasons.append('formal_punctuation')
+
+    words = re.findall(r"[A-Za-z']+", text)
+    if len(words) >= 55:
+        contractions = {
+            "don't", "can't", "won't", "isn't", "aren't", "it's", "i'm", "we're",
+            "they're", "that's", "there's", "wouldn't", "couldn't", "shouldn't",
+            "doesn't", "didn't", "haven't", "hasn't",
+        }
+        has_contraction = any(w.lower() in contractions for w in words)
+        if not has_contraction:
+            score += 10
+            reasons.append('no_contractions')
+
+    # Very tidy paragraphs with little informal voice
+    if len(text) >= 280 and text.count('\n\n') >= 1 and 'i think' not in lower and 'i feel' not in lower:
+        if lower.count(' however ') + lower.count(' therefore ') >= 2:
+            score += 8
+            reasons.append('essay_connectives')
+
+    score = max(0, min(100, int(score)))
+    flag = score >= 36
+    return {
+        'score': score,
+        'flag': flag,
+        'label': 'এআই-স্টাইল সন্দেহ' if flag else None,
+        'reasons': reasons[:5],
+    }
 
 
 SOCRATES_AI_USE_WARNING = 'আপনি এআই ব্যবহার করছেন, ফলে কাঙ্ক্ষিত নম্বর নাও পেতে পারেন।'
+SOCRATES_NO_PASTE_MESSAGE = 'কপি-পেস্ট নিষিদ্ধ। নিজের ভাষায় টাইপ করুন।'
 
 
 def socrates_ai_use_warning(conversation):
-    """Student-facing warning text if any message looks pasted/burst. None otherwise."""
+    """Student-facing warning text if any message looks pasted/burst/AI-styled."""
     for msg in (conversation.messages or []):
         signal = msg.input_signal()
-        if signal and signal.get('flag'):
+        if not signal:
+            continue
+        if signal.get('flag') or signal.get('style_flag'):
             return SOCRATES_AI_USE_WARNING
     return None
+
+
+def socrates_integrity_summary(conversation):
+    """Teacher-facing integrity counts for one conversation."""
+    style_flags = 0
+    paste_flags = 0
+    for msg in (conversation.messages or []):
+        signal = msg.input_signal() or {}
+        if signal.get('flag'):
+            paste_flags += 1
+        if signal.get('style_flag'):
+            style_flags += 1
+    return {
+        'focus_loss_count': int(conversation.focus_loss_count or 0),
+        'screenshot_hint_count': int(conversation.screenshot_hint_count or 0),
+        'paste_flag_count': paste_flags,
+        'style_flag_count': style_flags,
+    }
+
+
+def socrates_word_count(text):
+    """Count whitespace-separated tokens (Bangla/English friendly enough for paste quotas)."""
+    import re
+    return len(re.findall(r'\S+', text or ''))
+
+
+def build_socrates_auto_instructions(assignment):
+    """HTML bullets describing live timer/paste rules (not stored in TinyMCE)."""
+    from markupsafe import escape
+    items = []
+    seconds = int(assignment.prompt_seconds or 0)
+    if seconds > 0:
+        minutes = seconds // 60
+        rem = seconds % 60
+        if minutes and rem:
+            dur = f'{minutes} মিনিট {rem} সেকেন্ড'
+        elif minutes:
+            dur = f'{minutes} মিনিট'
+        else:
+            dur = f'{seconds} সেকেন্ড'
+        if assignment.prompt_timer_include_first:
+            items.append(
+                f'প্রতিটি প্রম্পট (প্রথমটিসহ) {escape(dur)}-এর মধ্যে দিতে হবে। '
+                f'সময় শেষ হলে লেখা থাকলে সেটাই পাঠানো হবে; কিছু না লিখলে প্রম্পট বাতিল হবে। '
+                f'সব প্রম্পট শেষ হলে ডিবেট অটো-জমা হবে।'
+            )
+        else:
+            items.append(
+                f'প্রথম প্রম্পটের পর প্রতিটি প্রম্পট {escape(dur)}-এর মধ্যে দিতে হবে। '
+                f'সময় শেষ হলে লেখা থাকলে সেটাই পাঠানো হবে; কিছু না লিখলে প্রম্পট বাতিল হবে। '
+                f'সব প্রম্পট শেষ হলে ডিবেট অটো-জমা হবে।'
+            )
+        items.append('নির্দেশনা একসেপ্ট করার আগে টাইমার চালু হবে না।')
+
+    mode = assignment.paste_mode()
+    if mode == 'disabled':
+        items.append('কপি-পেস্ট সম্পূর্ণ নিষিদ্ধ। নিজের ভাষায় টাইপ করুন।')
+    elif mode == 'limited':
+        bits = []
+        if assignment.paste_max_words:
+            bits.append(f'প্রতি পেস্টে সর্বোচ্চ {int(assignment.paste_max_words)} শব্দ')
+        if assignment.paste_max_events:
+            bits.append(f'মোট সর্বোচ্চ {int(assignment.paste_max_events)} বার পেস্ট')
+        if bits:
+            items.append('পেস্ট সীমা: ' + ' · '.join(bits) + '।')
+    else:
+        items.append('এই অ্যাসাইনমেন্টে পেস্ট অনুমোদিত (সীমা নেই)।')
+
+    if not items:
+        return ''
+    lis = ''.join(f'<li>{item}</li>' for item in items)
+    return (
+        '<div class="soc-auto-rules">'
+        '<p><strong>অটো নিয়ম (শিক্ষক সেটিংস)</strong></p>'
+        f'<ul>{lis}</ul>'
+        '</div>'
+    )
+
+
+def socrates_requires_start(assignment):
+    """Student must Accept instructions once before chatting (arms timer when configured)."""
+    return bool(assignment)
+

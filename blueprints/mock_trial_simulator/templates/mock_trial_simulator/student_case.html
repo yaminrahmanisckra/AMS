@@ -1,0 +1,419 @@
+{% extends "base.html" %}
+{% block title %}{{ case.title }} · Mock Trial{% endblock %}
+{% block mobile_title %}Case{% endblock %}
+
+{% block content %}
+{% include 'mock_trial_simulator/_theme.html' %}
+{% from 'mock_trial_simulator/_macros.html' import overview_card, step_head %}
+{% set home = url_for('mock_trial_simulator.student_case', case_id=case.id) %}
+<div class="container my-3 my-md-4 mts-shell{% if panel %} is-inside{% endif %}">
+  <div class="mb-3">
+    {% if panel %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ home }}">
+      <i class="fas fa-th-large me-1"></i>All cards
+    </a>
+    {% else %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ dashboard_url }}">
+      <i class="fas fa-arrow-left me-1"></i>Back
+    </a>
+    {% endif %}
+  </div>
+
+  <div class="mts-hero">
+    <i class="fas fa-landmark mts-hero-icon"></i>
+    <div class="mts-hero-eyebrow">{{ course_label }}</div>
+    <h1>{{ case.title }}</h1>
+    <p class="mts-hero-sub">{{ caption.case_type }}{% if caption.place %} · {{ caption.place }}{% endif %}{% if caption.date_time %} · {{ caption.date_time }}{% endif %}</p>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      {% if cast.label %}
+        <span class="mts-chip">{{ cast.label }}</span>
+      {% elif is_student %}
+        <span class="mts-chip">Waiting for a role</span>
+      {% else %}
+        <span class="mts-chip">Student preview (unassigned view)</span>
+      {% endif %}
+      <span class="mts-chip">{{ case.phase_label() }}</span>
+    </div>
+  </div>
+
+  {% if not panel %}
+  <nav class="mts-step-grid" aria-label="Trial phases">
+    {% for num, label in phase_labels.items() %}
+      {% set ns = namespace(key='wait') %}
+      {% if is_student and cast.kind == 'witness' %}
+        {% set ns.key = 'character' %}
+      {% elif is_student and cast.kind == 'counsel' %}
+        {% set ns.key = 'brief' if num == 1 else 'vakalat' if num == 2 else 'quiz' if num == 3 else 'interview' if num == 4 else 'trial' %}
+      {% endif %}
+      {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel=ns.key), 'landmark' if num == 5 else 'comments' if num == 4 else 'question-circle' if num == 3 else 'file-signature' if num == 2 else 'scroll', 'Phase ' ~ num, label, 'Now' if case.current_phase == num else ('Done' if case.current_phase > num else 'Later'), case.current_phase == num) }}
+    {% endfor %}
+    {% if is_student and cast.kind == 'counsel' %}
+      {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel='brief'), 'balance-scale', 'Your papers', 'Prosecution brief' if cast.side == 'prosecution' else 'Defence brief', 'FIR' if cast.side == 'prosecution' else 'Accused statement', false) }}
+      {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel='vakalat'), 'file-signature', 'Your work', 'ওকালতনামা', petition.status if petition else 'not started', phase == 2) }}
+      {% if phase >= 3 %}
+        {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel='quiz'), 'question-circle', 'Unlock', 'Quiz', (quiz_score|string) ~ '%' if quiz_score else 'not taken', phase == 3) }}
+      {% endif %}
+      {% if unlocked_witnesses or locked_witness_count %}
+        {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel='witnesses'), 'id-card', 'People', 'Witness list', (unlocked_witnesses|length)|string ~ ' unlocked') }}
+      {% endif %}
+      {% if unlocked_exhibits %}
+        {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel='exhibits'), 'folder-open', 'Evidence', 'Exhibits', (unlocked_exhibits|length)|string ~ ' items') }}
+      {% endif %}
+    {% elif is_student and cast.kind == 'witness' %}
+      {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel='character'), 'theater-masks', 'Your role', 'Instruction card', witness.name if witness else '', true) }}
+      {% if witness and witness.is_official_prosecution() %}
+        {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel='papers'), 'file-alt', 'Papers', 'Case documents', ((paper_rows|length)|string ~ ' template' ~ ('s' if paper_rows|length != 1 else '')) if paper_rows else 'ready for templates', true) }}
+      {% endif %}
+    {% elif is_student %}
+      {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel='wait'), 'user-clock', 'Waiting', 'Your role is not assigned yet', 'Only the public caption is open') }}
+    {% else %}
+      {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel='wait'), 'eye', 'Preview', 'Unassigned student view', 'Students see only their side') }}
+    {% endif %}
+  </nav>
+  {% endif %}
+  {% if is_student and cast.kind and not panel %}
+  <div class="mts-dl-row mb-3">
+    <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='pack') }}"><i class="fas fa-file-pdf"></i>My papers PDF</a>
+    {% if cast.kind == 'counsel' and cast.side == 'prosecution' %}
+      <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='fir') }}"><i class="fas fa-file-pdf"></i>FIR</a>
+    {% elif cast.kind == 'counsel' and cast.side == 'defence' %}
+      <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='accused') }}"><i class="fas fa-file-pdf"></i>Accused statement</a>
+    {% endif %}
+    {% if cast.kind == 'counsel' and petition and petition.draft_text and cast.side %}
+      <a class="mts-dl" href="{{ url_for('mock_trial_simulator.vakalatnama_pdf', case_id=case.id, side=cast.side) }}"><i class="fas fa-file-pdf"></i>ওকালতনামা</a>
+    {% endif %}
+    {% if unlocked_witnesses %}
+      <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='witnesses') }}"><i class="fas fa-file-pdf"></i>Witness list</a>
+    {% endif %}
+    {% if unlocked_exhibits %}
+      <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='exhibits') }}"><i class="fas fa-file-pdf"></i>Exhibits</a>
+    {% endif %}
+    {% if cast.kind == 'witness' and witness %}
+      <a class="mts-dl" href="{{ url_for('mock_trial_simulator.witness_card_pdf', case_id=case.id, witness_id=witness.id) }}"><i class="fas fa-file-pdf"></i>Instruction card</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if caption.legal_provisions and not panel %}
+  <section class="mts-step">
+    {{ step_head('gavel', 'Law', 'Provisions in issue') }}
+    <div class="mts-step-body">
+      <div class="d-flex flex-wrap gap-2">
+        {% for item in caption.legal_provisions %}
+          <span class="mts-role mts-role-none">{{ item }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if panel == 'wait' and not is_student %}
+  <section class="mts-step" id="mts-wait">
+    {{ step_head('eye', 'Preview', 'Unassigned student view') }}
+    <div class="mts-step-body">
+      <p class="mb-0">This is the unassigned student page. Assigned students see only their side’s papers — FIR, accused statement, or a witness card — never the master factsheet.</p>
+    </div>
+  </section>
+  {% elif panel == 'wait' and not cast.kind %}
+  <section class="mts-step" id="mts-wait">
+    {{ step_head('user-clock', 'Waiting', 'Your role is not assigned yet') }}
+    <div class="mts-step-body">
+      <p class="mb-0">Your teacher will place you on prosecution, defence, or as a witness. Until then you only see the public caption of the case.</p>
+    </div>
+  </section>
+  {% elif panel == 'brief' and cast.kind == 'counsel' and cast.side == 'prosecution' %}
+  <section class="mts-step" id="mts-brief">
+    {{ step_head('balance-scale', 'Your papers', 'Prosecution brief') }}
+    <div class="mts-step-body">
+      <div class="mb-2">
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='fir') }}"><i class="fas fa-file-pdf"></i>FIR PDF</a>
+      </div>
+      <p class="text-muted small mb-3">You receive only the FIR. The accused’s first statement and witness instruction cards stay hidden.</p>
+      {% if teammates %}
+        <p class="small mb-3"><strong>Your team:</strong> {{ teammates|join(', ') }}</p>
+      {% endif %}
+      <dl class="mts-meta-row">
+        <div class="mts-meta"><dt>Police station</dt><dd>{{ fir.police_station or '—' }}</dd></div>
+        <div class="mts-meta"><dt>GD / FIR no.</dt><dd>{{ fir.gd_entry or '—' }}</dd></div>
+      </dl>
+      <div class="mts-paper">{{ fir.narrative or 'FIR narrative has not been published yet.' }}</div>
+    </div>
+  </section>
+  {% elif panel == 'brief' and cast.kind == 'counsel' and cast.side == 'defence' %}
+  <section class="mts-step" id="mts-brief">
+    {{ step_head('user-shield', 'Your papers', 'Defence brief') }}
+    <div class="mts-step-body">
+      <div class="mb-2">
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='accused') }}"><i class="fas fa-file-pdf"></i>Statement PDF</a>
+      </div>
+      <p class="text-muted small mb-3">You receive only the accused’s first statement. The FIR and witness instruction cards stay hidden.</p>
+      {% if teammates %}
+        <p class="small mb-3"><strong>Your team:</strong> {{ teammates|join(', ') }}</p>
+      {% endif %}
+      <div class="mts-paper">{{ accused.narrative or 'The accused’s statement has not been published yet.' }}</div>
+    </div>
+  </section>
+  {% endif %}
+  {% if is_student and cast.kind == 'counsel' and panel == 'vakalat' %}
+    <section class="mts-step" id="mts-vakalat">
+      {{ step_head('file-signature', 'Your work', 'Your work — ওকালতনামা (Vakalatnama)', petition.status if petition else 'not started', 'mts-status-' ~ (petition.status if petition else 'draft')) }}
+      <div class="mts-step-body">
+        <div class="mb-2">
+          {% if petition and petition.draft_text and cast.side %}
+            <a class="mts-dl" href="{{ url_for('mock_trial_simulator.vakalatnama_pdf', case_id=case.id, side=cast.side) }}"><i class="fas fa-file-pdf"></i>PDF</a>
+          {% endif %}
+        </div>
+        <p class="text-muted small">Draft the vakalatnama authorizing your team to appear. Do not file a s.103 or s.207 application. Both prosecution and defence must submit this paper. Phase 3 opens after the teacher accepts both.</p>
+        {% if teacher_note %}
+          <div class="mts-hidden-note mb-3">Teacher: {{ teacher_note }}</div>
+        {% endif %}
+        <form method="POST">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="panel" value="vakalat">
+          <textarea class="form-control mb-3" name="draft_text" rows="8" placeholder="এখানে ওকালতনামা লিখুন…" {% if petition and petition.status == 'accepted' %}readonly{% endif %}>{{ petition.draft_text if petition else '' }}</textarea>
+          {% if not petition or petition.status != 'accepted' %}
+          <div class="mts-actions">
+            <button class="btn btn-outline-primary" type="submit" name="action" value="save_petition">Save draft</button>
+            <button class="btn btn-teal btn-primary" type="submit" name="action" value="submit_petition">Submit to teacher</button>
+          </div>
+          {% endif %}
+        </form>
+      </div>
+    </section>
+    {% if petition and petition.status == 'submitted' and phase < 3 %}
+    <section class="mts-step">
+      {{ step_head('hourglass-half', 'Gateway', 'Waiting for the teacher') }}
+      <div class="mts-step-body">
+        <p class="mb-0">Your vakalatnama is with the teacher. Phase 3 (quiz) opens after both sides’ ওকালতনামা are accepted.</p>
+      </div>
+    </section>
+    {% endif %}
+  {% endif %}
+  {% if is_student and cast.kind == 'counsel' and panel == 'quiz' %}
+    {% if phase >= 3 and not quiz and not quiz_passed %}
+    <section class="mts-step" id="mts-quiz">
+      {{ step_head('question-circle', 'Phase 3', 'Quiz') }}
+      <div class="mts-step-body">
+        <p class="mb-0">Your teacher has not published the quiz yet. Wait until they add questions.</p>
+      </div>
+    </section>
+    {% elif quiz %}
+    <section class="mts-step" id="mts-quiz">
+      {{ step_head('question-circle', 'Phase 3', 'Quiz', (quiz_score|string) ~ '%' if quiz_score else 'open') }}
+      <div class="mts-step-body">
+        <p class="text-muted small mb-3">পাস মার্ক {{ quiz_pass_score }}%। জমা দেওয়ার পর কোন প্রশ্ন সঠিক/ভুল তা দেখবেন। ভুল হলে সঠিক অপশন দেখানো হবে না।{% if quiz_allow_retake %} শিক্ষক আবার চেষ্টা করার অনুমতি দিয়েছেন।{% endif %}</p>
+        {% if quiz_attempted %}
+          <p class="small mb-3">Last score: {{ quiz_score }}%{% if quiz_passed %} · passed{% endif %}</p>
+        {% endif %}
+        {% if quiz_locked %}
+          <p class="mts-hidden-note mb-3">শিক্ষক আর চেষ্টা করার অনুমতি দেননি।</p>
+        {% endif %}
+        <form method="POST">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="panel" value="quiz">
+          {% for q in quiz %}
+            <fieldset class="mb-3" {% if quiz_locked %}disabled{% endif %}>
+              <legend class="h6">{{ loop.index }}. {{ q.prompt }}</legend>
+              {% for choice in q.choices %}
+                {% set picked = q.given and choice == q.given %}
+                <label class="mts-choice{% if picked and q.marked_correct == true %} is-ok{% elif picked and q.marked_correct == false %} is-bad{% endif %}" for="q_{{ q.id }}_{{ loop.index }}">
+                  <input type="radio" name="q_{{ q.id }}" id="q_{{ q.id }}_{{ loop.index }}" value="{{ choice }}" {% if picked %}checked{% endif %} {% if quiz_locked %}disabled{% endif %} {% if not quiz_locked %}required{% endif %}>
+                  <span>{{ choice }}</span>
+                  {% if picked and q.marked_correct == true %}
+                    <em class="mts-choice-mark ok">সঠিক</em>
+                  {% elif picked and q.marked_correct == false %}
+                    <em class="mts-choice-mark bad">ভুল</em>
+                  {% endif %}
+                </label>
+              {% endfor %}
+            </fieldset>
+          {% endfor %}
+          {% if not quiz_locked %}
+          <button class="btn btn-teal btn-primary w-100" type="submit" name="action" value="submit_quiz">{% if quiz_attempted %}Retake quiz{% else %}Submit quiz{% endif %}</button>
+          {% endif %}
+        </form>
+      </div>
+    </section>
+    {% else %}
+    <section class="mts-step" id="mts-quiz">
+      {{ step_head('question-circle', 'Phase 3', 'Quiz') }}
+      <div class="mts-step-body">
+        <p class="mb-0">Phase 3 opens after the teacher accepts both ওকালতনামা.</p>
+      </div>
+    </section>
+    {% endif %}
+  {% endif %}
+  {% if is_student and cast.kind == 'counsel' and panel == 'witnesses' %}
+    {% if unlocked_witnesses or locked_witness_count %}
+    <section class="mts-step" id="mts-witnesses">
+      {{ step_head('id-card', 'People', 'Witness list', (unlocked_witnesses|length)|string ~ ' open') }}
+      <div class="mts-step-body">
+        {% if unlocked_witnesses %}
+        <div class="mb-2">
+          <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='witnesses') }}"><i class="fas fa-file-pdf"></i>PDF</a>
+        </div>
+        {% endif %}
+        {% if unlocked_witnesses %}
+        <p class="text-muted small mb-3">Character name and the real student ID of the person playing them. Instruction cards stay hidden. IO and expert witnesses are prosecution witnesses and are not quiz-locked.</p>
+        {% for item in unlocked_witnesses %}
+          <div class="mts-id-card">
+            <div class="mts-id-name">{{ item.name }}{% if item.designation %} <span class="text-muted fw-normal">({{ item.designation }})</span>{% endif %}</div>
+            <div class="mts-id-sub">{{ item.side_label }} · {{ item.role_label }}</div>
+            <div class="mts-id-player">{{ item.player_name or '—' }}{% if item.player_id %} · {{ item.player_id }}{% else %} · Not assigned{% endif %}</div>
+          </div>
+        {% endfor %}
+        {% endif %}
+        {% if locked_witness_count %}
+        <p class="mb-0 {% if unlocked_witnesses %}mt-3{% endif %} text-muted">{{ locked_witness_count }} witness identit{{ 'ies' if locked_witness_count != 1 else 'y' }} still locked{% if next_witness_unlock %} — next unlock at {{ next_witness_unlock }}%{% endif %}.</p>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+  {% endif %}
+  {% if is_student and cast.kind == 'counsel' and panel == 'exhibits' %}
+    {% if unlocked_exhibits %}
+    <section class="mts-step" id="mts-exhibits">
+      {{ step_head('folder-open', 'Evidence', 'Exhibits', (unlocked_exhibits|length)|string ~ ' items') }}
+      <div class="mts-step-body">
+        <div class="mb-2">
+          <a class="mts-dl" href="{{ url_for('mock_trial_simulator.paper_pdf', case_id=case.id, kind='exhibits') }}"><i class="fas fa-file-pdf"></i>All PDF</a>
+        </div>
+        {% for exhibit in unlocked_exhibits %}
+          <div class="d-flex justify-content-between align-items-center gap-2 mt-3">
+            <h3 class="h6 mb-0">{{ exhibit.title }}</h3>
+            <a class="mts-dl" href="{{ url_for('mock_trial_simulator.exhibit_pdf', case_id=case.id, exhibit_id=exhibit.id) }}"><i class="fas fa-file-pdf"></i>PDF</a>
+          </div>
+          {% if exhibit.summary %}<p class="text-muted small">{{ exhibit.summary }}</p>{% endif %}
+          <div class="mts-paper mb-3">{{ exhibit.body().get('body') or exhibit.summary or '—' }}</div>
+        {% endfor %}
+      </div>
+    </section>
+    {% else %}
+    <section class="mts-step" id="mts-exhibits">
+      {{ step_head('folder-open', 'Evidence', 'Exhibits') }}
+      <div class="mts-step-body">
+        <p class="mb-0">Exhibits unlock after the Phase 3 quiz score.</p>
+      </div>
+    </section>
+    {% endif %}
+  {% endif %}
+  {% if panel in ('interview', 'trial') %}
+  <section class="mts-step">
+    {{ step_head('comments' if panel == 'interview' else 'landmark', 'Phase ' ~ ('4' if panel == 'interview' else '5'), 'Pre-trial interview' if panel == 'interview' else 'Case dossier & physical trial') }}
+    <div class="mts-step-body">
+      <p class="mb-0">This stage is not open yet. Work the earlier cards first.</p>
+    </div>
+  </section>
+  {% endif %}
+  {% if is_student and cast.kind == 'witness' and witness and witness.is_official_prosecution() and panel == 'papers' %}
+  <section class="mts-step" id="mts-papers">
+    {{ step_head('file-alt', 'Papers', 'Case documents') }}
+    <div class="mts-step-body">
+      <p class="text-muted small mb-3">IO ও বিশেষজ্ঞ সাক্ষী মামলার কাগজপত্র তৈরি করবেন। টেমপ্লেট এখানে খুলবে; খসড়া সেভ করা যাবে।</p>
+      {% if paper_rows %}
+        <nav class="mts-step-grid" aria-label="Paper templates">
+          {% for row in paper_rows %}
+            {{ overview_card(url_for('mock_trial_simulator.student_case', case_id=case.id, panel='paper', template=row.key), 'file-lines', row.status, row.title, row.description or row.status) }}
+          {% endfor %}
+        </nav>
+      {% else %}
+        <p class="mb-0">নথির টেমপ্লেট এখনো যোগ হয়নি। ব্যবস্থা প্রস্তুত আছে — টেমপ্লেট এলে এখানে দেখাবে।</p>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+  {% if is_student and cast.kind == 'witness' and witness and witness.is_official_prosecution() and panel == 'paper' %}
+  <section class="mts-step" id="mts-paper">
+    {% if paper_template %}
+      {{ step_head('file-lines', 'Paper', paper_template.title_bn or paper_template.title or paper_template.key, paper_record.status if paper_record else 'empty') }}
+      <div class="mts-step-body">
+        {% if paper_template.description %}
+          <p class="text-muted small mb-3">{{ paper_template.description }}</p>
+        {% endif %}
+        <form method="POST">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="panel" value="paper">
+          <input type="hidden" name="template_key" value="{{ paper_template.key }}">
+          {% for field in paper_fields %}
+            <label class="form-label" for="f_{{ field.key }}">{{ field.label }}</label>
+            {% if field.type == 'text' %}
+              <input class="form-control mb-3" id="f_{{ field.key }}" name="f_{{ field.key }}" value="{{ paper_values.get(field.key, '') }}">
+            {% else %}
+              <textarea class="form-control mb-3" id="f_{{ field.key }}" name="f_{{ field.key }}" rows="6">{{ paper_values.get(field.key, '') }}</textarea>
+            {% endif %}
+          {% endfor %}
+          <input type="hidden" name="action" value="save_witness_paper">
+          <div class="mts-actions">
+            <button class="btn btn-outline-primary" type="submit">Save draft</button>
+            <button class="btn btn-teal btn-primary" type="submit" name="submit_paper" value="1">Save paper</button>
+          </div>
+        </form>
+      </div>
+    {% else %}
+      {{ step_head('file-alt', 'Papers', 'Case documents') }}
+      <div class="mts-step-body">
+        <p class="mb-0">This template is not open yet.</p>
+      </div>
+    {% endif %}
+  </section>
+  {% endif %}
+  {% if panel == 'character' and cast.kind == 'witness' and witness %}
+  <section class="mts-step" id="mts-character">
+    {{ step_head('theater-masks', 'Your role', 'Your character — ' ~ witness.name) }}
+    <div class="mts-step-body">
+      <div class="mb-2">
+        <a class="mts-dl" href="{{ url_for('mock_trial_simulator.witness_card_pdf', case_id=case.id, witness_id=witness.id) }}"><i class="fas fa-file-pdf"></i>Card PDF</a>
+      </div>
+      <p class="mts-hidden-note mb-3"><i class="fas fa-eye-slash me-1"></i>This card is only for you. Do not show it to prosecution or defence. They must extract facts in interview and at trial.</p>
+      <dl class="mts-meta-row">
+        <div class="mts-meta"><dt>Called by</dt><dd>{{ witness.side_label() }}</dd></div>
+        <div class="mts-meta"><dt>Role</dt><dd>{{ witness.role_label() }}</dd></div>
+        {% if witness.designation %}
+        <div class="mts-meta"><dt>Designation</dt><dd>{{ witness.designation }}</dd></div>
+        {% endif %}
+      </dl>
+      {% if witness.role == 'io' %}
+        <h3 class="h6 mt-3">Investigation timeline</h3>
+        <div class="mts-paper mb-3">{{ witness_card.timeline or '—' }}</div>
+        <h3 class="h6">Seizure</h3>
+        <div class="mts-paper mb-3">{{ witness_card.seizure or '—' }}</div>
+        <h3 class="h6">s.161 summaries</h3>
+        <div class="mts-paper mb-3">{{ witness_card.s161_summaries or '—' }}</div>
+        <h3 class="h6">Hidden truth / procedural flaws</h3>
+        <div class="mts-paper mb-3">{{ witness_card.procedural_flaws or '—' }}</div>
+      {% elif witness.role == 'expert' %}
+        <h3 class="h6 mt-3">Professional experience</h3>
+        <div class="mts-paper mb-3">{{ witness_card.expertise or '—' }}</div>
+        <h3 class="h6">Scientific findings</h3>
+        <div class="mts-paper mb-3">{{ witness_card.findings or '—' }}</div>
+        <h3 class="h6">Hidden margin of error</h3>
+        <div class="mts-paper mb-3">{{ witness_card.margin_of_error or '—' }}</div>
+      {% else %}
+        <h3 class="h6 mt-3">1) Direct evidence</h3>
+        <div class="mts-paper mb-3">{{ witness_card.direct_evidence or '—' }}</div>
+        <h3 class="h6">2) s.161 statement</h3>
+        <div class="mts-paper mb-3">{{ witness_card.section_161 or '—' }}</div>
+        <h3 class="h6">3) Hidden truth (admit only if properly examined)</h3>
+        <div class="mts-paper mb-3">{{ witness_card.hidden_truth or '—' }}</div>
+        <h3 class="h6">4) Hearsay you may volunteer</h3>
+        <div class="mts-paper mb-3">{{ witness_card.hearsay or '—' }}</div>
+      {% endif %}
+      <h3 class="h6">Behaviour</h3>
+      <div class="mts-paper">{{ witness_card.behaviour or '—' }}</div>
+    </div>
+  </section>
+  <section class="mts-step" id="mts-notes">
+    {{ step_head('pen', 'Your work', 'Your work — prep notes') }}
+    <div class="mts-step-body">
+      <p class="text-muted small">Private notes for how you will answer in the classroom trial. Counsel cannot see this.</p>
+      <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="panel" value="character">
+        <textarea class="form-control mb-3" name="student_notes" rows="6" placeholder="How will you answer if they lead you? What will you volunteer?">{{ witness.student_notes or '' }}</textarea>
+        <button class="btn btn-teal btn-primary w-100" type="submit" name="action" value="save_witness_notes">Save notes</button>
+      </form>
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

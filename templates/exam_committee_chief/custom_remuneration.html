@@ -958,7 +958,7 @@
                 {% endif %}
             </tbody>
         </table>
-        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="autoLoadTeachersForTable('table_thesis_supervision', ['name', 'designation', 'text', 'text', 'text', 'text'], 'thesis_supervision')">Add Row</button>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addThesisSupervisionRow()">Add Row</button>
     </div>
     
     <!-- Section 13: Viva -->
@@ -4025,6 +4025,10 @@ function onTeacherNameChange(selectElement, tableType) {
     } else if (tableType === 'sessional_viva') {
         // Sessional Viva doesn't have designation field
         return;
+    } else if (tableType === 'invigilation') {
+        designationInput = row.querySelector('input[name="invigilation_designation[]"]');
+    } else if (tableType === 'thesis_supervision') {
+        designationInput = row.querySelector('input[name="thesis_supervision_designation[]"]');
     } else if (tableType === 'viva') {
         designationInput = row.querySelector('input[name="viva_designation[]"]');
         const institutionInput = row.querySelector('input[name="viva_institution[]"]');
@@ -4429,7 +4433,48 @@ function addRowWithNameDesignation(tableId, columnTypes, prefix) {
 }
 
 function autoLoadTeachersForTable(tableId, columnTypes, prefix) {
+    if (prefix === 'thesis_supervision' || tableId === 'table_thesis_supervision') {
+        addThesisSupervisionRow();
+        return;
+    }
     addRowWithNameDesignation(tableId, columnTypes, prefix);
+}
+
+function addThesisSupervisionRow(item) {
+    const tbody = document.querySelector('#table_thesis_supervision tbody');
+    if (!tbody) return;
+    const data = item || {};
+    const name = (data.name || '').trim();
+    const knownNames = (typeof teachersData !== 'undefined' ? teachersData : []).map(t => t.name);
+    const isCustom = name && !knownNames.includes(name);
+    const selectedName = isCustom ? '__CUSTOM__' : name;
+    const designation = data.designation || {{ tenant.institute_label|tojson }};
+    const examine = (data.examine != null && String(data.examine).trim() !== '') ? data.examine : '';
+    const supervision = (data.supervision != null && String(data.supervision).trim() !== '') ? data.supervision : '';
+    const coSupervision = (data.co_supervision != null && String(data.co_supervision).trim() !== '') ? data.co_supervision : '';
+    const viva = (data.viva != null && String(data.viva).trim() !== '') ? data.viva : '';
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td>
+            <select class="form-select form-select-sm teacher-name-select" name="thesis_supervision_name_select[]" onchange="onTeacherNameChange(this, 'thesis_supervision')">
+                <option value="">Select Teacher</option>
+                <option value="__CUSTOM__"${selectedName === '__CUSTOM__' ? ' selected' : ''}>Custom...</option>
+                ${(typeof teachersData !== 'undefined' ? teachersData : []).map(t =>
+                    `<option value="${t.name}"${t.name === selectedName ? ' selected' : ''}>${t.name}</option>`
+                ).join('')}
+            </select>
+            <input type="text" class="form-control form-control-sm mt-1 thesis-supervision-custom-name" name="thesis_supervision_name[]" value="${isCustom ? name.replace(/"/g, '&quot;') : ''}" placeholder="Enter custom name" style="display: ${isCustom ? 'block' : 'none'};">
+        </td>
+        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_designation[]" value="${String(designation).replace(/"/g, '&quot;')}" placeholder="{{ tenant.institute_label }}"></td>
+        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_examine[]" value="${String(examine).replace(/"/g, '&quot;')}"></td>
+        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_supervision[]" value="${String(supervision).replace(/"/g, '&quot;')}"></td>
+        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_co_supervision[]" value="${String(coSupervision).replace(/"/g, '&quot;')}"></td>
+        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_viva[]" value="${String(viva).replace(/"/g, '&quot;')}"></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(row);
+    return row;
 }
 
 function addTabulationRow() {
@@ -4961,15 +5006,35 @@ function collectFormData() {
     formData.thesis_supervision = [];
     document.querySelectorAll('#table_thesis_supervision tbody tr').forEach(row => {
         const nameSelect = row.querySelector('select[name="thesis_supervision_name_select[]"]');
-        const nameInput = row.querySelector('input.thesis-supervision-custom-name');
-        const name = (nameSelect?.value === '__CUSTOM__' && nameInput) ? nameInput.value : (nameSelect?.value || '');
+        const nameInput = row.querySelector('input.thesis-supervision-custom-name')
+            || row.querySelector('input[name="thesis_supervision_name[]"]');
+        const name = (nameSelect?.value === '__CUSTOM__' && nameInput)
+            ? (nameInput.value || '')
+            : (nameSelect?.value || '');
         const designation = row.querySelector('input[name="thesis_supervision_designation[]"]')?.value || '';
-        const examine = row.querySelector('input[name="thesis_supervision_examine[]"]')?.value || '-';
-        const supervision = row.querySelector('input[name="thesis_supervision_supervision[]"]')?.value || '-';
-        const co_supervision = row.querySelector('input[name="thesis_supervision_co_supervision[]"]')?.value || '-';
-        const viva = row.querySelector('input[name="thesis_supervision_viva[]"]')?.value || '-';
+        // Prefer correct field names; fall back to older broken Add Row names (chief/invigilation).
+        const textInputs = Array.from(row.querySelectorAll('td input[type="text"]'))
+            .filter(inp => !inp.classList.contains('thesis-supervision-custom-name')
+                && inp.name !== 'thesis_supervision_name[]'
+                && inp.name !== 'thesis_supervision_designation[]');
+        const examine = row.querySelector('input[name="thesis_supervision_examine[]"]')?.value
+            ?? row.querySelector('input[name="thesis_supervision_chief[]"]')?.value
+            ?? (textInputs[0]?.value || '');
+        const supervision = row.querySelector('input[name="thesis_supervision_supervision[]"]')?.value
+            ?? (textInputs[1]?.value || '');
+        const co_supervision = row.querySelector('input[name="thesis_supervision_co_supervision[]"]')?.value
+            ?? (textInputs[2]?.value || '');
+        const viva = row.querySelector('input[name="thesis_supervision_viva[]"]')?.value
+            ?? (textInputs[3]?.value || '');
         if (name || designation) {
-            formData.thesis_supervision.push({ name, designation, examine, supervision, co_supervision, viva });
+            formData.thesis_supervision.push({
+                name,
+                designation,
+                examine: (examine != null && String(examine).trim() !== '') ? examine : '-',
+                supervision: (supervision != null && String(supervision).trim() !== '') ? supervision : '-',
+                co_supervision: (co_supervision != null && String(co_supervision).trim() !== '') ? co_supervision : '-',
+                viva: (viva != null && String(viva).trim() !== '') ? viva : '-',
+            });
         }
     });
     
@@ -5729,6 +5794,63 @@ function populateTableData(data) {
                 });
                     updateTableCounts();
                 })();
+            }
+        }
+        
+        // Table 12: Thesis Supervision — restore name + examine/supervision/co/viva
+        if (data.thesis_supervision && Array.isArray(data.thesis_supervision)) {
+            console.log('📝 Populating Thesis Supervision table with', data.thesis_supervision.length, 'items');
+            const tbody = document.querySelector('#table_thesis_supervision tbody');
+            if (tbody) {
+                tbody.innerHTML = '';
+                if (data.thesis_supervision.length === 0) {
+                    addThesisSupervisionRow();
+                } else {
+                    data.thesis_supervision.forEach(item => addThesisSupervisionRow(item));
+                }
+            }
+        }
+
+        // Table 11: Invigilation
+        if (data.invigilation && Array.isArray(data.invigilation)) {
+            console.log('📝 Populating Invigilation table with', data.invigilation.length, 'items');
+            const tbody = document.querySelector('#table_invigilation tbody');
+            if (tbody) {
+                const items = data.invigilation;
+                const existingRows = Array.from(tbody.querySelectorAll('tr'));
+                while (existingRows.length < items.length) {
+                    autoLoadTeachersForTable('table_invigilation', ['name', 'designation', 'text', 'text'], 'invigilation');
+                    existingRows.push(tbody.querySelector('tr:last-child'));
+                }
+                items.forEach((item, index) => {
+                    const rows = Array.from(tbody.querySelectorAll('tr'));
+                    const row = rows[index];
+                    if (!row) return;
+                    const nameSelect = row.querySelector('select[name="invigilation_name_select[]"]');
+                    const nameInput = row.querySelector('input.invigilation-custom-name');
+                    if (nameSelect && item.name) {
+                        const opts = Array.from(nameSelect.options);
+                        let found = false;
+                        for (const opt of opts) {
+                            if (opt.value === item.name || opt.text === item.name) {
+                                nameSelect.value = opt.value;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found && nameInput) {
+                            nameSelect.value = '__CUSTOM__';
+                            nameInput.style.display = 'block';
+                            nameInput.value = item.name;
+                        }
+                    }
+                    const designationInput = row.querySelector('input[name="invigilation_designation[]"]');
+                    if (designationInput && item.designation != null) designationInput.value = item.designation;
+                    const chiefInput = row.querySelector('input[name="invigilation_chief[]"]');
+                    if (chiefInput && item.chief != null) chiefInput.value = item.chief;
+                    const invInput = row.querySelector('input[name="invigilation_invigilation[]"]');
+                    if (invInput && item.invigilation != null) invInput.value = item.invigilation;
+                });
             }
         }
         

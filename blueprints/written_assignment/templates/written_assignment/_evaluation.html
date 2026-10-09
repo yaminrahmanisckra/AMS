@@ -1,0 +1,34 @@
+{% if evaluation %}
+<div class="wa-ai-result border rounded p-2 mt-2 small">
+  {% set scores = evaluation.scores or {} %}
+  {% if scores %}
+  <table class="table table-sm table-bordered mb-2">
+    <tbody>
+      {% for key in ['argument', 'evidence', 'structure', 'clarity', 'relevance'] %}
+      {% if scores.get(key) is not none %}
+      <tr>
+        <th class="bg-light text-capitalize" style="width: 46%">{{ key }}</th>
+        <td>{{ scores.get(key) }}/10</td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+      {% if evaluation.suggested_mark is not none %}
+      <tr class="table-info">
+        <th>Suggested mark</th>
+        <td><strong>{{ evaluation.suggested_mark }} / {{ evaluation.marks_out_of or assignment.marks_out_of }}</strong></td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if evaluation.summary %}<p class="mb-2">{{ evaluation.summary }}</p>{% endif %}
+  {% if evaluation.strengths %}
+  <p class="mb-1"><strong>Strengths</strong></p>
+  <ul class="mb-2">{% for item in evaluation.strengths %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if evaluation.weaknesses %}
+  <p class="mb-1"><strong>Weaknesses</strong></p>
+  <ul class="mb-0">{% for item in evaluation.weaknesses %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+</div>
+{% endif %}

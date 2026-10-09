@@ -1,0 +1,23 @@
+{% macro overview_card(href, icon, kicker, title, meta='', current=false) -%}
+<a class="mts-step-link{% if current %} is-now{% endif %}" href="{{ href }}">
+  <span class="mts-step-ico" aria-hidden="true"><i class="fas fa-{{ icon }}"></i></span>
+  <span class="mts-step-copy">
+    <span class="mts-step-kicker">{{ kicker }}</span>
+    <span class="mts-step-title">{{ title }}</span>
+    {% if meta %}<span class="mts-step-meta">{{ meta }}</span>{% endif %}
+  </span>
+</a>
+{%- endmacro %}
+
+{% macro step_head(icon, kicker, title, status='', status_class='') -%}
+<div class="mts-step-head">
+  <span class="mts-step-ico" aria-hidden="true"><i class="fas fa-{{ icon }}"></i></span>
+  <div class="mts-step-copy">
+    <div class="mts-step-kicker">{{ kicker }}</div>
+    <h2 class="mts-step-title">{{ title }}</h2>
+  </div>
+  {% if status %}
+    <span class="mts-status{% if status_class %} {{ status_class }}{% endif %}">{{ status }}</span>
+  {% endif %}
+</div>
+{%- endmacro %}

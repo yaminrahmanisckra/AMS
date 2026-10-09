@@ -1,0 +1,282 @@
+<style>
+/* ===== Written Assignment design system ===== */
+.wa-shell { max-width: 1020px; }
+
+/* Hero banner */
+.wa-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  padding: 1.35rem 1.5rem;
+  color: #fff;
+  background: var(--theme-gradient, linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%));
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  margin-bottom: 1.25rem;
+}
+.wa-hero .wa-hero-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  margin-bottom: 0.15rem;
+}
+.wa-hero h1 { font-size: 1.45rem; font-weight: 700; margin-bottom: 0.3rem; }
+.wa-hero .wa-hero-sub { opacity: 0.92; font-size: 0.88rem; margin-bottom: 0; }
+.wa-hero .wa-hero-icon {
+  position: absolute;
+  right: -14px;
+  bottom: -22px;
+  font-size: 7rem;
+  opacity: 0.14;
+  transform: rotate(-12deg);
+  pointer-events: none;
+}
+.wa-hero .btn-light {
+  background: rgba(255, 255, 255, 0.92);
+  border: none;
+  color: #1e293b;
+  font-weight: 600;
+}
+
+/* Chips (inside hero and on cards) */
+.wa-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wa-chip i { font-size: 0.7rem; opacity: 0.9; }
+.wa-chip-urgent { background: rgba(255, 255, 255, 0.92); color: #b91c1c; border-color: transparent; }
+
+/* Stat tiles (student list) */
+.wa-stats { display: flex; gap: 0.7rem; flex-wrap: wrap; margin-top: 0.8rem; }
+.wa-stat {
+  flex: 1 1 100px;
+  min-width: 100px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 14px;
+  padding: 0.5rem 0.8rem;
+}
+.wa-stat .wa-stat-num { font-size: 1.25rem; font-weight: 700; line-height: 1.1; }
+.wa-stat .wa-stat-label { font-size: 0.72rem; opacity: 0.88; }
+
+/* Cards with status stripe */
+.wa-card {
+  --wa-stripe: #cbd5e1;
+  position: relative;
+  display: block;
+  height: 100%;
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 16px;
+  padding: 1rem 1.1rem 1rem 1.35rem;
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+.wa-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: var(--wa-stripe);
+}
+.wa-card:hover {
+  transform: translateY(-3px);
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+  color: inherit;
+}
+.wa-stripe-draft { --wa-stripe: #3b82f6; }
+.wa-stripe-submitted { --wa-stripe: #16a34a; }
+.wa-stripe-closed { --wa-stripe: #94a3b8; }
+.wa-stripe-waiting { --wa-stripe: #f59e0b; }
+.wa-stripe-new { --wa-stripe: #e2e8f0; }
+.wa-card .wa-card-foot { font-size: 0.8rem; color: #64748b; }
+
+/* Status badges */
+.wa-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.wa-badge-draft { background: #dbeafe; color: #1d4ed8; }
+.wa-badge-submitted { background: #dcfce7; color: #15803d; }
+.wa-badge-closed { background: #e2e8f0; color: #475569; }
+.wa-badge-waiting { background: #fef3c7; color: #b45309; }
+.wa-badge-new { background: #f1f5f9; color: #64748b; }
+
+/* Panels */
+.wa-panel {
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 16px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+.wa-panel summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #334155;
+}
+.wa-section-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #334155;
+  margin-bottom: 0.5rem;
+}
+.wa-section-title i { margin-right: 0.35rem; }
+
+/* Rich text display */
+.wa-rich table { border-collapse: collapse; width: 100%; }
+.wa-rich td, .wa-rich th { border: 1px solid #d1d5db; padding: 4px 6px; }
+.wa-rich p:last-child { margin-bottom: 0; }
+
+/* Avatars */
+.wa-avatar {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #fff;
+  background: var(--theme-gradient, linear-gradient(135deg, #667eea 0%, #764ba2 100%));
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+.wa-avatar-teacher { background: linear-gradient(135deg, #38bdf8, #1d4ed8); }
+
+/* Live part cards (teacher view) */
+.wa-part {
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 16px;
+  padding: 0.95rem 1.05rem;
+  margin-bottom: 0.85rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+.wa-live-body {
+  min-height: 3rem;
+  background: #fffbf5;
+  border: 1px dashed #fde9d2;
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  margin: 0.6rem 0;
+}
+.wa-live-body p:last-child { margin-bottom: 0; }
+.wa-live-body table { border-collapse: collapse; width: 100%; }
+.wa-live-body td, .wa-live-body th { border: 1px solid #d1d5db; padding: 4px 6px; }
+.wa-live-body sup.wa-fn-ref a, .wa-rich sup.wa-fn-ref a {
+  color: #1d4ed8;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.75em;
+}
+.wa-live-body hr.wa-fn-rule, .wa-rich hr.wa-fn-rule {
+  border: 0;
+  border-top: 1px solid #cbd5e1;
+  margin: 1rem 0 0.5rem;
+}
+.wa-live-body ol.wa-footnotes, .wa-rich ol.wa-footnotes {
+  font-size: 0.88rem;
+  color: #334155;
+  padding-left: 1.25rem;
+  margin-bottom: 0;
+}
+.wa-empty { color: #94a3b8; font-style: italic; }
+mark.hl-paste, .hl-paste { background: #fde68a; padding: 0 0.12em; }
+mark.hl-ai, .hl-ai { background: #f9a8d4; padding: 0 0.12em; }
+.hl-paste-block { background: #fef3c7; }
+.hl-ai-block { box-shadow: inset 0 0 0 2px #f9a8d4; }
+.wa-hl-legend { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
+.wa-hl-legend span { padding: 0.05rem 0.45rem; border-radius: 4px; font-size: 0.78rem; }
+.wa-flag { font-size: 0.72rem; }
+.wa-ai-result { background: #f0f9ff; border-color: #bae6fd !important; border-radius: 12px !important; }
+
+/* Group blocks */
+.wa-group {
+  border: 1px solid #eef0f4;
+  border-radius: 16px;
+  background: #fcfcfd;
+  padding: 1rem 1.1rem;
+  margin-top: 1rem;
+}
+.wa-check {
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.85rem;
+  background: #fff;
+  cursor: pointer;
+}
+.wa-check:has(input:checked) { border-color: #64748b; background: #f1f5f9; color: #1e293b; font-weight: 600; }
+
+/* Discussion thread */
+.wa-thread {
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.25rem 0.1rem;
+}
+.wa-post { display: flex; gap: 0.55rem; align-items: flex-start; }
+.wa-post .wa-bubble {
+  background: #f1f5f9;
+  border-radius: 4px 16px 16px 16px;
+  padding: 0.55rem 0.85rem;
+  max-width: 86%;
+}
+.wa-post .wa-bubble p { white-space: pre-wrap; margin-bottom: 0; }
+.wa-post .wa-bubble .wa-bubble-head { font-size: 0.74rem; color: #64748b; margin-bottom: 0.15rem; }
+.wa-post .wa-bubble .wa-bubble-head strong { color: #1e293b; }
+.wa-post-teacher .wa-bubble { background: #eff6ff; border: 1px solid #dbeafe; }
+
+/* Buttons + editor */
+.wa-btn-row { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+.tox-tinymce { border-radius: 14px !important; border-color: #eef0f4 !important; }
+
+/* Mobile */
+@media (max-width: 575.98px) {
+  .wa-hero { padding: 1.05rem 1rem; border-radius: 16px; }
+  .wa-hero h1 { font-size: 1.15rem; }
+  .wa-hero .wa-hero-icon { font-size: 5rem; }
+  .wa-chip { font-size: 0.7rem; padding: 0.24rem 0.55rem; }
+  .wa-panel, .wa-part, .wa-group { border-radius: 14px; padding: 0.85rem 0.9rem; }
+  .wa-btn-row .btn { flex: 1 1 auto; }
+  .wa-actions-sticky {
+    position: sticky;
+    bottom: 0.5rem;
+    z-index: 40;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid #f1f5f9;
+    border-radius: 14px;
+    padding: 0.55rem;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  }
+}
+</style>

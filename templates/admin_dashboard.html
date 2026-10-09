@@ -150,6 +150,7 @@
     .admin-dash .qi-ai { background: #d97706; }
     .admin-dash .qi-guide { background: #0e7490; }
     .admin-dash .qi-student { background: #7c3aed; }
+    .admin-dash .qi-teacher { background: #0d9488; }
     .admin-dash .qi-officer { background: #be185d; }
     .admin-dash .qi-rules { background: #c2410c; }
     .admin-dash .qi-disc { background: #0f766e; }
@@ -504,6 +505,20 @@
             <a href="{{ url_for('admin_student_dashboard_settings') }}" class="quick-link">
                 <span class="qi qi-student"><i class="fas fa-th-large"></i></span>
                 Student Cards
+            </a>
+        </div>
+        <div class="admin-sort-card" data-card="teacher">
+            <span class="card-drag-handle" draggable="true" title="Drag to rearrange"><i class="fas fa-grip-vertical"></i></span>
+            <a href="{{ url_for('admin_teacher_dashboard_settings') }}" class="quick-link">
+                <span class="qi qi-teacher"><i class="fas fa-chalkboard-teacher"></i></span>
+                Teacher Cards
+            </a>
+        </div>
+        <div class="admin-sort-card" data-card="mocktrial">
+            <span class="card-drag-handle" draggable="true" title="Drag to rearrange"><i class="fas fa-grip-vertical"></i></span>
+            <a href="{{ url_for('admin_mock_trial_courses') }}" class="quick-link">
+                <span class="qi qi-teacher"><i class="fas fa-balance-scale"></i></span>
+                Mock Trial Courses
             </a>
         </div>
         <div class="admin-sort-card" data-card="officer">
