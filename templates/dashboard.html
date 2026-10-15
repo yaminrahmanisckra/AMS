@@ -450,6 +450,30 @@ html {
             'show': is_head and not is_officer
         },
         {
+            'title': 'Exam Info',
+            'desc': 'Download question setter and evaluator lists for all exam committees.',
+            'icon': 'fas fa-clipboard-list',
+            'color_class': 'card-orange',
+            'url': url_for('officer_exam_info'),
+            'show': is_officer and not is_teaching_assistant and oc.get('exam_info', true)
+        },
+        {
+            'title': 'Course Registration',
+            'desc': 'View registrations for all years and terms and download PDFs (view only).',
+            'icon': 'fas fa-clipboard-check',
+            'color_class': 'card-cyan',
+            'url': url_for('course_management.coordinator_registrations'),
+            'show': is_officer and not is_teaching_assistant and oc.get('course_registration', true)
+        },
+        {
+            'title': 'Student List',
+            'desc': 'Download Excel and PDF student lists by batch.',
+            'icon': 'fas fa-user-graduate',
+            'color_class': 'card-red',
+            'url': url_for('officer_student_list'),
+            'show': is_officer and not is_teaching_assistant and oc.get('student_list', true)
+        },
+        {
             'title': 'Remuneration',
             'desc': 'Manage remuneration and payment information.',
             'icon': 'fas fa-money-bill-wave',
@@ -464,14 +488,6 @@ html {
             'color_class': 'card-indigo',
             'url': url_for('academic_calendar.index'),
             'show': (not is_officer) or oc.get('academic_calendar', true)
-        },
-        {
-            'title': 'Exam Info',
-            'desc': 'View and manage examination information and schedules.',
-            'icon': 'fas fa-clipboard-list',
-            'color_class': 'card-orange',
-            'url': url_for('officer_exam_info'),
-            'show': is_officer and not is_teaching_assistant and oc.get('exam_info', true)
         },
         {
             'title': 'Class Routine',

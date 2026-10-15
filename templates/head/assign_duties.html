@@ -172,11 +172,6 @@
                             <td>{{ assignment.created_at|bd('%Y-%m-%d') if assignment.created_at else '-' }}</td>
                             <td>
                                 <div class="d-flex gap-1">
-                                    {% if assignment.duty_type == 'exam_committee_chief' %}
-                                    <button class="btn btn-sm btn-warning" onclick="archiveExamCommittee({{ assignment.id }}, '{{ assignment.academic_session }}', '{{ assignment.year }}', '{{ assignment.term }}')" title="Archive this committee and all related data">
-                                        <i class="fas fa-archive me-1"></i>Archive
-                                    </button>
-                                    {% endif %}
                                     <button class="btn btn-sm btn-danger" onclick="removeAssignment({{ assignment.id }})">
                                         <i class="fas fa-trash me-1"></i>Remove
                                     </button>
@@ -197,6 +192,15 @@
 </div>
 
 <script>
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 const dutyTypeSelect = document.getElementById('duty_type');
 const teacherSelect = document.getElementById('teacher');
 const studentSelect = document.getElementById('student_id');
@@ -442,35 +446,6 @@ document.getElementById('assignDutyForm').addEventListener('submit', function(e)
         submitBtn.innerHTML = originalText;
     });
 });
-
-function archiveExamCommittee(assignmentId, session, year, term) {
-    if (!confirm(`Are you sure you want to archive this Exam Committee Chief assignment for ${session} - ${year} - ${term}?\n\nThis will archive:\n- Committee members\n- Assigned tabulators\n- Assigned scrutinizers\n- Remuneration forms\n\nAll archived data will be available in Exam Committee Archive.`)) {
-        return;
-    }
-    
-    fetch(`/head/assign-duties/api/archive-committee/${assignmentId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            academic_session: session,
-            year: year,
-            term: term
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert(data.message || 'Exam Committee archived successfully!');
-            location.reload();
-        } else {
-            alert(data.message || 'Failed to archive exam committee');
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Error archiving exam committee');
-    });
-}
 
 function removeAssignment(assignmentId) {
     if (!confirm('Are you sure you want to remove this duty assignment?')) {

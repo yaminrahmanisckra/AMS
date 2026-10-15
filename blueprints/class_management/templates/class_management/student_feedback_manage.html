@@ -132,6 +132,38 @@
           </div>
         </div>
         <div class="card-body">
+          {% if show_respondent_identity and (submitted_students or pending_students or feedback_responses) %}
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <h6 class="text-success mb-2">জমা দিয়েছেন ({{ submitted_students|length }})</h6>
+                {% if submitted_students %}
+                  <ul class="small mb-0 ps-3">
+                    {% for student in submitted_students %}
+                    <li>{{ student.student_id }} — {{ student.name }}</li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <p class="small text-muted mb-0">এখনও কেউ জমা দেয়নি।</p>
+                {% endif %}
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <h6 class="text-danger mb-2">এখনও দেননি ({{ pending_students|length }})</h6>
+                {% if pending_students %}
+                  <ul class="small mb-0 ps-3">
+                    {% for student in pending_students %}
+                    <li>{{ student.student_id }} — {{ student.name }}</li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <p class="small text-muted mb-0">সবাই জমা দিয়েছেন।</p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          {% endif %}
           {% if feedback_responses %}
             <div class="accordion" id="feedbackResponses">
               {% for item in feedback_responses %}
@@ -153,9 +185,17 @@
                       data-response-id="{{ item.id }}"
                       data-mark-read-url="{{ url_for('class_management.mark_student_feedback_response_read', session_id=session.id, response_id=item.id) }}"
                     >
-                      <div class="w-100 d-flex justify-content-between">
-                        <span><span class="me-2">{{ loop.index }}.</span>{{ item.submitted_at|bd('%Y-%m-%d %H:%M') }}</span>
-                        <span class="text-muted small">Academic Session: {{ academic.get('academic_session') or 'N/A' }} | Course: {{ academic.get('course_title') or 'N/A' }}</span>
+                      <div class="w-100 d-flex justify-content-between gap-2">
+                        <span>
+                          <span class="me-2">{{ loop.index }}.</span>
+                          {% if show_respondent_identity and item.respondent_name %}
+                            {{ item.respondent_name }}
+                            {% if item.respondent_student_id %}<span class="text-muted">({{ item.respondent_student_id }})</span>{% endif %}
+                          {% else %}
+                            Feedback
+                          {% endif %}
+                        </span>
+                        <span class="text-muted small">{{ item.submitted_at|bd('%Y-%m-%d %H:%M') }}</span>
                       </div>
                     </button>
                   </h2>

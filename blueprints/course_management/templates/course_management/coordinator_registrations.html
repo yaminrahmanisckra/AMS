@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Course Registration Review{% endblock %}
 {% block mobile_title %}Registration{% endblock %}
+{% set registration_view_only = registration_view_only|default(false) %}
 {% block extra_css %}
 <style>
     .review-tab-btn.active { font-weight: 600; }
@@ -13,13 +14,21 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="mb-1">Course Registration Review</h1>
-            <p class="text-muted mb-0">View finalized student course registrations</p>
+            <p class="text-muted mb-0">
+                {% if registration_view_only %}
+                View registrations for all years and terms and download PDFs. Editing is disabled.
+                {% else %}
+                View finalized student course registrations
+                {% endif %}
+            </p>
         </div>
+        {% if not registration_view_only %}
         <div>
             <a href="{{ url_for('course_management.coordinator_register_student') }}" class="btn btn-primary">
                 <i class="fas fa-user-plus me-2"></i>Register Courses for Student
             </a>
         </div>
+        {% endif %}
     </div>
 
     {% if can_course_wise_review %}
@@ -107,6 +116,12 @@
                         </small>
                     </div>
                     <div>
+                        {% if registration_view_only %}
+                        <a class="btn btn-sm btn-success"
+                           href="{{ url_for('course_management.coordinator_download_registration_pdf', student_id=data.student.id, session=data.session, year=data.year, term=data.term) }}">
+                            <i class="fas fa-file-pdf me-1"></i>Download PDF
+                        </a>
+                        {% else %}
                         <button class="btn btn-sm btn-primary me-2 review-finalize-btn" 
                                 data-student-id="{{ data.student.id }}" 
                                 data-session="{{ data.session }}" 
@@ -115,6 +130,7 @@
                                 data-is-pending="true">
                             <i class="fas fa-edit me-1"></i>Review & Finalize
                         </button>
+                        {% endif %}
                     </div>
                 </div>
                 <div class="card-body">
@@ -174,6 +190,11 @@
                         </small>
                     </div>
                     <div>
+                        <a class="btn btn-sm btn-success{% if not registration_view_only %} me-2{% endif %}"
+                           href="{{ url_for('course_management.coordinator_download_registration_pdf', student_id=data.student.id, session=data.session, year=data.year, term=data.term) }}">
+                            <i class="fas fa-file-pdf me-1"></i>Download PDF
+                        </a>
+                        {% if not registration_view_only %}
                         <button class="btn btn-sm btn-primary me-2 edit-registration-btn" 
                                 data-student-id="{{ data.student.id }}" 
                                 data-session="{{ data.session }}" 
@@ -182,6 +203,7 @@
                                 data-is-pending="false">
                             <i class="fas fa-edit me-1"></i>Edit
                         </button>
+                        {% endif %}
                     </div>
                 </div>
                 <div class="card-body">
@@ -241,7 +263,13 @@
                 <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Course Wise Registration</h5>
             </div>
             <div class="card-body">
-                <p class="text-muted small mb-3">সেশন, ইয়ার, টার্ম ও সাবজেক্ট সিলেক্ট করে সেই কোর্সে রেজিস্টার্ড শিক্ষার্থীদের দেখুন ও সম্পাদনা করুন।</p>
+                <p class="text-muted small mb-3">
+                    {% if registration_view_only %}
+                    সেশন, ইয়ার, টার্ম ও সাবজেক্ট সিলেক্ট করে সেই কোর্সে রেজিস্টার্ড শিক্ষার্থীদের দেখুন।
+                    {% else %}
+                    সেশন, ইয়ার, টার্ম ও সাবজেক্ট সিলেক্ট করে সেই কোর্সে রেজিস্টার্ড শিক্ষার্থীদের দেখুন ও সম্পাদনা করুন।
+                    {% endif %}
+                </p>
                 <div class="row g-3 align-items-end">
                     <div class="col-md-3">
                         <label for="cwSession" class="form-label">Academic Session</label>
@@ -303,7 +331,11 @@
                                 <th>Retake Course</th>
                                 <th>Remarks</th>
                                 <th>Carry On</th>
+                                {% if not registration_view_only %}
                                 <th>Action</th>
+                                {% else %}
+                                <th>PDF</th>
+                                {% endif %}
                             </tr>
                         </thead>
                         <tbody id="cwStudentsBody"></tbody>
@@ -313,9 +345,11 @@
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="cwReloadBtn">
                         <i class="fas fa-sync-alt me-1"></i>Reload
                     </button>
+                    {% if not registration_view_only %}
                     <button type="button" class="btn btn-primary" id="cwSaveBtn" disabled>
                         <i class="fas fa-save me-2"></i>Save Changes
                     </button>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -380,6 +414,7 @@
 </div>
 
 <script>
+const registrationViewOnly = {{ registration_view_only | tojson }};
 let currentEditData = null;
 
 // Update student dropdown when batch changes
@@ -1349,6 +1384,17 @@ function cwRenderStudents(data) {
         html += '<td>' + escapeHtml(s.batch || 'N/A') + '</td>';
         html += '<td>' + statusBadge + '</td>';
         html += '<td>' + retakeCourseCell + '</td>';
+        if (registrationViewOnly) {
+            html += '<td>' + escapeHtml(s.remark || 'Regular') + '</td>';
+            html += '<td>' + (s.carry_on ? 'Yes' : '-') + '</td>';
+            html += '<td><a class="btn btn-sm btn-success" href="' +
+                {{ url_for('course_management.coordinator_download_registration_pdf')|tojson }} +
+                '?student_id=' + encodeURIComponent(s.student_id) +
+                '&session=' + encodeURIComponent(data.session || '') +
+                '&year=' + encodeURIComponent(data.year || '') +
+                '&term=' + encodeURIComponent(data.term || '') +
+                '"><i class="fas fa-file-pdf"></i></a></td></tr>';
+        } else {
         html += '<td><select class="form-select form-select-sm cw-remark-select" data-registration-id="' + escapeHtml(s.registration_id) + '">';
         ['Regular', 'Retake', 'Re-retake'].forEach(r => {
             html += '<option value="' + r + '"' + (s.remark === r ? ' selected' : '') + '>' + r + '</option>';
@@ -1364,6 +1410,7 @@ function cwRenderStudents(data) {
         html += '<button type="button" class="btn btn-sm btn-primary me-1 cw-edit-student-btn" data-student-id="' + escapeHtml(s.student_id) + '"><i class="fas fa-edit"></i></button>';
         html += '<button type="button" class="btn btn-sm btn-danger cw-deregister-btn" data-student-id="' + escapeHtml(s.student_id) + '" data-student-roll="' + escapeHtml(s.student_roll || '') + '" data-student-name="' + escapeHtml(s.student_name || '') + '"><i class="fas fa-times-circle"></i></button>';
         html += '</td></tr>';
+        }
     });
     tbody.innerHTML = html;
     if (saveBtn) saveBtn.disabled = true;

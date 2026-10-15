@@ -656,6 +656,9 @@ def test_docx_keeps_formatting_and_pdf_starts_when_engine_exists(app):
     assert 'court' in text
     assert 'First point' in text
     assert 'Student One' in text
+    assert 'w:type="page"' not in document.element.xml
+    empty = [p for p in document.paragraphs if not (p.text or '').strip()]
+    assert len(empty) <= 1
 
     with app.test_request_context():
         from flask import render_template

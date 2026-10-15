@@ -41,13 +41,26 @@
       <p class="text-muted text-center mb-0">Sorry, this feedback link is invalid.</p>
     {% elif status == 'expired' %}
       <p class="text-muted text-center mb-0">This feedback form is no longer accepting responses.</p>
+    {% elif status == 'login_required' %}
+      <div class="text-center py-4">
+        <h5 class="mb-2">ফিডব্যাক দিতে লগইন করুন</h5>
+        <p class="text-muted">শিক্ষার্থী অ্যাকাউন্ট দিয়ে লগইন না করলে ফিডব্যাক জমা দেওয়া যাবে না।</p>
+        <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Login</a>
+      </div>
+    {% elif status == 'not_student' %}
+      <div class="text-center py-4">
+        <p class="text-muted mb-3">এই ফর্ম শুধু শিক্ষার্থী অ্যাকাউন্ট থেকে জমা দেওয়া যায়।</p>
+        <a href="{{ url_for('auth.login') }}" class="btn btn-primary">শিক্ষার্থী হিসেবে লগইন করুন</a>
+      </div>
+    {% elif status == 'not_enrolled' %}
+      <p class="text-muted text-center mb-0">আপনি এই ক্লাসের শিক্ষার্থী নন, তাই এই ফিডব্যাক জমা দিতে পারবেন না।</p>
     {% elif submitted %}
       <div class="submitted-state text-center py-4">
         <i class="fas fa-check-circle text-success fa-3x mb-3"></i>
         <h5 class="mb-2">ধন্যবাদ!</h5>
         <p class="text-muted mb-0">আপনার ফিডব্যাক সফলভাবে পাওয়া গেছে।</p>
         {% if already_submitted %}
-          <p class="small text-muted mt-2">একই ব্রাউজার থেকে পুনরায় জমা দিতে পারবেন না।</p>
+          <p class="small text-muted mt-2">আপনি ইতিমধ্যে এই কোর্সের ফিডব্যাক জমা দিয়েছেন।</p>
         {% endif %}
       </div>
     {% else %}

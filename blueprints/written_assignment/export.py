@@ -104,6 +104,9 @@ class _DocxHtml(HTMLParser):
             if self.in_li and self.paragraph is not None and not self._paragraph_has_text():
                 self.align = _align_of(attrs) or self.align
                 return
+            if tag == 'div' and self.paragraph is not None and not self._paragraph_has_text():
+                self.align = _align_of(attrs) or self.align
+                return
             self._close_paragraph()
             self.align = _align_of(attrs)
             self._start_paragraph(quote=(tag == 'blockquote'))
@@ -198,6 +201,16 @@ class _DocxHtml(HTMLParser):
         if prefix:
             self._run(prefix)
         self._list_prefix_done = True
+        pf = self.paragraph.paragraph_format
+        pt = _docx()['Pt']
+        if self.heading:
+            pf.space_before = pt(10 if self.heading <= 2 else 8)
+            pf.space_after = pt(4)
+            pf.line_spacing = 1.2
+        else:
+            pf.space_before = pt(0)
+            pf.space_after = pt(8)
+            pf.line_spacing = 1.2
 
     def _run(self, text):
         if self.paragraph is None:
@@ -221,7 +234,16 @@ class _DocxHtml(HTMLParser):
         return run
 
     def _close_paragraph(self):
+        para = self.paragraph
         self.paragraph = None
+        if para is None:
+            return
+        if any((run.text or '').strip() for run in para.runs):
+            return
+        element = para._element
+        parent = element.getparent()
+        if parent is not None:
+            parent.remove(element)
 
     def _flush_table(self):
         rows = self.rows or []
@@ -248,7 +270,6 @@ class _DocxHtml(HTMLParser):
                 run = para.add_run(text.strip())
                 run.bold = header
                 _apply_font(run, 11)
-        self.doc.add_paragraph()
 
 
 def _align_map():
@@ -284,35 +305,63 @@ def append_html(doc, html):
     parser.close()
 
 
+def _style_paragraph(para, *, before=0, after=8, line=1.2):
+    pt = _docx()['Pt']
+    para.paragraph_format.space_before = pt(before)
+    para.paragraph_format.space_after = pt(after)
+    para.paragraph_format.line_spacing = line
+
+
+def _tighten_docx_styles(doc):
+    pt = _docx()['Pt']
+    for name, before, after in (
+        ('Normal', 0, 8),
+        ('Title', 0, 8),
+        ('Heading 1', 12, 4),
+        ('Heading 2', 10, 4),
+        ('Heading 3', 8, 3),
+    ):
+        try:
+            style = doc.styles[name]
+        except KeyError:
+            continue
+        style.font.name = 'Kalpurush'
+        style.paragraph_format.space_before = pt(before)
+        style.paragraph_format.space_after = pt(after)
+        style.paragraph_format.line_spacing = 1.2
+
+
 def build_docx(title, meta_lines, sections):
     """Return DOCX bytes. sections: [{heading, html}, ...]."""
     docx = _docx()
     doc = docx['Document']()
+    _tighten_docx_styles(doc)
     normal = doc.styles['Normal']
     normal.font.name = 'Kalpurush'
     normal.font.size = docx['Pt'](12)
-    heading = doc.add_heading(title or 'Assignment', level=0)
-    for run in heading.runs:
-        _apply_font(run, 20)
-        run.bold = True
+    heading = doc.add_paragraph()
+    _style_paragraph(heading, before=0, after=6)
+    run = heading.add_run(title or 'Assignment')
+    run.bold = True
+    _apply_font(run, 18)
     for line in meta_lines or []:
         if not line:
             continue
         para = doc.add_paragraph()
+        _style_paragraph(para, before=0, after=2)
         run = para.add_run(str(line))
         _apply_font(run, 11)
         run.font.color.rgb = docx['RGBColor'](0x37, 0x41, 0x51)
     for index, section in enumerate(sections or []):
-        if index:
-            breaker = doc.add_paragraph()
-            breaker.add_run().add_break(docx['WD_BREAK'].PAGE)
-        head = doc.add_heading(section.get('heading') or 'Part', level=1)
-        for run in head.runs:
-            _apply_font(run, 16)
-            run.bold = True
+        head = doc.add_paragraph()
+        _style_paragraph(head, before=14 if index else 10, after=4)
+        run = head.add_run(section.get('heading') or 'Part')
+        run.bold = True
+        _apply_font(run, 14)
         sub = section.get('subheading')
         if sub:
             para = doc.add_paragraph()
+            _style_paragraph(para, before=0, after=6)
             run = para.add_run(sub)
             run.italic = True
             _apply_font(run, 11)

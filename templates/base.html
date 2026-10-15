@@ -216,6 +216,12 @@
                                     {% if show_officer_exam_info|default(false) %}
                                     <li><a class="dropdown-item" href="{{ url_for('officer_exam_info') }}"><i class="fas fa-clipboard-list me-2"></i>Exam Info</a></li>
                                     {% endif %}
+                                    {% if show_officer_course_registration|default(false) %}
+                                    <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration</a></li>
+                                    {% endif %}
+                                    {% if show_officer_student_list|default(false) %}
+                                    <li><a class="dropdown-item" href="{{ url_for('officer_student_list') }}"><i class="fas fa-user-graduate me-2"></i>Student List</a></li>
+                                    {% endif %}
                                     {% if show_officer_leave_application|default(false) %}
                                     <li><a class="dropdown-item" href="{{ url_for('leave_application.index') }}"><i class="fas fa-file-signature me-2"></i>Leave Application</a></li>
                                     {% endif %}
@@ -251,6 +257,9 @@
                                     {% endif %}
                                     {% if show_course_registration %}
                                     <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration</a></li>
+                                    {% endif %}
+                                    {% if show_exam_info|default(false) %}
+                                    <li><a class="dropdown-item" href="{{ url_for('officer_exam_info') }}"><i class="fas fa-clipboard-list me-2"></i>Exam Info</a></li>
                                     {% endif %}
                                     {% if show_remuneration %}
                                     <li><a class="dropdown-item" href="{{ url_for('remuneration_portal') }}"><i class="fas fa-money-bill-wave me-2"></i>Remuneration</a></li>
@@ -616,7 +625,7 @@
     <!-- Debug Script for Form Monitoring -->
     <script src="{{ url_for('static', filename='js/debug.js') }}"></script>
     <!-- Custom App-wide JS -->
-    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/script.js') }}?v=del2"></script>
     <script src="{{ url_for('static', filename='js/mobile-shell.js') }}"></script>
     
     <!-- Page-specific scripts -->

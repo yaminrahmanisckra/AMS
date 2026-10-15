@@ -30,6 +30,7 @@ from .models import (
     ExamPaperEvaluation,
     StudentFeedbackLink,
     StudentFeedbackResponse,
+    TeacherFeedbackVisibility,
     CourseOutline,
     CourseQuestionThread,
     CourseQuestionMessage,
@@ -126,6 +127,18 @@ except ImportError:
     filter_offered_courses = None
     stamp_window_id = None
     DEFAULT_WINDOW_ID = 1
+
+
+def teacher_sees_feedback_respondents(teacher_id):
+    """True only when an admin has turned this teacher's feedback-identity switch on."""
+    if not teacher_id:
+        return False
+    try:
+        row = TeacherFeedbackVisibility.query.get(teacher_id)
+        return bool(row and row.show_respondents)
+    except Exception:
+        db.session.rollback()
+        return False
 
 
 def _class_students_for_session(session_id, order=True):
@@ -10992,7 +11005,7 @@ def course_assessment_form(session_id, invite_id):
 @class_management_bp.route('/evaluation/<int:session_id>/student-feedback', methods=['GET', 'POST'])
 @login_required
 def student_feedback_manage(session_id):
-    """Manage anonymous student feedback link and view submissions."""
+    """Manage the student feedback link and see who submitted."""
     session = get_or_404_for_window(Session, session_id)
     teacher = resolve_caller_teacher(current_user)
     if not teacher or teacher.id != session.teacher_id:
@@ -11061,6 +11074,7 @@ def student_feedback_manage(session_id):
         return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
 
     feedback_responses = []
+    submitted_student_ids = set()
     if feedback_link:
         responses = (
             StudentFeedbackResponse.query.filter_by(feedback_link_id=feedback_link.id)
@@ -11072,14 +11086,40 @@ def student_feedback_manage(session_id):
                 answers = json.loads(item.payload or '{}')
             except json.JSONDecodeError:
                 answers = {}
+            respondent = answers.get('respondent') or {}
+            respondent_student_id = str(respondent.get('student_id') or '').strip()
+            if respondent_student_id:
+                submitted_student_ids.add(respondent_student_id)
             feedback_responses.append(
                 {
                     'id': item.id,
                     'is_read': bool(item.is_read),
                     'submitted_at': item.submitted_at,
+                    'respondent_name': str(respondent.get('name') or '').strip(),
+                    'respondent_student_id': respondent_student_id,
                     'data': answers,
                 }
             )
+
+    class_roster = _class_students_for_session(session_id)
+    pending_students = [
+        student for student in class_roster
+        if str(student.student_id or '').strip() not in submitted_student_ids
+    ]
+    submitted_students = [
+        student for student in class_roster
+        if str(student.student_id or '').strip() in submitted_student_ids
+    ]
+    show_respondent_identity = teacher_sees_feedback_respondents(teacher.id)
+    if not show_respondent_identity:
+        submitted_students = []
+        pending_students = []
+        for item in feedback_responses:
+            item['respondent_name'] = ''
+            item['respondent_student_id'] = ''
+            data = item.get('data') or {}
+            if isinstance(data, dict):
+                data.pop('respondent', None)
 
     feedback_url = (
         url_for('student_feedback_form', code=feedback_link.access_code, _external=True)
@@ -11093,6 +11133,9 @@ def student_feedback_manage(session_id):
         feedback_link=feedback_link,
         feedback_url=feedback_url,
         feedback_responses=feedback_responses,
+        submitted_students=submitted_students,
+        pending_students=pending_students,
+        show_respondent_identity=show_respondent_identity,
         section_a_labels=FEEDBACK_SECTION_A,
         section_b_likert=FEEDBACK_SECTION_B_LIKERT,
         method_options=FEEDBACK_METHOD_OPTIONS,
@@ -13993,7 +14036,16 @@ def student_feedback_responses_pdf(session_id):
 
         elements.append(Paragraph('Student Feedback Form', title_style))
         elements.append(Paragraph('Khulna University', subtitle_style))
-        elements.append(Paragraph(f"Response {idx} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}", value_bold_style))
+        respondent = data.get('respondent') or {} if teacher_sees_feedback_respondents(teacher.id) else {}
+        respondent_name = str(respondent.get('name') or '').strip()
+        respondent_student_id = str(respondent.get('student_id') or '').strip()
+        respondent_label = respondent_name
+        if respondent_name and respondent_student_id:
+            respondent_label = f"{respondent_name} ({respondent_student_id})"
+        response_heading = f"Response {idx} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}"
+        if respondent_label:
+            response_heading = f"Response {idx} - {respondent_label} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}"
+        elements.append(Paragraph(response_heading, value_bold_style))
         elements.append(Spacer(1, 6))
 
         info_data = [
@@ -14140,9 +14192,12 @@ def student_feedback_responses_pdf_weasyprint(session_id):
             section_c = data.get('section_c', {}) or {}
             section_d = data.get('section_d', {}) or {}
             
+            respondent = data.get('respondent') or {} if teacher_sees_feedback_respondents(teacher.id) else {}
             feedback_data.append({
                 'index': idx,
                 'submitted_at': format_bd(item.submitted_at, '%Y-%m-%d'),
+                'respondent_name': str(respondent.get('name') or '').strip(),
+                'respondent_student_id': str(respondent.get('student_id') or '').strip(),
                 'academic': academic,
                 'section_a': section_a,
                 'section_b': section_b,
@@ -14274,6 +14329,12 @@ def student_feedback_responses_docx(session_id):
         section_b = data.get('section_b', {}) or {}
         section_c = data.get('section_c', {}) or {}
         section_d = data.get('section_d', {}) or {}
+        respondent = data.get('respondent') or {} if teacher_sees_feedback_respondents(teacher.id) else {}
+        respondent_name = str(respondent.get('name') or '').strip()
+        respondent_student_id = str(respondent.get('student_id') or '').strip()
+        respondent_label = respondent_name
+        if respondent_name and respondent_student_id:
+            respondent_label = f"{respondent_name} ({respondent_student_id})"
 
         if idx > 1:
             document.add_page_break()
@@ -14289,7 +14350,10 @@ def student_feedback_responses_docx(session_id):
         uni_para.runs[0].bold = True
         uni_para.runs[0].font.size = Pt(12)
 
-        meta_para = document.add_paragraph(f"Response {idx} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}")
+        meta_heading = f"Response {idx} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}"
+        if respondent_label:
+            meta_heading = f"Response {idx} - {respondent_label} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}"
+        meta_para = document.add_paragraph(meta_heading)
         meta_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         meta_para.runs[0].font.size = Pt(10)
 

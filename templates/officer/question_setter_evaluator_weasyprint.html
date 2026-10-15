@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Question Setter and Evaluator List</title>
+    <style>
+        @page {
+            size: A4 landscape;
+            margin: 12mm 12mm 14mm 12mm;
+            @bottom-center {
+                content: "Page " counter(page) " of " counter(pages);
+                font-size: 9pt;
+                color: #555;
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'PDFSerif', 'Times New Roman', Times, serif;
+            font-size: 10.5pt;
+            color: #111;
+            line-height: 1.35;
+        }
+        h1, h2 {
+            page-break-after: auto;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 1.5pt solid #1a1a1a;
+            padding-bottom: 8px;
+            margin-bottom: 14px;
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }
+        .header h1 {
+            font-size: 16pt;
+            margin: 0 0 2px;
+        }
+        .header h2 {
+            font-size: 12pt;
+            font-weight: normal;
+            margin: 0 0 6px;
+        }
+        .header .doc-title {
+            font-size: 13pt;
+            font-weight: bold;
+            margin: 4px 0 2px;
+            letter-spacing: 0.02em;
+        }
+        .header .meta {
+            font-size: 9pt;
+            color: #333;
+        }
+        .committee {
+            page-break-inside: auto;
+            margin-bottom: 16px;
+        }
+        .committee-head {
+            background: #f3f3f3;
+            border: 0.6pt solid #222;
+            border-bottom: 0;
+            padding: 6px 8px;
+            margin-bottom: 0;
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }
+        .committee-head .context {
+            font-size: 11.5pt;
+            font-weight: bold;
+        }
+        .committee-head .people {
+            font-size: 9.5pt;
+            margin-top: 2px;
+        }
+        table.roster {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            page-break-inside: auto;
+        }
+        table.roster thead {
+            display: table-header-group;
+        }
+        table.roster tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+        }
+        table.roster th,
+        table.roster td {
+            border: 0.5pt solid #333;
+            padding: 4px 6px;
+            vertical-align: top;
+            word-wrap: break-word;
+        }
+        table.roster th {
+            background: #1f3d2a;
+            color: #fff;
+            font-size: 9.5pt;
+            text-align: left;
+        }
+        table.roster td {
+            font-size: 10pt;
+        }
+        table.roster .col-course { width: 24%; }
+        table.roster .col-code { width: 12%; }
+        table.roster .col-part { width: 32%; }
+        .role {
+            line-height: 1.3;
+        }
+        .role + .role {
+            margin-top: 2px;
+        }
+        .role-label {
+            font-weight: bold;
+            font-size: 8.5pt;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #333;
+        }
+        .empty {
+            text-align: center;
+            font-style: italic;
+            color: #555;
+        }
+        .mono { font-family: 'PDFSerif', 'Times New Roman', Times, serif; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ tenant.university_name }}</h1>
+        <h2>{{ tenant.display_with_university }}</h2>
+        <div class="doc-title">Question Setter and Evaluator List</div>
+        <div class="meta">
+            {% if window_label %}Window: {{ window_label }} · {% endif %}
+            Generated: {{ generated_at }}
+            {% if single_committee and committees %}
+            · {{ committees[0].academic_session }} · {{ committees[0].year }} / {{ committees[0].term }}
+            {% endif %}
+        </div>
+    </div>
+
+    {% for committee in committees %}
+    <section class="committee">
+        <div class="committee-head">
+            <div class="context">
+                {{ committee.academic_session or '—' }}
+                · {{ committee.year or '—' }} / {{ committee.term or '—' }}
+            </div>
+            <div class="people">
+                Chief: {{ committee.chief_name or '—' }}
+                &nbsp;&nbsp; Members:
+                {% if committee.member_names %}
+                    {{ committee.member_names | join(', ') }}
+                {% else %}
+                    —
+                {% endif %}
+            </div>
+        </div>
+        <table class="roster">
+            <thead>
+                <tr>
+                    <th class="col-course">Course</th>
+                    <th class="col-code">Code</th>
+                    <th class="col-part">Part A</th>
+                    <th class="col-part">Part B</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if committee.rows %}
+                    {% for row in committee.rows %}
+                    <tr>
+                        <td>{{ row.course_name or '—' }}</td>
+                        <td class="mono">{{ row.course_code or '—' }}</td>
+                        <td>
+                            {% if row.has_part_a %}
+                            <div class="role"><span class="role-label">QS</span> {{ row.part_a_qs }}</div>
+                            <div class="role"><span class="role-label">Evaluator</span> {{ row.part_a_ev }}</div>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.has_part_b %}
+                            <div class="role"><span class="role-label">QS</span> {{ row.part_b_qs }}</div>
+                            <div class="role"><span class="role-label">Evaluator</span> {{ row.part_b_ev }}</div>
+                            {% endif %}
+                            {% for extra in row.other_parts or [] %}
+                            <div class="role"><span class="role-label">Part {{ extra.part }} QS</span> {{ extra.question_setter }}</div>
+                            <div class="role"><span class="role-label">Evaluator</span> {{ extra.evaluator }}</div>
+                            {% endfor %}
+                            {% if not row.has_part_b and not row.other_parts %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="4" class="empty">No question setter or evaluator assigned yet.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </section>
+    {% endfor %}
+</body>
+</html>

@@ -271,7 +271,9 @@
         
         <div class="title">Student Feedback Form</div>
         <div class="subtitle">Khulna University</div>
-        <div class="response-info">Response {{ feedback.index }} - {{ feedback.submitted_at }}</div>
+        <div class="response-info">
+            Response {{ feedback.index }}{% if feedback.respondent_name %} — {{ feedback.respondent_name }}{% if feedback.respondent_student_id %} ({{ feedback.respondent_student_id }}){% endif %}{% endif %} — {{ feedback.submitted_at }}
+        </div>
         
         <table class="info-table">
             <tr>

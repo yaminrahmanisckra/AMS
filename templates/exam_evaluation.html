@@ -143,33 +143,6 @@
                                         </form>
                                         {% endif %}
                                     {% endif %}
-                                    <div class="dropdown exam-eval-more-dropdown">
-                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" aria-label="More actions for {{ entry.course_name }}">
-                                            More
-                                        </button>
-                                        <ul class="dropdown-menu dropdown-menu-end shadow">
-                                            <li>
-                                                <a class="dropdown-item" href="{{ url_for('edit_exam_evaluation', entry_id=entry.id) }}">
-                                                    <i class="fas fa-edit me-2 text-warning"></i>Edit
-                                                </a>
-                                            </li>
-                                            <li><hr class="dropdown-divider"></li>
-                                            <li>
-                                                <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Archive this entry?');">
-                                                    <button type="submit" class="dropdown-item">
-                                                        <i class="fas fa-archive me-2 text-secondary"></i>Archive
-                                                    </button>
-                                                </form>
-                                            </li>
-                                            <li>
-                                                <form action="{{ url_for('delete_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Delete this entry?');">
-                                                    <button type="submit" class="dropdown-item text-danger">
-                                                        <i class="fas fa-trash-alt me-2"></i>Delete
-                                                    </button>
-                                                </form>
-                                            </li>
-                                        </ul>
-                                    </div>
                                 </div>
                             </div>
                             {% endfor %}
@@ -275,33 +248,6 @@
                                 </div>
                                 <div class="exam-eval-entry__actions">
                                     <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Marks Entry</a>
-                                    <div class="dropdown exam-eval-more-dropdown">
-                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" aria-label="More actions for {{ entry.course_name }}">
-                                            More
-                                        </button>
-                                        <ul class="dropdown-menu dropdown-menu-end shadow">
-                                            <li>
-                                                <a class="dropdown-item" href="{{ url_for('edit_exam_evaluation', entry_id=entry.id) }}">
-                                                    <i class="fas fa-edit me-2 text-warning"></i>Edit
-                                                </a>
-                                            </li>
-                                            <li><hr class="dropdown-divider"></li>
-                                            <li>
-                                                <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Archive this external entry?');">
-                                                    <button type="submit" class="dropdown-item">
-                                                        <i class="fas fa-archive me-2 text-secondary"></i>Archive
-                                                    </button>
-                                                </form>
-                                            </li>
-                                            <li>
-                                                <form action="{{ url_for('delete_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Delete this external entry?');">
-                                                    <button type="submit" class="dropdown-item text-danger">
-                                                        <i class="fas fa-trash-alt me-2"></i>Delete
-                                                    </button>
-                                                </form>
-                                            </li>
-                                        </ul>
-                                    </div>
                                 </div>
                             </div>
                             {% endfor %}
@@ -666,46 +612,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     initializeEntryContext();
-
-    // More dropdown: fixed positioning + auto dropup near viewport bottom
-    document.querySelectorAll('.exam-eval-more-dropdown').forEach(function(dropdownEl) {
-        const toggle = dropdownEl.querySelector('[data-bs-toggle="dropdown"]');
-        const menu = dropdownEl.querySelector('.dropdown-menu');
-        if (!toggle || !menu || typeof bootstrap === 'undefined') {
-            return;
-        }
-
-        const dropdown = bootstrap.Dropdown.getOrCreateInstance(toggle, {
-            popperConfig: function(defaultConfig) {
-                const modifiers = (defaultConfig && defaultConfig.modifiers) ? defaultConfig.modifiers.slice() : [];
-                modifiers.push({
-                    name: 'preventOverflow',
-                    options: { boundary: 'viewport', padding: 8 }
-                });
-                modifiers.push({
-                    name: 'flip',
-                    options: { fallbackPlacements: ['top-start', 'bottom-start'] }
-                });
-                return Object.assign({}, defaultConfig || {}, {
-                    strategy: 'fixed',
-                    modifiers: modifiers
-                });
-            }
-        });
-
-        toggle.addEventListener('show.bs.dropdown', function() {
-            dropdownEl.classList.remove('dropup');
-            const menuHeight = menu.offsetHeight || 140;
-            const toggleRect = toggle.getBoundingClientRect();
-            if (toggleRect.bottom + menuHeight + 8 > window.innerHeight) {
-                dropdownEl.classList.add('dropup');
-            }
-        });
-
-        toggle.addEventListener('hidden.bs.dropdown', function() {
-            dropdownEl.classList.remove('dropup');
-        });
-    });
 
     if (navigator.onLine && window.AMSOfflineSync) {
         document.querySelectorAll('a[href*="/exam-evaluation/"][href*="/marks"]').forEach(function(link) {

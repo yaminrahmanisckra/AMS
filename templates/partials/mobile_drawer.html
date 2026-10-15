@@ -62,6 +62,16 @@
             <i class="fas fa-clipboard-list"></i><span>Exam Info</span>
         </a>
         {% endif %}
+        {% if show_officer_course_registration|default(false) %}
+        <a class="m-drawer-link" href="{{ url_for('course_management.coordinator_registrations') }}" data-endpoint="course_management.coordinator_registrations">
+            <i class="fas fa-clipboard-check"></i><span>Course Registration</span>
+        </a>
+        {% endif %}
+        {% if show_officer_student_list|default(false) %}
+        <a class="m-drawer-link" href="{{ url_for('officer_student_list') }}" data-endpoint="officer_student_list">
+            <i class="fas fa-user-graduate"></i><span>Student List</span>
+        </a>
+        {% endif %}
         {% if show_officer_leave_application|default(false) %}
         <a class="m-drawer-link" href="{{ url_for('leave_application.index') }}" data-endpoint="leave_application.index">
             <i class="fas fa-file-signature"></i><span>Leave Application</span>
@@ -120,6 +130,11 @@
         {% if show_course_registration %}
         <a class="m-drawer-link" href="{{ url_for('course_management.coordinator_registrations') }}" data-endpoint="course_management.coordinator_registrations">
             <i class="fas fa-clipboard-check"></i><span>Course Registration</span>
+        </a>
+        {% endif %}
+        {% if show_exam_info|default(false) %}
+        <a class="m-drawer-link" href="{{ url_for('officer_exam_info') }}" data-endpoint="officer_exam_info">
+            <i class="fas fa-clipboard-list"></i><span>Exam Info</span>
         </a>
         {% endif %}
         {% if show_remuneration %}

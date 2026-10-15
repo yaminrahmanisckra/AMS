@@ -35,6 +35,7 @@ class Tenant:
     short_name: str
     institute_label: str
     head_title: str
+    dean_title: str
     office_label: str
     university_name: str
     public_url: str
@@ -102,6 +103,7 @@ class Tenant:
             'short_name': self.short_name,
             'institute_label': self.institute_label,
             'head_title': self.head_title,
+            'dean_title': self.dean_title,
             'head_designation': self.head_designation,
             'office_label': self.office_label,
             'office_contact_line': self.office_contact_line,
@@ -300,6 +302,7 @@ def _write_tenant_pack_contents(
         'short_name': short_name,
         'institute_label': inst,
         'head_title': 'Head',
+        'dean_title': 'Dean',
         'office_label': office,
         'university_name': uni,
         'public_url': (public_url or '').strip().rstrip('/'),
@@ -388,6 +391,7 @@ def load_tenant(code: str) -> Tenant:
         short_name=str(data.get('short_name') or code.upper()),
         institute_label=str(data.get('institute_label') or data.get('name') or code.upper()),
         head_title=str(data.get('head_title') or 'Head'),
+        dean_title=str(data.get('dean_title') or 'Dean'),
         office_label=str(data.get('office_label') or f'{data.get("name") or code} office'),
         university_name=str(data.get('university_name') or 'Khulna University'),
         public_url=str(data.get('public_url') or '').rstrip('/'),

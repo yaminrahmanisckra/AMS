@@ -176,7 +176,7 @@ OFFICER_DASHBOARD_CARDS = (
     {
         'card_key': 'exam_info',
         'label': 'Exam Info',
-        'description': 'View examination information and schedules.',
+        'description': 'Download PDF and DOC lists of question setters and evaluators for every exam committee.',
         'sort_order': 1,
     },
     {
@@ -209,6 +209,18 @@ OFFICER_DASHBOARD_CARDS = (
         'description': 'Masters admission cycles, applications, and admit cards.',
         'sort_order': 6,
     },
+    {
+        'card_key': 'course_registration',
+        'label': 'Course Registration',
+        'description': 'View registrations for all years and terms and download PDFs (view only).',
+        'sort_order': 7,
+    },
+    {
+        'card_key': 'student_list',
+        'label': 'Student List',
+        'description': 'Download Excel and PDF student lists by batch.',
+        'sort_order': 8,
+    },
 )
 
 
@@ -234,7 +246,7 @@ def ensure_officer_dashboard_cards():
         row.card_key: row
         for row in OfficerDashboardCard.query.all()
     }
-    created = False
+    dirty = False
     for spec in OFFICER_DASHBOARD_CARDS:
         row = existing.get(spec['card_key'])
         if row is None:
@@ -246,15 +258,22 @@ def ensure_officer_dashboard_cards():
                 sort_order=spec['sort_order'],
             )
             db.session.add(row)
-            created = True
+            dirty = True
         else:
             if row.label != spec['label']:
                 row.label = spec['label']
+                dirty = True
             if row.description != spec['description']:
+                # Old placeholder Exam Info was often turned off; turn it on now
+                # that it downloads committee setter/evaluator lists.
+                if row.card_key == 'exam_info' and not row.is_enabled:
+                    row.is_enabled = True
                 row.description = spec['description']
+                dirty = True
             if row.sort_order != spec['sort_order']:
                 row.sort_order = spec['sort_order']
-    if created:
+                dirty = True
+    if dirty:
         db.session.commit()
     return OfficerDashboardCard.query.order_by(
         OfficerDashboardCard.sort_order.asc(),

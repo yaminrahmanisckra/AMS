@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Student List{% endblock %}
+
+{% block mobile_title %}Student List{% endblock %}
+{% block extra_css %}
+<style>
+    .student-list-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 1.5rem 1rem 2.5rem;
+    }
+    .page-header h1 {
+        margin-bottom: 0.35rem;
+    }
+    .download-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+    }
+    .batch-card {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        margin-bottom: 1rem;
+        overflow: hidden;
+    }
+    .batch-card .card-head {
+        background: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+        padding: 0.75rem 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .batch-meta {
+        font-size: 0.875rem;
+        color: #6c757d;
+    }
+    .info-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0;
+    }
+    .info-table th,
+    .info-table td {
+        padding: 0.55rem 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+        vertical-align: top;
+    }
+    .info-table th {
+        background-color: #f8f9fa;
+        font-weight: 600;
+        color: #495057;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .info-table tbody tr:last-child td {
+        border-bottom: 0;
+    }
+    .info-table tbody tr:hover {
+        background-color: #f8f9fa;
+    }
+    @media (max-width: 768px) {
+        .info-table thead { display: none; }
+        .info-table, .info-table tbody, .info-table tr, .info-table td {
+            display: block;
+            width: 100%;
+        }
+        .info-table tr {
+            border-bottom: 1px solid #dee2e6;
+            padding: 0.5rem 0;
+        }
+        .info-table td {
+            border: 0;
+            padding: 0.2rem 1rem;
+        }
+        .info-table td::before {
+            content: attr(data-label);
+            display: inline-block;
+            min-width: 7.5rem;
+            font-weight: 600;
+            color: #6c757d;
+            font-size: 0.75rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="student-list-container">
+    <div class="page-header d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+        <div>
+            <h1 class="h3">Student List</h1>
+            <p class="text-muted mb-0">Download Excel and PDF student lists by batch.</p>
+        </div>
+        <div class="download-bar">
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left me-1"></i>Dashboard
+            </a>
+            {% if all_batches %}
+            <a href="{{ url_for('officer_student_list_xlsx') }}" class="btn btn-success btn-sm">
+                <i class="fas fa-file-excel me-1"></i>All batches Excel
+            </a>
+            <a href="{{ url_for('officer_student_list_pdf') }}" class="btn btn-danger btn-sm">
+                <i class="fas fa-file-pdf me-1"></i>All batches PDF
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if all_batches %}
+    <form method="GET" class="d-flex flex-wrap gap-2 mb-3">
+        <select name="batch" class="form-select form-select-sm" style="max-width: 220px;" onchange="this.form.submit()">
+            <option value="">All Batches</option>
+            {% for group in all_batches %}
+            <option value="{{ group.query_batch }}" {% if selected_batch is not none and selected_batch == group.batch %}selected{% endif %}>
+                {{ group.batch_label }} ({{ group.count }})
+            </option>
+            {% endfor %}
+        </select>
+        {% if selected_batch is not none %}
+        <a href="{{ url_for('officer_student_list') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-times me-1"></i>Clear
+        </a>
+        {% endif %}
+    </form>
+    {% endif %}
+
+    {% if batches %}
+        {% for group in batches %}
+        <div class="batch-card">
+            <div class="card-head">
+                <div>
+                    <div class="fw-semibold">Batch {{ group.batch_label }}</div>
+                    <div class="batch-meta">
+                        {{ group.count }} student{{ 's' if group.count != 1 else '' }}
+                    </div>
+                </div>
+                <div class="download-bar">
+                    <a class="btn btn-outline-success btn-sm"
+                       href="{{ url_for('officer_student_list_xlsx', batch=group.query_batch) }}">
+                        <i class="fas fa-file-excel me-1"></i>Excel
+                    </a>
+                    <a class="btn btn-outline-danger btn-sm"
+                       href="{{ url_for('officer_student_list_pdf', batch=group.query_batch) }}">
+                        <i class="fas fa-file-pdf me-1"></i>PDF
+                    </a>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="info-table">
+                    <thead>
+                        <tr>
+                            <th>SL</th>
+                            <th>Student ID</th>
+                            <th>Name</th>
+                            <th>Hall</th>
+                            <th>Email</th>
+                            <th>Phone</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for student in group.students %}
+                        <tr>
+                            <td data-label="SL">{{ loop.index }}</td>
+                            <td data-label="Student ID"><span class="font-monospace small">{{ student.student_id or '—' }}</span></td>
+                            <td data-label="Name">{{ student.name or '—' }}</td>
+                            <td data-label="Hall">{{ student.hall or '—' }}</td>
+                            <td data-label="Email">{{ student.email or '—' }}</td>
+                            <td data-label="Phone">{{ student.phone or '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="alert alert-light border">
+            <i class="fas fa-info-circle me-1"></i>
+            No students were found{% if selected_batch is not none %} for this batch{% endif %}.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

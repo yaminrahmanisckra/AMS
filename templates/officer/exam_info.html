@@ -7,174 +7,200 @@
     .exam-info-container {
         max-width: 1200px;
         margin: 0 auto;
-        padding: 2rem;
+        padding: 1.5rem 1rem 2.5rem;
     }
-    .page-header {
-        margin-bottom: 2rem;
+    .page-header h1 {
+        margin-bottom: 0.35rem;
     }
-    .info-card {
+    .download-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+    }
+    .committee-card {
         border: 1px solid #dee2e6;
         border-radius: 8px;
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
         background: #fff;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .info-card h5 {
-        color: #495057;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         margin-bottom: 1rem;
-        border-bottom: 2px solid #0d6efd;
-        padding-bottom: 0.5rem;
+        overflow: hidden;
+    }
+    .committee-card .card-head {
+        background: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+        padding: 0.75rem 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .committee-meta {
+        font-size: 0.875rem;
+        color: #6c757d;
     }
     .info-table {
         width: 100%;
         border-collapse: collapse;
-        margin-top: 1rem;
+        margin: 0;
     }
     .info-table th,
     .info-table td {
-        padding: 0.75rem;
+        padding: 0.55rem 0.75rem;
         text-align: left;
-        border-bottom: 1px solid #dee2e6;
+        border-bottom: 1px solid #eee;
+        vertical-align: top;
     }
     .info-table th {
         background-color: #f8f9fa;
         font-weight: 600;
         color: #495057;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .info-table tbody tr:last-child td {
+        border-bottom: 0;
     }
     .info-table tbody tr:hover {
         background-color: #f8f9fa;
     }
-    .badge {
-        display: inline-block;
-        padding: 0.35rem 0.65rem;
-        font-size: 0.875rem;
-        font-weight: 600;
-        border-radius: 0.25rem;
-    }
-    .badge-success {
-        background-color: #198754;
-        color: #fff;
-    }
-    .badge-warning {
-        background-color: #ffc107;
-        color: #000;
-    }
-    .badge-danger {
-        background-color: #dc3545;
-        color: #fff;
+    @media (max-width: 768px) {
+        .info-table thead { display: none; }
+        .info-table, .info-table tbody, .info-table tr, .info-table td {
+            display: block;
+            width: 100%;
+        }
+        .info-table tr {
+            border-bottom: 1px solid #dee2e6;
+            padding: 0.5rem 0;
+        }
+        .info-table td {
+            border: 0;
+            padding: 0.2rem 1rem;
+        }
+        .info-table td::before {
+            content: attr(data-label);
+            display: inline-block;
+            min-width: 7.5rem;
+            font-weight: 600;
+            color: #6c757d;
+            font-size: 0.75rem;
+        }
     }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="exam-info-container">
-    <div class="page-header">
-        <h1 class="h3 mb-3">Exam Information</h1>
-        <p class="text-muted">View and manage examination schedules and related information.</p>
+    <div class="page-header d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+        <div>
+            <h1 class="h3">Exam Info</h1>
+            <p class="text-muted mb-0">
+                Question setter and evaluator lists for every exam committee
+                {% if window_label %}in <strong>{{ window_label }}</strong>{% endif %}.
+            </p>
+        </div>
+        <div class="download-bar">
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left me-1"></i>Dashboard
+            </a>
+            {% if committees %}
+            <a href="{{ url_for('officer_qs_evaluator_pdf') }}" class="btn btn-danger btn-sm">
+                <i class="fas fa-file-pdf me-1"></i>Download all PDF
+            </a>
+            <a href="{{ url_for('officer_qs_evaluator_docx') }}" class="btn btn-primary btn-sm">
+                <i class="fas fa-file-word me-1"></i>Download all DOC
+            </a>
+            {% endif %}
+        </div>
     </div>
 
-    <div class="info-card">
-        <h5><i class="fas fa-calendar-alt me-2"></i>Upcoming Examinations</h5>
-        <table class="info-table">
-            <thead>
-                <tr>
-                    <th>Exam Date</th>
-                    <th>Course Code</th>
-                    <th>Course Name</th>
-                    <th>Academic Session</th>
-                    <th>Year</th>
-                    <th>Term</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td colspan="7" class="text-center text-muted">
-                        <i class="fas fa-info-circle me-2"></i>No upcoming examinations found.
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-
-    <div class="info-card">
-        <h5><i class="fas fa-list-alt me-2"></i>Exam Schedule Overview</h5>
-        <p class="text-muted">View exam schedules by session, year, and term.</p>
-        <!-- Content will be added here -->
-    </div>
-
-    <div class="info-card">
-        <h5><i class="fas fa-file-alt me-2"></i>Exam Related Documents</h5>
-        <p class="text-muted">Access examination-related documents and forms.</p>
-        <!-- Content will be added here -->
-    </div>
+    {% if committees %}
+        {% for committee in committees %}
+        <div class="committee-card">
+            <div class="card-head">
+                <div>
+                    <div class="fw-semibold">
+                        {{ committee.academic_session or '—' }}
+                        · {{ committee.year or '—' }} / {{ committee.term or '—' }}
+                    </div>
+                    <div class="committee-meta">
+                        Chief: {{ committee.chief_name or '—' }}
+                        {% if committee.member_names %}
+                        · Members: {{ committee.member_names | join(', ') }}
+                        {% endif %}
+                        · {{ committee.assignment_count }} course{{ 's' if committee.assignment_count != 1 else '' }}
+                    </div>
+                </div>
+                <div class="download-bar">
+                    <a class="btn btn-outline-danger btn-sm"
+                       href="{{ url_for('officer_qs_evaluator_pdf', session=committee.academic_session, year=committee.year, term=committee.term) }}">
+                        <i class="fas fa-file-pdf me-1"></i>PDF
+                    </a>
+                    <a class="btn btn-outline-primary btn-sm"
+                       href="{{ url_for('officer_qs_evaluator_docx', session=committee.academic_session, year=committee.year, term=committee.term) }}">
+                        <i class="fas fa-file-word me-1"></i>DOC
+                    </a>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="info-table">
+                    <thead>
+                        <tr>
+                            <th>Course</th>
+                            <th>Code</th>
+                            <th>Part A</th>
+                            <th>Part B</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if committee.rows %}
+                            {% for row in committee.rows %}
+                            <tr>
+                                <td data-label="Course">{{ row.course_name or '—' }}</td>
+                                <td data-label="Code"><span class="font-monospace small">{{ row.course_code or '—' }}</span></td>
+                                <td data-label="Part A">
+                                    {% if row.has_part_a %}
+                                    <div><span class="text-muted small">QS</span> {{ row.part_a_qs }}</div>
+                                    <div><span class="text-muted small">Evaluator</span> {{ row.part_a_ev }}</div>
+                                    {% else %}
+                                    —
+                                    {% endif %}
+                                </td>
+                                <td data-label="Part B">
+                                    {% if row.has_part_b %}
+                                    <div><span class="text-muted small">QS</span> {{ row.part_b_qs }}</div>
+                                    <div><span class="text-muted small">Evaluator</span> {{ row.part_b_ev }}</div>
+                                    {% endif %}
+                                    {% for extra in row.other_parts or [] %}
+                                    <div><span class="text-muted small">Part {{ extra.part }} QS</span> {{ extra.question_setter }}</div>
+                                    <div><span class="text-muted small">Evaluator</span> {{ extra.evaluator }}</div>
+                                    {% endfor %}
+                                    {% if not row.has_part_b and not row.other_parts %}
+                                    —
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="4" class="text-muted text-center py-3">
+                                    No question setter or evaluator assigned yet.
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="alert alert-light border">
+            <i class="fas fa-info-circle me-1"></i>
+            No exam committees or question setter / evaluator assignments were found in this window.
+        </div>
+    {% endif %}
 </div>
 {% endblock %}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

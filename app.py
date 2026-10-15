@@ -426,6 +426,9 @@ def create_app():
 
         redirect_endpoint = ensure_valid_session_window(current_user, active_role)
         if redirect_endpoint and endpoint != redirect_endpoint:
+            return_path = request.full_path or ''
+            if return_path.startswith('/feedback/') and '://' not in return_path and '\\' not in return_path:
+                session['post_login_next'] = return_path
             return redirect(url_for(redirect_endpoint))
 
     MUST_CHANGE_PASSWORD_EXEMPT_ENDPOINTS = frozenset({
@@ -801,11 +804,20 @@ def create_app():
             'show_academic_calendar': (
                 (not is_officer) or bool(officer_cards.get('academic_calendar', True))
             ),
-            'show_course_registration': show_course_registration_review and not is_teaching_assistant,
+            'show_course_registration': (
+                (show_course_registration_review and not is_teaching_assistant)
+                or (is_officer and bool(officer_cards.get('course_registration', True)))
+            ),
             'show_exam_committee_management': (_is_exam_committee_chief() or _is_exam_committee_member()) and not is_teaching_assistant,
             'officer_cards': officer_cards,
             'show_officer_exam_info': is_officer and bool(officer_cards.get('exam_info', True)),
+            'show_exam_info': (
+                (is_officer and bool(officer_cards.get('exam_info', True)))
+                or is_head
+            ),
             'show_officer_leave_application': is_officer and bool(officer_cards.get('leave_application', True)) and t.feature_enabled('leave_application'),
+            'show_officer_course_registration': is_officer and bool(officer_cards.get('course_registration', True)),
+            'show_officer_student_list': is_officer and bool(officer_cards.get('student_list', True)),
         }
 
     @app.context_processor
@@ -1010,11 +1022,16 @@ def create_app():
         if not teacher:
             return set()
         identity_ids = {teacher.id}
-        normalized_name = str(teacher.name or '').strip().casefold()
+
+        def _teacher_name_key(value):
+            text = str(value or '').strip().casefold()
+            return ''.join(ch for ch in text if ch.isalnum())
+
+        normalized_name = _teacher_name_key(teacher.name)
         if not normalized_name:
             return identity_ids
         for candidate in Teacher.query.all():
-            if str(candidate.name or '').strip().casefold() == normalized_name:
+            if _teacher_name_key(candidate.name) == normalized_name:
                 identity_ids.add(candidate.id)
         return identity_ids
 
@@ -1055,6 +1072,54 @@ def create_app():
             return True
         return False
 
+    def _feedback_class_roster(session_obj):
+        """Students enrolled in the class that owns a feedback link."""
+        from blueprints.class_management.models import ClassStudent
+        from blueprints.student_management.models import Student as ManagedStudent
+
+        if not session_obj:
+            return []
+        query = ClassStudent.query.filter_by(session_id=session_obj.id)
+        if not getattr(session_obj, 'is_external_course', False):
+            query = query.filter(
+                ClassStudent.student_id.in_(db.session.query(ManagedStudent.student_id))
+            )
+        return query.order_by(ClassStudent.student_id.asc()).all()
+
+    def _feedback_already_submitted(link_id, student_id):
+        if not link_id or not student_id:
+            return False
+        rows = StudentFeedbackResponse.query.filter_by(feedback_link_id=link_id).all()
+        for row in rows:
+            try:
+                payload = json.loads(row.payload or '{}')
+            except json.JSONDecodeError:
+                continue
+            respondent = payload.get('respondent') or {}
+            if str(respondent.get('student_id') or '').strip() == str(student_id).strip():
+                return True
+        return False
+
+    def _logged_in_class_student(session_obj):
+        """Class roster row for the logged-in student, or a reason the form is blocked."""
+        if not current_user.is_authenticated:
+            return None, 'login_required'
+        if 'student' not in parse_roles(getattr(current_user, 'role', None)):
+            return None, 'not_student'
+        student_id = str(getattr(current_user, 'username', '') or '').strip()
+        if not student_id:
+            return None, 'not_enrolled'
+        match = next(
+            (
+                row for row in _feedback_class_roster(session_obj)
+                if str(row.student_id or '').strip() == student_id
+            ),
+            None,
+        )
+        if not match:
+            return None, 'not_enrolled'
+        return match, None
+
     @app.route('/feedback/<string:code>', methods=['GET', 'POST'])
     @csrf.exempt
     def student_feedback_form(code):
@@ -1081,8 +1146,24 @@ def create_app():
                 prefill=prefill,
             )
 
-        cookie_key = f'fb_{code}'
-        already_submitted = request.cookies.get(cookie_key) == '1' and not link.allow_multiple
+        logged_in_student, access_status = _logged_in_class_student(session_info)
+        if logged_in_student is None:
+            if access_status == 'login_required':
+                return_path = request.full_path or request.path
+                if isinstance(return_path, str) and return_path.startswith('/feedback/'):
+                    session['post_login_next'] = return_path
+            return render_template(
+                'student_feedback_form.html',
+                status=access_status,
+                link=link,
+                submitted=False,
+                prefill=prefill,
+            )
+
+        already_submitted = (
+            not link.allow_multiple
+            and _feedback_already_submitted(link.id, logged_in_student.student_id)
+        )
 
         if request.method == 'POST' and not already_submitted:
             from utils.rate_limit import FEEDBACK_IP, first_blocked, reject_too_many
@@ -1103,6 +1184,7 @@ def create_app():
                         prefill=prefill,
                     ),
                 )
+
             academic_info = {
                 'academic_session': request.form.get('academic_session', '').strip(),
                 'course_title': request.form.get('course_title', '').strip(),
@@ -1144,13 +1226,20 @@ def create_app():
                 'suggestions': request.form.get('suggestions', '').strip(),
             }
 
-            if not all([section_d['likes'], section_d['challenges'], section_d['suggestions']]):
+            if not link.allow_multiple and _feedback_already_submitted(link.id, logged_in_student.student_id):
+                flash('আপনি ইতিমধ্যে এই কোর্সের ফিডব্যাক জমা দিয়েছেন।', 'warning')
+            elif not all([section_d['likes'], section_d['challenges'], section_d['suggestions']]):
                 flash('Section D (Praise and Suggestions)-এর সবগুলো ঘর পূরণ করা বাধ্যতামূলক।', 'warning')
             # Ensure at least one core question is answered
             elif not any(section_a.values()) and not any(section_b.values()) and not effort_focus and not section_d['likes'] and not section_d['challenges'] and not section_d['suggestions']:
                 flash('কমপক্ষে একটি প্রশ্নের উত্তর দিন।', 'warning')
             else:
                 payload = {
+                    'respondent': {
+                        'class_student_id': logged_in_student.id,
+                        'student_id': logged_in_student.student_id,
+                        'name': logged_in_student.name,
+                    },
                     'academic_info': academic_info,
                     'section_a': section_a,
                     'section_b': section_b,
@@ -1164,10 +1253,7 @@ def create_app():
                 )
                 db.session.add(response)
                 db.session.commit()
-                resp = redirect(url_for('student_feedback_form', code=code, submitted='1'))
-                if not link.allow_multiple:
-                    resp.set_cookie(cookie_key, '1', max_age=60 * 60 * 24 * 90)
-                return resp
+                return redirect(url_for('student_feedback_form', code=code, submitted='1'))
 
         submitted = request.args.get('submitted') == '1' or already_submitted
         return render_template(
@@ -1379,7 +1465,7 @@ def create_app():
                     # Continue with chief check if error
 
                 if not is_external_subject:
-                    chief_exists = query_for_window(DutyAssignment).filter_by(
+                    chief_exists = query_for_window(DutyAssignment, admin_override=False).filter_by(
                         duty_type='exam_committee_chief',
                         academic_session=academic_session,
                         year=year,
@@ -1430,83 +1516,123 @@ def create_app():
 
         teacher_assignments = []
         active_semester_keys = None
-        if not is_admin(current_user):
+        try:
+            from utils.semester_utils import get_active_semesters_for_user, _normalize_year_term
+            active_semesters = get_active_semesters_for_user(admin_override=False)
+            active_semester_keys = {
+                (
+                    str(sem.academic_session or '').strip().casefold(),
+                    _normalize_year_term(sem.year),
+                    _normalize_year_term(sem.term),
+                )
+                for sem in active_semesters
+            }
+        except Exception:
+            active_semester_keys = None
+
+        def _exam_eval_in_window(record):
+            if record is None or not hasattr(record, 'window_id'):
+                return True
             try:
-                from utils.semester_utils import get_active_semesters_for_user, _normalize_year_term
-                active_semesters = get_active_semesters_for_user(admin_override=False)
-                active_semester_keys = {
-                    (
-                        str(sem.academic_session or '').strip().casefold(),
-                        _normalize_year_term(sem.year),
-                        _normalize_year_term(sem.term),
-                    )
-                    for sem in active_semesters
-                }
+                from utils.window_utils import DEFAULT_WINDOW_ID, get_effective_window_id
+                current_wid = get_effective_window_id(admin_override=False)
+                rec_wid = getattr(record, 'window_id', None)
+                if current_wid == DEFAULT_WINDOW_ID:
+                    return rec_wid in (None, DEFAULT_WINDOW_ID)
+                return rec_wid == current_wid
             except Exception:
-                active_semester_keys = None
+                return True
+
+        def _exam_eval_part(raw):
+            value = (raw or '').strip().upper().replace(' ', '')
+            if value in {'A', 'PARTA', 'SECTIONA'}:
+                return 'A'
+            if value in {'B', 'PARTB', 'SECTIONB'}:
+                return 'B'
+            return ''
+
+        def _exam_eval_semester_key(session_name, year, term):
+            try:
+                from utils.semester_utils import _normalize_year_term
+                return (
+                    str(session_name or '').strip().casefold(),
+                    _normalize_year_term(year),
+                    _normalize_year_term(term),
+                )
+            except Exception:
+                return (
+                    str(session_name or '').strip().casefold(),
+                    str(year or '').strip().casefold(),
+                    str(term or '').strip().casefold(),
+                )
 
         if current_teacher:
-            # Simple rule: evaluator page follows committee assignments directly.
+            # Evaluator page follows committee assignments, then keeps the teacher's own entries.
             try:
-                teacher_assignments = query_for_window(ExamPaperEvaluatorAssignment).filter(
+                teacher_assignments = query_for_window(
+                    ExamPaperEvaluatorAssignment, admin_override=False
+                ).filter(
                     ExamPaperEvaluatorAssignment.assigned_teacher_id.in_(list(current_teacher_ids))
                 ).all()
 
                 if active_semester_keys is not None:
-                    def _assignment_key(assignment):
-                        try:
-                            from utils.semester_utils import _normalize_year_term
-                            return (
-                                str(assignment.academic_session or '').strip().casefold(),
-                                _normalize_year_term(assignment.year),
-                                _normalize_year_term(assignment.term),
-                            )
-                        except Exception:
-                            return (
-                                str(assignment.academic_session or '').strip().casefold(),
-                                str(assignment.year or '').strip().casefold(),
-                                str(assignment.term or '').strip().casefold(),
-                            )
-
                     teacher_assignments = [
                         assignment for assignment in teacher_assignments
-                        if _assignment_key(assignment) in active_semester_keys
+                        if _exam_eval_semester_key(
+                            assignment.academic_session, assignment.year, assignment.term
+                        ) in active_semester_keys
                     ]
                 repair_made = False
 
                 for assignment in teacher_assignments:
-                    part_label = (assignment.part or '').strip().upper()
+                    part_label = _exam_eval_part(assignment.part)
                     if part_label not in {'A', 'B'}:
                         continue
 
                     course = Course.query.get(assignment.course_id) if assignment.course_id else None
-                    if not course:
-                        continue
-
                     linked_entry = assignment.exam_paper_evaluation
-                    linked_ok = bool(
+                    if (
                         linked_entry
+                        and _exam_eval_in_window(linked_entry)
                         and linked_entry.owner_teacher_id in current_teacher_ids
                         and not bool(linked_entry.archived)
-                        and (linked_entry.course_code or '').strip() == (course.course_code or '').strip()
-                        and (linked_entry.academic_session or '').strip() == (assignment.academic_session or '').strip()
-                        and (linked_entry.year or '').strip() == (assignment.year or '').strip()
-                        and (linked_entry.term or '').strip() == (assignment.term or '').strip()
-                        and (linked_entry.section or '').strip() == f'Part {part_label}'
-                    )
-                    if linked_ok:
+                    ):
                         committee_assignment_entry_ids.add(linked_entry.id)
                         continue
 
-                    existing_entry = query_for_window(ExamPaperEvaluation).filter(
+                    course_code = (
+                        (course.course_code if course else '')
+                        or (linked_entry.course_code if linked_entry else '')
+                        or ''
+                    ).strip()
+                    course_name = (
+                        (course.course_name if course else '')
+                        or (linked_entry.course_name if linked_entry else '')
+                        or course_code
+                    ).strip()
+                    if not course_code:
+                        continue
+
+                    assignment_key = _exam_eval_semester_key(
+                        assignment.academic_session, assignment.year, assignment.term
+                    )
+                    existing_entry = None
+                    candidates = query_for_window(ExamPaperEvaluation, admin_override=False).filter(
                         ExamPaperEvaluation.owner_teacher_id.in_(list(current_teacher_ids)),
-                        ExamPaperEvaluation.course_code == (course.course_code or '').strip(),
-                        ExamPaperEvaluation.academic_session == (assignment.academic_session or '').strip(),
-                        ExamPaperEvaluation.year == (assignment.year or '').strip(),
-                        ExamPaperEvaluation.term == (assignment.term or '').strip(),
-                        ExamPaperEvaluation.section == f'Part {part_label}',
-                        ExamPaperEvaluation.archived.is_(False)
-                    ).order_by(ExamPaperEvaluation.created_at.desc()).first()
+                        ExamPaperEvaluation.archived.is_(False),
+                        ExamPaperEvaluation.is_external_subject.is_(False),
+                    ).order_by(ExamPaperEvaluation.created_at.desc()).all()
+                    for candidate in candidates:
+                        if (candidate.course_code or '').strip() != course_code:
+                            continue
+                        if (candidate.section or '').strip() != f'Part {part_label}':
+                            continue
+                        if _exam_eval_semester_key(
+                            candidate.academic_session, candidate.year, candidate.term
+                        ) != assignment_key:
+                            continue
+                        existing_entry = candidate
+                        break
 
                     if existing_entry:
                         assignment.exam_paper_evaluation_id = existing_entry.id
@@ -1515,7 +1641,7 @@ def create_app():
                         continue
 
                     resolved_batch = ''
-                    duty_ctx = query_for_window(DutyAssignment).filter(
+                    duty_ctx = query_for_window(DutyAssignment, admin_override=False).filter(
                         DutyAssignment.status == 'active',
                         DutyAssignment.academic_session == (assignment.academic_session or '').strip(),
                         DutyAssignment.year == (assignment.year or '').strip(),
@@ -1527,7 +1653,7 @@ def create_app():
                     if duty_ctx and duty_ctx.batch:
                         resolved_batch = duty_ctx.batch.strip()
                     if not resolved_batch:
-                        cfg = query_for_window(CurriculumYearTerm).filter_by(
+                        cfg = query_for_window(CurriculumYearTerm, admin_override=False).filter_by(
                             academic_session=(assignment.academic_session or '').strip(),
                             year=(assignment.year or '').strip(),
                             term=(assignment.term or '').strip()
@@ -1540,14 +1666,14 @@ def create_app():
                             resolved_batch = cfg.batch.split(',')[0].strip() if ',' in cfg.batch else cfg.batch.strip()
 
                     created_entry = ExamPaperEvaluation(
-                        course_name=course.course_name,
-                        course_code=course.course_code,
+                        course_name=course_name,
+                        course_code=course_code,
                         academic_session=assignment.academic_session,
                         batch=resolved_batch or None,
                         year=assignment.year,
                         term=assignment.term,
                         section=f'Part {part_label}',
-                        program_level=course.category or 'ug',
+                        program_level=(course.category if course else None) or 'ug',
                         owner_teacher_id=current_teacher.id,
                         submitted_to_committee=False
                     )
@@ -1568,22 +1694,23 @@ def create_app():
                     exc_info=True
                 )
 
-        if current_teacher and teacher_assignments:
-            assigned_query = query_for_window(ExamPaperEvaluation).filter(
-                ExamPaperEvaluation.id.in_(list(committee_assignment_entry_ids)),
+        if current_teacher:
+            visible_entry_ids = set(committee_assignment_entry_ids)
+            owned_entries = query_for_window(ExamPaperEvaluation, admin_override=False).filter(
+                ExamPaperEvaluation.owner_teacher_id.in_(list(current_teacher_ids)),
+                ExamPaperEvaluation.is_external_subject.is_(False),
+            ).all()
+            for owned in owned_entries:
+                if active_semester_keys is not None:
+                    if _exam_eval_semester_key(
+                        owned.academic_session, owned.year, owned.term
+                    ) not in active_semester_keys:
+                        continue
+                visible_entry_ids.add(owned.id)
+
+            assigned_query = query_for_window(ExamPaperEvaluation, admin_override=False).filter(
+                ExamPaperEvaluation.id.in_(list(visible_entry_ids) or [0]),
             )
-            # Even in committee-driven mode, keep only active semester rows.
-            try:
-                from utils.semester_utils import filter_by_active_semester
-                if filter_by_active_semester and not is_admin(current_user):
-                    assigned_query = filter_by_active_semester(
-                        assigned_query,
-                        ExamPaperEvaluation,
-                        batch=None,
-                        admin_override=False
-                    )
-            except ImportError:
-                pass
 
             entries = assigned_query.filter(
                 ExamPaperEvaluation.archived.is_(False),
@@ -1594,20 +1721,7 @@ def create_app():
                 ExamPaperEvaluation.is_external_subject.is_(False),
             ).order_by(ExamPaperEvaluation.created_at.desc()).all()
         else:
-            base_query = query_for_window(ExamPaperEvaluation)
-            if current_teacher:
-                base_query = base_query.filter(ExamPaperEvaluation.owner_teacher_id.in_(list(current_teacher_ids)))
-            else:
-                base_query = base_query.filter_by(owner_teacher_id=None)
-
-            # Fallback (no committee assignment): keep legacy active semester filtering.
-            try:
-                from utils.semester_utils import filter_by_active_semester
-                if filter_by_active_semester and not is_admin(current_user):
-                    base_query = filter_by_active_semester(base_query, ExamPaperEvaluation, batch=None, admin_override=False)
-            except ImportError:
-                pass
-
+            base_query = query_for_window(ExamPaperEvaluation, admin_override=False).filter_by(owner_teacher_id=None)
             entries = base_query.filter_by(archived=False).filter(
                 ExamPaperEvaluation.is_external_subject.is_(False)
             ).order_by(ExamPaperEvaluation.created_at.desc()).all()
@@ -1618,7 +1732,7 @@ def create_app():
         external_entries = []
         external_archived_entries = []
         if current_teacher:
-            external_query = query_for_window(ExamPaperEvaluation).filter(
+            external_query = query_for_window(ExamPaperEvaluation, admin_override=False).filter(
                 ExamPaperEvaluation.owner_teacher_id.in_(list(current_teacher_ids)),
                 ExamPaperEvaluation.is_external_subject.is_(True),
             )
@@ -1634,7 +1748,7 @@ def create_app():
         scrutiny_invites_map = {}
         if current_teacher:
             owned_ids = {entry.id for entry in entries}
-            base_scrutiny_query = query_for_window(ExamPaperEvaluation).filter(
+            base_scrutiny_query = query_for_window(ExamPaperEvaluation, admin_override=False).filter(
                 ExamPaperEvaluation.archived.is_(False),
                 ExamPaperEvaluation.is_external_subject.is_(False),
                 ExamPaperEvaluation.assigned_scrutinizer_id == current_teacher.id,
@@ -1660,7 +1774,7 @@ def create_app():
             # Get invite information for each scrutiny entry to check completion status
             if scrutiny_entries:
                 entry_ids = [entry.id for entry in scrutiny_entries]
-                invites = query_for_window(ExamScrutinizerInvite).filter(
+                invites = query_for_window(ExamScrutinizerInvite, admin_override=False).filter(
                     ExamScrutinizerInvite.exam_entry_id.in_(entry_ids),
                     ExamScrutinizerInvite.scrutinizer_teacher_id == current_teacher.id,
                     ExamScrutinizerInvite.status == 'accepted'
@@ -1676,7 +1790,9 @@ def create_app():
         all_visible_entry_ids = [entry.id for entry in all_visible_entries if getattr(entry, 'id', None)]
         assignment_by_entry_id = {}
         if all_visible_entry_ids:
-            all_assignments = query_for_window(ExamPaperEvaluatorAssignment).filter(
+            all_assignments = query_for_window(
+                ExamPaperEvaluatorAssignment, admin_override=False
+            ).filter(
                 ExamPaperEvaluatorAssignment.exam_paper_evaluation_id.isnot(None),
                 ExamPaperEvaluatorAssignment.exam_paper_evaluation_id.in_(all_visible_entry_ids)
             ).all()
@@ -1791,7 +1907,7 @@ def create_app():
             from utils.semester_utils import get_active_semesters_for_user
             
             # Get active semesters for the current user's window
-            active_semesters = get_active_semesters_for_user(admin_override=is_admin(current_user))
+            active_semesters = get_active_semesters_for_user(admin_override=False)
             
             if not active_semesters:
                 # No active semester - return empty curricula
@@ -1847,7 +1963,7 @@ def create_app():
             from collections import defaultdict
             from utils.semester_utils import get_active_semesters_for_user, _normalize_year_term
 
-            _sem_list = get_active_semesters_for_user(admin_override=is_admin(current_user))
+            _sem_list = get_active_semesters_for_user(admin_override=False)
             _roster_semester_keys = {
                 (
                     str(sem.academic_session or '').strip().casefold(),
@@ -1872,7 +1988,9 @@ def create_app():
                     )
 
             if _roster_semester_keys:
-                _all_assign = query_for_window(ExamPaperEvaluatorAssignment).all()
+                _all_assign = query_for_window(
+                    ExamPaperEvaluatorAssignment, admin_override=False
+                ).all()
                 _filtered_assign = [
                     a for a in _all_assign
                     if _roster_assignment_key(a) in _roster_semester_keys
@@ -1891,14 +2009,23 @@ def create_app():
                         _qs_id = _a.assigned_teacher_id
                     if not _qs_id:
                         continue
-                    # Only this logged-in teacher's question-setter assignments
+                    # This teacher's question-setter rows, plus Same-person evaluator rows.
                     if not current_teacher_ids or _qs_id not in current_teacher_ids:
                         continue
                     _co = _courses_by_id.get(_a.course_id)
+                    _linked = getattr(_a, 'exam_paper_evaluation', None)
                     _by_qs[_qs_id].append({
-                        'course_name': (_co.course_name if _co else '') or '',
-                        'course_code': (_co.course_code if _co else '') or '',
-                        'part': (_a.part or '').strip().upper(),
+                        'course_name': (
+                            (_co.course_name if _co else '')
+                            or (_linked.course_name if _linked else '')
+                            or ''
+                        ),
+                        'course_code': (
+                            (_co.course_code if _co else '')
+                            or (_linked.course_code if _linked else '')
+                            or ''
+                        ),
+                        'part': _exam_eval_part(_a.part) or (_a.part or '').strip().upper(),
                         'academic_session': (_a.academic_session or '').strip(),
                         'year': (_a.year or '').strip(),
                         'term': (_a.term or '').strip(),
@@ -4254,6 +4381,54 @@ def create_app():
             cards=cards,
         )
 
+    @app.route('/admin/feedback-identity', methods=['GET', 'POST'])
+    @login_required
+    def admin_feedback_identity():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+
+        from blueprints.class_management.models import Teacher, TeacherFeedbackVisibility
+
+        try:
+            TeacherFeedbackVisibility.__table__.create(bind=db.engine, checkfirst=True)
+        except Exception as exc:
+            db.session.rollback()
+            flash(f'Feedback identity settings table could not be created. ({exc.__class__.__name__})', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+        if request.method == 'POST':
+            try:
+                teacher_id = int(request.form.get('teacher_id') or 0)
+            except (TypeError, ValueError):
+                teacher_id = 0
+            teacher_row = Teacher.query.get(teacher_id)
+            if not teacher_row:
+                flash('Teacher not found.', 'danger')
+                return redirect(url_for('admin_feedback_identity'))
+            enabled = request.form.get('show_respondents') == '1'
+            setting = TeacherFeedbackVisibility.query.get(teacher_row.id)
+            if setting is None:
+                setting = TeacherFeedbackVisibility(teacher_id=teacher_row.id, show_respondents=enabled)
+                db.session.add(setting)
+            else:
+                setting.show_respondents = enabled
+            db.session.commit()
+            state = 'on' if enabled else 'off'
+            flash(f'{teacher_row.name}: feedback names are {state}.', 'success')
+            return redirect(url_for('admin_feedback_identity'))
+
+        teachers = Teacher.query.order_by(Teacher.name.asc()).all()
+        enabled_ids = {
+            row.teacher_id
+            for row in TeacherFeedbackVisibility.query.filter_by(show_respondents=True).all()
+        }
+        return render_template(
+            'admin/feedback_identity.html',
+            teachers=teachers,
+            enabled_ids=enabled_ids,
+        )
+
     @app.route('/admin/mock-trial-courses', methods=['GET', 'POST'])
     @login_required
     def admin_mock_trial_courses():
@@ -5106,6 +5281,8 @@ def create_app():
              'icon': 'fas fa-book-open', 'color': '#0d6efd', 'bg': 'rgba(13,110,253,0.15)', 'url': url_for('curriculator.index')},
             {'title': 'Course Registration', 'desc': 'Review and finalize student course registrations',
              'icon': 'fas fa-clipboard-check', 'color': '#0dcaf0', 'bg': 'rgba(13,202,240,0.15)', 'url': url_for('course_management.coordinator_registrations')},
+            {'title': 'Exam Info', 'desc': 'Download question setter and evaluator lists for all exam committees.',
+             'icon': 'fas fa-clipboard-list', 'color': '#fd7e14', 'bg': 'rgba(253,126,20,0.15)', 'url': url_for('officer_exam_info')},
             {'title': 'Academic Calendar', 'desc': 'View academic calendar with holidays, events, and important dates',
              'icon': 'fas fa-calendar', 'color': '#6366f1', 'bg': 'rgba(99,102,241,0.15)', 'url': url_for('academic_calendar.index')},
         ]
@@ -5118,15 +5295,6 @@ def create_app():
                 'bg': 'rgba(139,90,43,0.15)',
                 'url': url_for('noticeboard.index'),
             })
-        head_cards.append({
-            'title': 'Socrates',
-            'desc': 'Set debate topics; students argue with the AI companion as a graded assignment.',
-            'icon': 'fas fa-user',
-            'image': url_for('static', filename='images/socrates.png'),
-            'color': '#6f42c1',
-            'bg': 'rgba(111,66,193,0.15)',
-            'url': url_for('class_management.socrates_home'),
-        })
         # Self Assessment card: লিংক সবসময় /self-assessment (blueprints/self_assessment)
         if 'self_assessment.index' in current_app.view_functions:
             self_assessment_url = url_for('self_assessment.index')
@@ -5138,7 +5306,23 @@ def create_app():
             'icon': 'fas fa-clipboard-check', 'color': '#059669', 'bg': 'rgba(5,150,105,0.15)',
             'url': self_assessment_url
         })
-        response = make_response(render_template('head/dashboard.html', head_cards=head_cards))
+        is_dean = (
+            'dean' in get_effective_roles(current_user)
+            and getattr(current_user, 'active_role', None) != 'head'
+        )
+        tenant = current_tenant()
+        if is_dean:
+            dashboard_role_title = tenant.dean_title or 'Dean'
+            dashboard_role_short = 'Dean'
+        else:
+            dashboard_role_title = f'{tenant.head_title} Dashboard'
+            dashboard_role_short = tenant.head_title or 'Head'
+        response = make_response(render_template(
+            'head/dashboard.html',
+            head_cards=head_cards,
+            dashboard_role_title=dashboard_role_title,
+            dashboard_role_short=dashboard_role_short,
+        ))
         # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
         response.headers['Pragma'] = 'no-cache'
@@ -6378,7 +6562,7 @@ def create_app():
         
         # Show only relevant duty assignments (exclude tabulator/scrutinizer)
         visible_duty_types = ['course_coordinator', 'exam_committee_chief', 'routine_maker', 'teaching_assistant']
-        assignments = query_for_window(DutyAssignment).filter(
+        assignments = query_for_window(DutyAssignment, admin_override=False).filter(
             DutyAssignment.status == 'active',
             DutyAssignment.duty_type.in_(visible_duty_types)
         ).order_by(DutyAssignment.created_at.desc()).all()
@@ -6404,7 +6588,7 @@ def create_app():
         # Get distinct academic sessions from curriculum year/term configuration
         academic_sessions = []
         try:
-            session_rows = query_for_window(CurriculumYearTerm).with_entities(
+            session_rows = query_for_window(CurriculumYearTerm, admin_override=False).with_entities(
                 CurriculumYearTerm.academic_session
             ).filter(
                 CurriculumYearTerm.academic_session.isnot(None)
@@ -6487,7 +6671,7 @@ def create_app():
         
         try:
             # Get distinct year and term combinations from CurriculumYearTerm for this session
-            year_term_rows = query_for_window(CurriculumYearTerm).with_entities(
+            year_term_rows = query_for_window(CurriculumYearTerm, admin_override=False).with_entities(
                 CurriculumYearTerm.year,
                 CurriculumYearTerm.term
             ).filter(
@@ -6497,8 +6681,8 @@ def create_app():
                 CurriculumYearTerm.term.asc()
             ).all()
             
-            # Also check Session model for year/term combinations
-            session_rows = db.session.query(
+            # Class sessions in the selected window only
+            session_rows = query_for_window(Session, admin_override=False).with_entities(
                 Session.year,
                 Session.term
             ).filter(
@@ -6761,7 +6945,7 @@ def create_app():
                     'assigned_teacher_id': teacher_id
                 })
             
-            existing = query_for_window(DutyAssignment).filter_by(**filter_kwargs).first()
+            existing = query_for_window(DutyAssignment, admin_override=False).filter_by(**filter_kwargs).first()
             if existing:
                 return jsonify({'success': False, 'message': 'This duty assignment already exists'}), 400
             
@@ -6812,7 +6996,7 @@ def create_app():
         
         try:
             # Get the chief assignment
-            chief_assignment = query_for_window(DutyAssignment).filter_by(
+            chief_assignment = query_for_window(DutyAssignment, admin_override=False).filter_by(
                 id=assignment_id,
                 duty_type='exam_committee_chief',
                 status='active'
@@ -6834,7 +7018,7 @@ def create_app():
             archived_count += 1
             
             # Archive all committee members for this session/year/term
-            committee_assignments = query_for_window(DutyAssignment).filter(
+            committee_assignments = query_for_window(DutyAssignment, admin_override=False).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6847,7 +7031,7 @@ def create_app():
                 archived_count += 1
             
             # Archive tabulators for this session/year/term assigned by this chief
-            tabulator_assignments = query_for_window(DutyAssignment).filter(
+            tabulator_assignments = query_for_window(DutyAssignment, admin_override=False).filter(
                 DutyAssignment.duty_type == 'tabulator',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6861,7 +7045,7 @@ def create_app():
                 archived_count += 1
             
             # Archive scrutinizers for this session/year/term assigned by this chief
-            scrutinizer_assignments = query_for_window(DutyAssignment).filter(
+            scrutinizer_assignments = query_for_window(DutyAssignment, admin_override=False).filter(
                 DutyAssignment.duty_type == 'scrutinizer',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6885,7 +7069,7 @@ def create_app():
                 # Find user by teacher name
                 chief_user = User.query.filter_by(full_name=chief_teacher.name).first()
                 if chief_user:
-                    remuneration_forms = query_for_window(RemunerationForm).filter_by(
+                    remuneration_forms = query_for_window(RemunerationForm, admin_override=False).filter_by(
                         user_id=chief_user.id,
                         status='draft'
                     ).all()
@@ -6941,7 +7125,7 @@ def create_app():
             return jsonify({'success': False, 'message': 'Unauthorized'}), 403
         
         try:
-            assignment = get_or_404_for_window(DutyAssignment, assignment_id)
+            assignment = get_or_404_for_window(DutyAssignment, assignment_id, admin_override=False)
             
             # If Exam Committee Chief/Member, only allow removing assignments they created
             if (is_chief or is_member) and not is_head:
@@ -6960,7 +7144,7 @@ def create_app():
                 
                 # Archive/Delete all committee members for this session/year/term
                 # Delete ALL members regardless of status to ensure complete cleanup
-                committee_members = query_for_window(DutyAssignment).filter(
+                committee_members = query_for_window(DutyAssignment, admin_override=False).filter(
                     DutyAssignment.duty_type == 'exam_committee_member',
                     DutyAssignment.academic_session == academic_session,
                     DutyAssignment.year == year,
@@ -6972,7 +7156,7 @@ def create_app():
                     db.session.add(member)
                 
                 # Archive/Delete all tabulators for this session/year/term assigned by this chief
-                tabulators = query_for_window(DutyAssignment).filter(
+                tabulators = query_for_window(DutyAssignment, admin_override=False).filter(
                     DutyAssignment.duty_type == 'tabulator',
                     DutyAssignment.academic_session == academic_session,
                     DutyAssignment.year == year,
@@ -6984,7 +7168,7 @@ def create_app():
                     tabulator.status = 'inactive'
                 
                 # Archive/Delete all scrutinizers for this session/year/term assigned by this chief
-                scrutinizers = query_for_window(DutyAssignment).filter(
+                scrutinizers = query_for_window(DutyAssignment, admin_override=False).filter(
                     DutyAssignment.duty_type == 'scrutinizer',
                     DutyAssignment.academic_session == academic_session,
                     DutyAssignment.year == year,
@@ -7005,7 +7189,7 @@ def create_app():
                 if chief_teacher:
                     chief_user = User.query.filter_by(full_name=chief_teacher.name).first()
                     if chief_user:
-                        remuneration_forms = query_for_window(RemunerationForm).filter_by(
+                        remuneration_forms = query_for_window(RemunerationForm, admin_override=False).filter_by(
                             user_id=chief_user.id,
                             status='draft'
                         ).all()
@@ -9017,23 +9201,38 @@ def create_app():
                     is_same_map[key] = assignment.is_same_person
                     assignment_id_map[key] = assignment.id
 
-            # Build default teacher mapping from curriculum/class course assignments.
-            # Rules:
-            # - Full course assignment (no section): Part A defaults to that teacher; Part B remains unassigned.
-            # - Split course assignments: Section A -> Part A default, Section B -> Part B default.
+            # Defaults follow the curriculum screen: this operational window only.
+            # Explicit Section A/B beats a full-course row, and the course row
+            # shown for this subject beats an older duplicate with the same code.
+            # A full-course row fills Part A only when no Section A exists.
             default_part_a_teacher = {}  # {course_code: teacher_id}
             default_part_b_teacher = {}  # {course_code: teacher_id}
             if all_matching_course_ids:
-                course_ids = all_matching_course_ids
-                session_assignments = CourseSessionAssignment.query.filter(
-                    CourseSessionAssignment.course_id.in_(course_ids),
-                    CourseSessionAssignment.academic_session == academic_session,
-                    CourseSessionAssignment.year == year,
-                    CourseSessionAssignment.term == term
+                course_ids = list(dict.fromkeys(all_matching_course_ids))
+                canonical_course_id_by_code = {
+                    code: course.id
+                    for code, course in merged_courses_by_code.items()
+                    if getattr(course, 'id', None)
+                }
+                committee_batch = (request.args.get('batch') or '').strip()
+                selected_session_key = str(academic_session or '').strip().casefold()
+                session_assignments = filter_by_active_window(
+                    CourseSessionAssignment.query.filter(
+                        CourseSessionAssignment.course_id.in_(course_ids)
+                    ),
+                    CourseSessionAssignment,
+                    admin_override=False,
                 ).all()
 
+                best_rank = {'A': {}, 'B': {}}
                 for sess_assign in session_assignments:
                     if not sess_assign.teacher_id:
+                        continue
+                    if str(sess_assign.academic_session or '').strip().casefold() != selected_session_key:
+                        continue
+                    if normalize_label(sess_assign.year or '', is_term=False) != normalized_year:
+                        continue
+                    if normalize_label(sess_assign.term or '', is_term=True) != normalized_term:
                         continue
                     sess_course = matching_courses_by_id.get(sess_assign.course_id)
                     if not sess_course:
@@ -9042,15 +9241,29 @@ def create_app():
                     if not code_key:
                         continue
                     raw_section = (sess_assign.section or '').strip().upper()
-                    # Full/blank section assignment -> only Part A default
-                    if not raw_section:
-                        if code_key not in default_part_a_teacher:
-                            default_part_a_teacher[code_key] = sess_assign.teacher_id
-                        continue
-                    if raw_section == 'A' and code_key not in default_part_a_teacher:
-                        default_part_a_teacher[code_key] = sess_assign.teacher_id
-                    elif raw_section == 'B' and code_key not in default_part_b_teacher:
-                        default_part_b_teacher[code_key] = sess_assign.teacher_id
+                    assign_batch = (sess_assign.batch or '').strip()
+                    batch_penalty = 1 if committee_batch and assign_batch and assign_batch != committee_batch else 0
+                    canonical_id = canonical_course_id_by_code.get(code_key)
+                    course_penalty = 0 if canonical_id and sess_assign.course_id == canonical_id else 1
+                    recency = -(sess_assign.id or 0)
+                    candidates = []
+                    if raw_section == 'A':
+                        candidates.append(('A', (0, course_penalty, batch_penalty, recency)))
+                    elif raw_section == 'B':
+                        candidates.append(('B', (0, course_penalty, batch_penalty, recency)))
+                    elif not raw_section:
+                        candidates.append(('A', (1, course_penalty, batch_penalty, recency)))
+                    for part, rank in candidates:
+                        previous = best_rank[part].get(code_key)
+                        if previous is None or rank < previous[0]:
+                            best_rank[part][code_key] = (rank, sess_assign.teacher_id)
+
+                default_part_a_teacher = {
+                    code: teacher_id for code, (_rank, teacher_id) in best_rank['A'].items()
+                }
+                default_part_b_teacher = {
+                    code: teacher_id for code, (_rank, teacher_id) in best_rank['B'].items()
+                }
             
             subject_entries = []
             for course in merged_courses:
@@ -12734,21 +12947,734 @@ def create_app():
             'committee': examination_committee
         })
 
+    def _officer_exam_info_access():
+        roles = set(get_effective_roles(current_user))
+        if is_admin(current_user) or 'head' in roles or 'dean' in roles:
+            return None
+        if 'officer' not in roles:
+            flash('This page is only accessible to officers and heads.', 'danger')
+            return redirect(url_for('index'))
+        from utils.dashboard_settings import require_officer_dashboard_card
+        return require_officer_dashboard_card('exam_info')
+
+    def _officer_semester_key(session_name, year, term):
+        from utils.semester_utils import _normalize_year_term
+        return (
+            str(session_name or '').strip().casefold(),
+            _normalize_year_term(year),
+            _normalize_year_term(term),
+        )
+
+    def _officer_part_label(raw):
+        value = (raw or '').strip().upper().replace(' ', '')
+        if value in {'A', 'PARTA', 'SECTIONA'}:
+            return 'A'
+        if value in {'B', 'PARTB', 'SECTIONB'}:
+            return 'B'
+        return (raw or '').strip().upper()
+
+    def _officer_merge_qs_course_rows(rows):
+        """One row per course: Part A and Part B side by side instead of duplicate subjects."""
+        grouped = {}
+        order = []
+
+        def _blank(value):
+            text = (value or '').strip()
+            return text in ('', '—')
+
+        for row in rows:
+            code = (row.get('course_code') or '').strip()
+            name = (row.get('course_name') or '').strip()
+            key = (code.lower(), name.lower())
+            if key not in grouped:
+                grouped[key] = {
+                    'course_name': name,
+                    'course_code': code,
+                    'parts': {},
+                }
+                order.append(key)
+            part = (row.get('part') or '').strip().upper() or '_'
+            incoming = {
+                'question_setter': row.get('question_setter') or '—',
+                'evaluator': row.get('evaluator') or '—',
+            }
+            existing = grouped[key]['parts'].get(part)
+            if existing is None:
+                grouped[key]['parts'][part] = incoming
+            else:
+                if _blank(existing['question_setter']) and not _blank(incoming['question_setter']):
+                    existing['question_setter'] = incoming['question_setter']
+                if _blank(existing['evaluator']) and not _blank(incoming['evaluator']):
+                    existing['evaluator'] = incoming['evaluator']
+
+        merged = []
+        for key in order:
+            item = grouped[key]
+            parts = dict(item['parts'])
+            unlabeled = parts.pop('_', None)
+            part_a = parts.get('A')
+            part_b = parts.get('B')
+            if unlabeled:
+                if part_a is None:
+                    part_a = unlabeled
+                elif part_b is None:
+                    part_b = unlabeled
+            other_parts = [
+                {
+                    'part': part_key,
+                    'question_setter': info.get('question_setter') or '—',
+                    'evaluator': info.get('evaluator') or '—',
+                }
+                for part_key, info in sorted(parts.items())
+                if part_key not in {'A', 'B'}
+            ]
+            merged.append({
+                'course_name': item['course_name'],
+                'course_code': item['course_code'],
+                'part_a_qs': (part_a or {}).get('question_setter') or '—',
+                'part_a_ev': (part_a or {}).get('evaluator') or '—',
+                'part_b_qs': (part_b or {}).get('question_setter') or '—',
+                'part_b_ev': (part_b or {}).get('evaluator') or '—',
+                'has_part_a': bool(part_a),
+                'has_part_b': bool(part_b),
+                'other_parts': other_parts,
+            })
+        merged.sort(key=lambda row: (
+            (row.get('course_code') or '').lower(),
+            (row.get('course_name') or '').lower(),
+        ))
+        return merged
+
+    def _officer_current_window_label():
+        try:
+            window_id = get_effective_window_id(admin_override=False)
+            if not window_id:
+                return ''
+            window = OperationalWindow.query.get(window_id)
+            return (window.name or '').strip() if window else ''
+        except Exception:
+            return ''
+
+    def _build_officer_qs_evaluator_committees(session_name=None, year=None, term=None):
+        """Window-scoped question setter / evaluator lists for every exam committee."""
+        from blueprints.class_management.models import ExamPaperEvaluatorAssignment
+
+        filter_key = None
+        if session_name and year and term:
+            filter_key = _officer_semester_key(session_name, year, term)
+
+        duty_rows = query_for_window(DutyAssignment, admin_override=False).filter(
+            DutyAssignment.status == 'active',
+            DutyAssignment.duty_type.in_(['exam_committee_chief', 'exam_committee_member']),
+        ).all()
+        assignments = query_for_window(ExamPaperEvaluatorAssignment, admin_override=False).all()
+
+        groups = {}
+
+        def _group(session_value, year_value, term_value):
+            key = _officer_semester_key(session_value, year_value, term_value)
+            if not any(key):
+                return None
+            if filter_key is not None and key != filter_key:
+                return None
+            group = groups.get(key)
+            if group is None:
+                group = {
+                    'key': key,
+                    'academic_session': (session_value or '').strip(),
+                    'year': (year_value or '').strip(),
+                    'term': (term_value or '').strip(),
+                    'chief_name': '',
+                    'member_names': [],
+                    'rows': [],
+                }
+                groups[key] = group
+            return group
+
+        teacher_ids = set()
+        course_ids = set()
+        for duty in duty_rows:
+            if duty.assigned_teacher_id:
+                teacher_ids.add(duty.assigned_teacher_id)
+        for assignment in assignments:
+            if assignment.assigned_teacher_id:
+                teacher_ids.add(assignment.assigned_teacher_id)
+            if assignment.question_setter_id:
+                teacher_ids.add(assignment.question_setter_id)
+            if assignment.course_id:
+                course_ids.add(assignment.course_id)
+
+        teachers_by_id = {
+            teacher.id: teacher
+            for teacher in Teacher.query.filter(Teacher.id.in_(list(teacher_ids) or [0])).all()
+        } if teacher_ids else {}
+        courses_by_id = {
+            course.id: course
+            for course in Course.query.filter(Course.id.in_(list(course_ids) or [0])).all()
+        } if course_ids else {}
+
+        def _teacher_name(teacher_id):
+            teacher = teachers_by_id.get(teacher_id)
+            return (teacher.name or '').strip() if teacher else ''
+
+        for duty in duty_rows:
+            group = _group(duty.academic_session, duty.year, duty.term)
+            if not group:
+                continue
+            name = _teacher_name(duty.assigned_teacher_id)
+            if duty.duty_type == 'exam_committee_chief':
+                if name and not group['chief_name']:
+                    group['chief_name'] = name
+                if duty.academic_session:
+                    group['academic_session'] = duty.academic_session.strip()
+                if duty.year:
+                    group['year'] = duty.year.strip()
+                if duty.term:
+                    group['term'] = duty.term.strip()
+            elif name and name not in group['member_names']:
+                group['member_names'].append(name)
+
+        for assignment in assignments:
+            group = _group(assignment.academic_session, assignment.year, assignment.term)
+            if not group:
+                continue
+            course = courses_by_id.get(assignment.course_id)
+            linked = assignment.exam_paper_evaluation
+            if linked and not _officer_exam_eval_in_window(linked):
+                linked = None
+            course_name = (
+                (course.course_name if course else '')
+                or (linked.course_name if linked else '')
+                or ''
+            ).strip()
+            course_code = (
+                (course.course_code if course else '')
+                or (linked.course_code if linked else '')
+                or ''
+            ).strip()
+            qs_id = assignment.question_setter_id
+            if qs_id is None and getattr(assignment, 'is_same_person', False):
+                qs_id = assignment.assigned_teacher_id
+            group['rows'].append({
+                'course_name': course_name,
+                'course_code': course_code,
+                'part': _officer_part_label(assignment.part),
+                'question_setter': _teacher_name(qs_id) or '—',
+                'evaluator': _teacher_name(assignment.assigned_teacher_id) or '—',
+            })
+
+        year_rank = {'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5}
+        term_rank = {'first': 1, 'second': 2, 'third': 3, 'thesis': 4}
+
+        committees = []
+        for group in groups.values():
+            group['rows'] = _officer_merge_qs_course_rows(group['rows'])
+            group['assignment_count'] = len(group['rows'])
+            committees.append(group)
+
+        committees.sort(key=lambda item: (
+            item.get('academic_session') or '',
+            year_rank.get(item['key'][1], 99),
+            term_rank.get(item['key'][2], 99),
+            item.get('year') or '',
+            item.get('term') or '',
+        ))
+        return committees
+
+    def _officer_exam_eval_in_window(record):
+        if record is None or not hasattr(record, 'window_id'):
+            return True
+        try:
+            from utils.window_utils import DEFAULT_WINDOW_ID
+            current_wid = get_effective_window_id(admin_override=False)
+            rec_wid = getattr(record, 'window_id', None)
+            if current_wid == DEFAULT_WINDOW_ID:
+                return rec_wid in (None, DEFAULT_WINDOW_ID)
+            return rec_wid == current_wid
+        except Exception:
+            return True
+
+    def _officer_qs_download_filename(ext, session_name=None, year=None, term=None):
+        tenant = current_tenant()
+        prefix = (tenant.short_name or 'AMS').replace(' ', '_')
+        if session_name and year and term:
+            slug = f'{session_name}_{year}_{term}'.replace('/', '-').replace(' ', '_')
+            return f'{prefix}_QS_Evaluators_{slug}.{ext}'
+        return f'{prefix}_QS_Evaluators_All_Committees.{ext}'
+
     @app.route('/officer/exam-info')
     @login_required
     def officer_exam_info():
         """Exam Info page for officers"""
-        roles = parse_roles(current_user.role)
-        if 'officer' not in roles and not is_admin(current_user):
-            flash('This page is only accessible to officers.', 'danger')
-            return redirect(url_for('index'))
-
-        from utils.dashboard_settings import require_officer_dashboard_card
-        blocked = require_officer_dashboard_card('exam_info')
+        blocked = _officer_exam_info_access()
         if blocked:
             return blocked
-        
-        return render_template('officer/exam_info.html')
+
+        committees = _build_officer_qs_evaluator_committees()
+        return render_template(
+            'officer/exam_info.html',
+            committees=committees,
+            window_label=_officer_current_window_label(),
+        )
+
+    @app.route('/officer/exam-info/question-setters.pdf')
+    @login_required
+    def officer_qs_evaluator_pdf():
+        blocked = _officer_exam_info_access()
+        if blocked:
+            return blocked
+
+        session_name = (request.args.get('session') or '').strip() or None
+        year = (request.args.get('year') or '').strip() or None
+        term = (request.args.get('term') or '').strip() or None
+        committees = _build_officer_qs_evaluator_committees(session_name, year, term)
+        if not committees:
+            flash('No exam committee question setter or evaluator assignments found in this window.', 'warning')
+            return redirect(url_for('officer_exam_info'))
+
+        try:
+            from weasyprint import HTML
+            from utils.pdf_fonts import inject_weasyprint_fonts, resolve_formal_pdf_fonts
+        except ImportError:
+            flash('PDF generation is not available on this server.', 'danger')
+            return redirect(url_for('officer_exam_info'))
+
+        tenant = current_tenant()
+        html_content = render_template(
+            'officer/question_setter_evaluator_weasyprint.html',
+            committees=committees,
+            tenant=tenant,
+            window_label=_officer_current_window_label(),
+            generated_at=format_bd(bd_now(), '%d %b %Y'),
+            single_committee=bool(session_name and year and term),
+        )
+        html_content, base_url = inject_weasyprint_fonts(html_content)
+        formal = resolve_formal_pdf_fonts()
+        base = (formal['fonts_dir'].as_uri() + '/') if formal and formal.get('fonts_dir') else base_url
+        try:
+            pdf_buffer = BytesIO()
+            HTML(string=html_content, base_url=base).write_pdf(pdf_buffer)
+            pdf_buffer.seek(0)
+        except Exception as exc:
+            current_app.logger.error(f'Officer QS/evaluator PDF failed: {exc}', exc_info=True)
+            flash('Could not generate the PDF. Please try again.', 'danger')
+            return redirect(url_for('officer_exam_info'))
+        filename = _officer_qs_download_filename('pdf', session_name, year, term)
+        return send_file(
+            pdf_buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename,
+        )
+
+    @app.route('/officer/exam-info/question-setters.docx')
+    @login_required
+    def officer_qs_evaluator_docx():
+        blocked = _officer_exam_info_access()
+        if blocked:
+            return blocked
+
+        session_name = (request.args.get('session') or '').strip() or None
+        year = (request.args.get('year') or '').strip() or None
+        term = (request.args.get('term') or '').strip() or None
+        committees = _build_officer_qs_evaluator_committees(session_name, year, term)
+        if not committees:
+            flash('No exam committee question setter or evaluator assignments found in this window.', 'warning')
+            return redirect(url_for('officer_exam_info'))
+
+        try:
+            from docx import Document
+            from docx.shared import Inches, Pt, Cm, RGBColor
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            from docx.oxml.ns import qn
+        except ImportError:
+            flash('DOC export is not available on this server.', 'danger')
+            return redirect(url_for('officer_exam_info'))
+
+        tenant = current_tenant()
+        document = Document()
+        section = document.sections[0]
+        section.page_width = Inches(11)
+        section.page_height = Inches(8.5)
+        section.left_margin = Cm(1.4)
+        section.right_margin = Cm(1.4)
+        section.top_margin = Cm(1.2)
+        section.bottom_margin = Cm(1.2)
+
+        def _run(paragraph, text, size=11, bold=False, center=False):
+            if center:
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = paragraph.add_run(text)
+            run.font.size = Pt(size)
+            run.font.bold = bold
+            run.font.name = 'Times New Roman'
+            run.font.color.rgb = RGBColor(0x11, 0x11, 0x11)
+            run._element.rPr.rFonts.set(qn('w:eastAsia'), 'Times New Roman')
+            return run
+
+        heading = document.add_paragraph()
+        heading.paragraph_format.space_after = Pt(0)
+        _run(heading, tenant.university_name or 'Khulna University', size=14, bold=True, center=True)
+        sub = document.add_paragraph()
+        sub.paragraph_format.space_after = Pt(0)
+        _run(sub, tenant.display_with_university, size=11, center=True)
+        title = document.add_paragraph()
+        title.paragraph_format.space_before = Pt(6)
+        title.paragraph_format.space_after = Pt(2)
+        _run(title, 'Question Setter and Evaluator List', size=13, bold=True, center=True)
+        meta = document.add_paragraph()
+        meta.paragraph_format.space_after = Pt(10)
+        window_label = _officer_current_window_label()
+        meta_bits = [f'Generated: {format_bd(bd_now(), "%d %b %Y")}']
+        if window_label:
+            meta_bits.insert(0, f'Window: {window_label}')
+        _run(meta, '  ·  '.join(meta_bits), size=9, center=True)
+
+        for committee in committees:
+            block = document.add_paragraph()
+            block.paragraph_format.space_before = Pt(8)
+            block.paragraph_format.space_after = Pt(2)
+            _run(
+                block,
+                f"{committee['academic_session'] or '—'}  ·  {committee['year'] or '—'} / {committee['term'] or '—'}",
+                size=12,
+                bold=True,
+            )
+            people = document.add_paragraph()
+            people.paragraph_format.space_after = Pt(4)
+            chief = committee.get('chief_name') or '—'
+            members = ', '.join(committee.get('member_names') or []) or '—'
+            _run(people, f"Chief: {chief}    Members: {members}", size=10)
+
+            table = document.add_table(rows=1, cols=4)
+            table.style = 'Table Grid'
+            headers = ['Course', 'Code', 'Part A', 'Part B']
+            for index, label in enumerate(headers):
+                cell = table.rows[0].cells[index]
+                cell.text = ''
+                para = cell.paragraphs[0]
+                _run(para, label, size=10, bold=True)
+
+            def _fill_part_cell(cell, has_part, qs_name, ev_name, extra_parts=None):
+                cell.text = ''
+                first = True
+
+                def _line(text):
+                    nonlocal first
+                    para = cell.paragraphs[0] if first else cell.add_paragraph()
+                    first = False
+                    _run(para, text, size=10)
+
+                if has_part:
+                    _line(f'QS: {qs_name or "—"}')
+                    _line(f'Evaluator: {ev_name or "—"}')
+                for extra in extra_parts or []:
+                    part_label = extra.get('part') or '—'
+                    _line(f"Part {part_label} QS: {extra.get('question_setter') or '—'}")
+                    _line(f"Part {part_label} Evaluator: {extra.get('evaluator') or '—'}")
+                if first:
+                    _line('—')
+
+            if committee['rows']:
+                for row in committee['rows']:
+                    cells = table.add_row().cells
+                    cells[0].text = ''
+                    _run(cells[0].paragraphs[0], row.get('course_name') or '—', size=10)
+                    cells[1].text = ''
+                    _run(cells[1].paragraphs[0], row.get('course_code') or '—', size=10)
+                    _fill_part_cell(
+                        cells[2],
+                        row.get('has_part_a'),
+                        row.get('part_a_qs'),
+                        row.get('part_a_ev'),
+                    )
+                    _fill_part_cell(
+                        cells[3],
+                        row.get('has_part_b'),
+                        row.get('part_b_qs'),
+                        row.get('part_b_ev'),
+                        extra_parts=row.get('other_parts') or [],
+                    )
+            else:
+                empty = table.add_row().cells
+                empty[0].merge(empty[3])
+                empty[0].text = ''
+                _run(empty[0].paragraphs[0], 'No question setter or evaluator assigned yet.', size=10)
+
+        buffer = BytesIO()
+        try:
+            document.save(buffer)
+            buffer.seek(0)
+        except Exception as exc:
+            current_app.logger.error(f'Officer QS/evaluator DOC failed: {exc}', exc_info=True)
+            flash('Could not generate the DOC file. Please try again.', 'danger')
+            return redirect(url_for('officer_exam_info'))
+        filename = _officer_qs_download_filename('docx', session_name, year, term)
+        return send_file(
+            buffer,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            as_attachment=True,
+            download_name=filename,
+        )
+
+    _OFFICER_NONE_BATCH = '__none__'
+
+    def _officer_student_list_access():
+        roles = set(get_effective_roles(current_user))
+        if is_admin(current_user):
+            return None
+        if 'officer' not in roles:
+            flash('This page is only accessible to officers.', 'danger')
+            return redirect(url_for('index'))
+        from utils.dashboard_settings import require_officer_dashboard_card
+        return require_officer_dashboard_card('student_list')
+
+    def _officer_parse_batch_filter(raw):
+        value = (raw or '').strip()
+        if not value:
+            return None
+        if value == _OFFICER_NONE_BATCH:
+            return ''
+        return value
+
+    def _officer_batch_query_value(batch_key):
+        return _OFFICER_NONE_BATCH if not batch_key else batch_key
+
+    def _build_officer_student_batches(batch=None):
+        """Group students by batch for officer download (view only)."""
+        from sqlalchemy import or_
+
+        query = Student.query
+        if batch is not None:
+            if batch == '':
+                query = query.filter(or_(Student.batch.is_(None), Student.batch == ''))
+            else:
+                query = query.filter(Student.batch == batch)
+        students = query.order_by(Student.student_id.asc(), Student.name.asc()).all()
+
+        groups = {}
+        for student in students:
+            key = (student.batch or '').strip()
+            group = groups.get(key)
+            if group is None:
+                group = {
+                    'batch': key,
+                    'batch_label': key if key else 'No Batch',
+                    'query_batch': _officer_batch_query_value(key),
+                    'students': [],
+                }
+                groups[key] = group
+            group['students'].append({
+                'student_id': (student.student_id or '').strip(),
+                'name': (student.name or '').strip(),
+                'hall': (student.hall or '').strip(),
+                'email': (student.email or '').strip(),
+                'phone': (student.phone or '').strip(),
+            })
+
+        named = [group for key, group in groups.items() if key]
+        named.sort(key=lambda item: item['batch'], reverse=True)
+        batches = named + ([groups['']] if '' in groups else [])
+        for group in batches:
+            group['count'] = len(group['students'])
+        return batches
+
+    def _officer_student_list_filename(ext, batch=None):
+        from utils.email_safety import safe_download_filename
+        tenant = current_tenant()
+        prefix = safe_download_filename((tenant.short_name or 'AMS').replace(' ', '_'), default='AMS')
+        if batch is None:
+            return f'{prefix}_Students_All_Batches.{ext}'
+        slug = safe_download_filename((batch or 'No_Batch').replace(' ', '_'), default='No_Batch')
+        return f'{prefix}_Students_Batch_{slug}.{ext}'
+
+    def _officer_excel_sheet_name(label, used):
+        import re
+        cleaned = re.sub(r'[:\\/?*\[\]]+', '_', (label or 'Batch')).strip(' \'') or 'Batch'
+        cleaned = cleaned[:31]
+        candidate = cleaned
+        index = 2
+        used_lower = {name.lower() for name in used}
+        while candidate.lower() in used_lower:
+            suffix = f'_{index}'
+            candidate = (cleaned[: 31 - len(suffix)] + suffix)
+            index += 1
+        used.append(candidate)
+        return candidate
+
+    @app.route('/officer/student-list')
+    @login_required
+    def officer_student_list():
+        blocked = _officer_student_list_access()
+        if blocked:
+            return blocked
+
+        batch_filter = _officer_parse_batch_filter(request.args.get('batch'))
+        batches = _build_officer_student_batches(batch_filter)
+        all_batches = _build_officer_student_batches() if batch_filter is not None else batches
+        return render_template(
+            'officer/student_list.html',
+            batches=batches,
+            all_batches=all_batches,
+            selected_batch=batch_filter,
+            none_batch=_OFFICER_NONE_BATCH,
+        )
+
+    @app.route('/officer/student-list.xlsx')
+    @login_required
+    def officer_student_list_xlsx():
+        blocked = _officer_student_list_access()
+        if blocked:
+            return blocked
+
+        batch_filter = _officer_parse_batch_filter(request.args.get('batch'))
+        batches = _build_officer_student_batches(batch_filter)
+        if not batches:
+            flash('No students found for this selection.', 'warning')
+            return redirect(url_for('officer_student_list'))
+
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Alignment, Font, Border, Side
+            from openpyxl.utils import get_column_letter
+        except ImportError:
+            flash('Excel export is not available on this server.', 'danger')
+            return redirect(url_for('officer_student_list'))
+
+        tenant = current_tenant()
+        generated_at = format_bd(bd_now(), '%d %b %Y')
+        headers = ['SL', 'Student ID', 'Name', 'Hall', 'Email', 'Phone']
+        title_font = Font(bold=True, size=14)
+        subtitle_font = Font(bold=True, size=12)
+        header_font = Font(bold=True)
+        meta_font = Font(size=10)
+        center = Alignment(horizontal='center', vertical='center')
+        left = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        thin = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin'),
+        )
+        widths = [6, 16, 28, 22, 30, 16]
+
+        wb = Workbook()
+        used_sheets = []
+        first_sheet = True
+        for group in batches:
+            sheet_name = _officer_excel_sheet_name(group['batch_label'], used_sheets)
+            ws = wb.active if first_sheet else wb.create_sheet()
+            first_sheet = False
+            ws.title = sheet_name
+
+            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+            ws.cell(row=1, column=1, value=tenant.university_name or 'Khulna University').font = title_font
+            ws.cell(row=1, column=1).alignment = center
+            ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(headers))
+            ws.cell(row=2, column=1, value=tenant.display_with_university).font = subtitle_font
+            ws.cell(row=2, column=1).alignment = center
+            ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=len(headers))
+            ws.cell(row=3, column=1, value=f"Student List — Batch {group['batch_label']}").font = subtitle_font
+            ws.cell(row=3, column=1).alignment = center
+            ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=len(headers))
+            ws.cell(row=4, column=1, value=f'Generated: {generated_at}  ·  {group["count"]} student{"s" if group["count"] != 1 else ""}').font = meta_font
+            ws.cell(row=4, column=1).alignment = center
+
+            header_row = 6
+            for col_idx, label in enumerate(headers, start=1):
+                cell = ws.cell(row=header_row, column=col_idx, value=label)
+                cell.font = header_font
+                cell.alignment = center
+                cell.border = thin
+
+            for index, student in enumerate(group['students'], start=1):
+                values = [
+                    index,
+                    student['student_id'] or '—',
+                    student['name'] or '—',
+                    student['hall'] or '—',
+                    student['email'] or '—',
+                    student['phone'] or '—',
+                ]
+                row_idx = header_row + index
+                for col_idx, value in enumerate(values, start=1):
+                    cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                    cell.alignment = center if col_idx in (1, 2, 6) else left
+                    cell.border = thin
+                    if col_idx in (2, 6):
+                        cell.number_format = '@'
+
+            for col_idx, width in enumerate(widths, start=1):
+                ws.column_dimensions[get_column_letter(col_idx)].width = width
+            ws.freeze_panes = 'A7'
+            ws.page_setup.orientation = 'landscape'
+            ws.page_setup.fitToPage = True
+            ws.page_setup.fitToWidth = 1
+            ws.page_setup.fitToHeight = 0
+            ws.print_title_rows = '1:6'
+
+        buffer = BytesIO()
+        try:
+            wb.save(buffer)
+            buffer.seek(0)
+        except Exception as exc:
+            current_app.logger.error(f'Officer student list Excel failed: {exc}', exc_info=True)
+            flash('Could not generate the Excel file. Please try again.', 'danger')
+            return redirect(url_for('officer_student_list'))
+
+        return send_file(
+            buffer,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=_officer_student_list_filename('xlsx', batch_filter),
+        )
+
+    @app.route('/officer/student-list.pdf')
+    @login_required
+    def officer_student_list_pdf():
+        blocked = _officer_student_list_access()
+        if blocked:
+            return blocked
+
+        batch_filter = _officer_parse_batch_filter(request.args.get('batch'))
+        batches = _build_officer_student_batches(batch_filter)
+        if not batches:
+            flash('No students found for this selection.', 'warning')
+            return redirect(url_for('officer_student_list'))
+
+        try:
+            from weasyprint import HTML
+            from utils.pdf_fonts import inject_weasyprint_fonts, resolve_formal_pdf_fonts
+        except ImportError:
+            flash('PDF generation is not available on this server.', 'danger')
+            return redirect(url_for('officer_student_list'))
+
+        tenant = current_tenant()
+        html_content = render_template(
+            'officer/student_list_weasyprint.html',
+            batches=batches,
+            tenant=tenant,
+            generated_at=format_bd(bd_now(), '%d %b %Y'),
+            single_batch=batch_filter is not None,
+        )
+        html_content, base_url = inject_weasyprint_fonts(html_content)
+        formal = resolve_formal_pdf_fonts()
+        base = (formal['fonts_dir'].as_uri() + '/') if formal and formal.get('fonts_dir') else base_url
+        try:
+            pdf_buffer = BytesIO()
+            HTML(string=html_content, base_url=base).write_pdf(pdf_buffer)
+            pdf_buffer.seek(0)
+        except Exception as exc:
+            current_app.logger.error(f'Officer student list PDF failed: {exc}', exc_info=True)
+            flash('Could not generate the PDF. Please try again.', 'danger')
+            return redirect(url_for('officer_student_list'))
+
+        return send_file(
+            pdf_buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=_officer_student_list_filename('pdf', batch_filter),
+        )
 
     @app.route('/remuneration')
     @login_required

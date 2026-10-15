@@ -4,27 +4,74 @@
   <meta charset="utf-8">
   <title>{{ title }}</title>
   <style>
-    @page { size: A4; margin: 18mm 16mm; }
+    @page {
+      size: A4;
+      margin: 18mm 18mm 20mm 18mm;
+      @top-center {
+        content: "{{ title|e }}";
+        font-family: 'Kalpurush', 'PDFSerif', 'Times New Roman', serif;
+        font-size: 9pt;
+        color: #6b7280;
+      }
+      @bottom-center {
+        content: "Page " counter(page) " of " counter(pages);
+        font-family: 'Kalpurush', 'PDFSerif', 'Times New Roman', serif;
+        font-size: 9pt;
+        color: #6b7280;
+      }
+    }
+    {% if kalpurush_uri %}
+    @font-face {
+      font-family: 'Kalpurush';
+      src: url('{{ kalpurush_uri }}') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+    {% endif %}
     body {
-      font-family: 'PDFSerif', 'Kalpurush', 'Times New Roman', Times, Georgia, serif;
+      font-family: 'Kalpurush', 'PDFSerif', 'Times New Roman', Times, Georgia, serif;
       color: #111827;
       font-size: 12pt;
-      line-height: 1.65;
+      line-height: 1.55;
     }
-    body * {
-      font-family: 'PDFSerif', 'Kalpurush', 'Times New Roman', Times, Georgia, serif !important;
+    .cover {
+      border-bottom: 1.4pt solid #111827;
+      padding-bottom: 10px;
+      margin-bottom: 16px;
     }
-    h1 { font-size: 20pt; margin: 0 0 8px; }
-    h2 { font-size: 14pt; margin: 0 0 4px; }
-    .meta { color: #374151; font-size: 10.5pt; margin: 0 0 14px; }
+    h1.doc-title {
+      font-size: 18pt;
+      line-height: 1.25;
+      margin: 0 0 6px;
+      font-weight: 700;
+    }
+    .meta { color: #374151; font-size: 10.5pt; margin: 0; }
     .meta p { margin: 0 0 2px; }
-    .part { page-break-after: always; }
-    .part:last-child { page-break-after: auto; }
-    .sub { color: #4b5563; font-size: 10pt; margin: 0 0 10px; }
+    .part {
+      page-break-inside: auto;
+      margin: 0 0 16px;
+      padding: 0 0 12px;
+      border-bottom: 0.4pt solid #d1d5db;
+    }
+    .part:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+    .part > h2 {
+      font-size: 13.5pt;
+      margin: 0 0 3px;
+      page-break-after: avoid;
+    }
+    .sub { color: #4b5563; font-size: 10pt; margin: 0 0 8px; page-break-after: avoid; }
+    .essay { text-align: justify; hyphens: auto; }
+    .essay h1 { font-size: 15pt; margin: 12px 0 6px; page-break-after: avoid; }
+    .essay h2 { font-size: 13.5pt; margin: 11px 0 5px; page-break-after: avoid; }
+    .essay h3 { font-size: 12.5pt; margin: 10px 0 4px; page-break-after: avoid; }
+    .essay h4, .essay h5, .essay h6 { font-size: 12pt; margin: 9px 0 4px; page-break-after: avoid; }
+    .essay p { margin: 0 0 8px; }
+    .essay p:last-child { margin-bottom: 0; }
+    .essay ul, .essay ol { margin: 4px 0 10px; padding-left: 18pt; }
+    .essay li { margin: 0 0 3px; }
     table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; }
     td, th { border: 1px solid #444; padding: 4px 6px; vertical-align: top; }
     blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid #999; color: #1f2937; }
-    p { margin: 0 0 8px; }
     {{ highlight_css|default('')|safe }}
     sup.wa-fn-ref a { font-size: 8pt; text-decoration: none; color: #111827; font-weight: 700; }
     hr.wa-fn-rule { border: 0; border-top: 0.6pt solid #6b7280; margin: 14pt 0 8pt; }
@@ -44,12 +91,14 @@
   </style>
 </head>
 <body>
-  <h1>{{ title }}</h1>
-  <div class="meta">
-    {% for line in meta_lines %}
-    <p>{{ line }}</p>
-    {% endfor %}
-  </div>
+  <header class="cover">
+    <h1 class="doc-title">{{ title }}</h1>
+    <div class="meta">
+      {% for line in meta_lines %}
+      <p>{{ line }}</p>
+      {% endfor %}
+    </div>
+  </header>
   {% if include_legend %}
   <p class="legend">
     <span class="hl-paste">Yellow = pasted</span>

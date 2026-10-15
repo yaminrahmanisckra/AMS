@@ -69,13 +69,22 @@
     <p class="small text-muted mb-2">Paste is limited{% if assignment.paste_max_words %} to {{ assignment.paste_max_words }} words each time{% endif %}{% if assignment.paste_max_events %} · {{ part.paste_events_used if part else 0 }}/{{ assignment.paste_max_events }} used{% endif %}.</p>
     {% endif %}
     {% if group %}
-    <div class="wa-sectab-row mb-2">
+    <div class="wa-sectab-row mb-2" id="waOwnTabs">
       {% for section in own_sections %}
-      <a class="wa-sectab{{ ' active' if active_section and section.id == active_section.id }}"
-         href="{{ url_for('written_assignment.student_write', assignment_id=assignment.id, section=section.id) }}">
-        <i class="fas fa-paragraph me-1"></i>{{ section.display_title(loop.index) }}
-        <span class="text-muted">· {{ section.word_count or 0 }}w</span>
-      </a>
+      <div class="wa-sectab-wrap" data-sec="{{ section.id }}">
+        <a class="wa-sectab{{ ' active' if active_section and section.id == active_section.id }}"
+           href="{{ url_for('written_assignment.student_write', assignment_id=assignment.id, section=section.id) }}">
+          <span class="wa-sectab-index">{{ loop.index }}</span>
+          <span class="wa-sectab-title">{{ section.display_title(loop.index) }}</span>
+          <span class="text-muted wa-sectab-words">· {{ section.word_count or 0 }}w</span>
+        </a>
+        {% if can_edit and own_sections|length > 1 %}
+        <span class="wa-sectab-moves">
+          <button class="wa-own-move" type="button" data-sec="{{ section.id }}" data-dir="up" {% if loop.first %}disabled{% endif %} aria-label="Move section earlier"><i class="fas fa-chevron-up"></i></button>
+          <button class="wa-own-move" type="button" data-sec="{{ section.id }}" data-dir="down" {% if loop.last %}disabled{% endif %} aria-label="Move section later"><i class="fas fa-chevron-down"></i></button>
+        </span>
+        {% endif %}
+      </div>
       {% endfor %}
       {% if can_edit %}
       <form method="POST" action="{{ url_for('written_assignment.student_add_section', assignment_id=assignment.id) }}" class="d-inline">
@@ -101,7 +110,7 @@
     {% endif %}
     {% endif %}
     <textarea id="assignmentEditor">{{ editor_html }}</textarea>
-    <p class="small text-muted mt-2 mb-0">Use <strong>Fn</strong> on the toolbar to add a footnote. You can paste a Zotero citation into that box (Zotero: Edit → Copy Citation).</p>
+    <p class="small text-muted mt-2 mb-0">Use <strong>H1 / H2 / H3</strong> for headings — Enter after a heading starts a body paragraph in Kalpurush. <strong>Fn</strong> adds a footnote (Zotero: Edit → Copy Citation).</p>
     <div class="mt-3 wa-btn-row wa-actions-sticky">
       <button class="btn btn-outline-primary" type="button" id="waSaveDraft"{% if not can_edit %} hidden{% endif %}><i class="far fa-floppy-disk me-1"></i>Save draft</button>
       <button class="btn btn-primary" type="button" id="waSubmit"{% if not can_edit %} hidden{% endif %}><i class="fas fa-paper-plane me-1"></i>Submit</button>
@@ -133,7 +142,7 @@
 
   {% if group %}
   <div class="wa-section-title mt-4"><i class="fas fa-book-open"></i>Group document</div>
-  <p class="small text-muted">All sections in serial order — this is how the final document reads. Use the arrows to rearrange.</p>
+  <p class="small text-muted">All sections in serial order — this is how the final document reads. Rearrange your own sections with the arrows on the tabs above, or move a section’s place in the paper here.</p>
   <div id="groupDoc">
     {% for sec in group_doc %}
     <article class="wa-panel mb-2 wa-doc-sec" data-sec="{{ sec.id }}">
@@ -145,7 +154,7 @@
             <div class="text-muted small">{{ sec.author_name }} ({{ sec.author_id }}) · <span class="sec-words">{{ sec.word_count }}</span> words</div>
           </div>
         </div>
-        {% if can_edit or can_unsubmit %}
+        {% if sec.mine and (can_edit or can_unsubmit) %}
         <div class="wa-order-btns">
           <button class="btn btn-outline-secondary btn-sm wa-move" type="button" data-sec="{{ sec.id }}" data-dir="up" aria-label="Move up"><i class="fas fa-arrow-up"></i></button>
           <button class="btn btn-outline-secondary btn-sm wa-move" type="button" data-sec="{{ sec.id }}" data-dir="down" aria-label="Move down"><i class="fas fa-arrow-down"></i></button>
@@ -177,7 +186,41 @@
   padding: 0.7rem 0.9rem;
 }
 .wa-mark-banner i { color: #16a34a; font-size: 1.3rem; }
-.wa-sectab-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.wa-sectab-row { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
+.wa-sectab-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #fff;
+  overflow: hidden;
+}
+.wa-sectab-wrap .wa-sectab { border: 0; border-radius: 0; }
+.wa-sectab-wrap .wa-sectab.active { border-radius: 0; }
+.wa-sectab-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.68rem;
+  margin-right: 0.15rem;
+}
+.wa-sectab.active .wa-sectab-index { background: rgba(255,255,255,0.22); color: #fff; }
+.wa-sectab-moves { display: inline-flex; flex-direction: column; }
+.wa-own-move {
+  border: 0;
+  background: #f8fafc;
+  color: #64748b;
+  line-height: 1;
+  padding: 0.12rem 0.38rem;
+  font-size: 0.58rem;
+}
+.wa-own-move:hover:not(:disabled) { background: #e2e8f0; color: #0f172a; }
+.wa-own-move:disabled { opacity: 0.35; }
 .wa-sectab {
   display: inline-flex;
   align-items: center;
@@ -425,6 +468,9 @@
   }
 
   if (window.tinymce) {
+    const kalpurushFace = cfg.kalpurushUrl
+      ? "@font-face{font-family:'Kalpurush';src:url('" + cfg.kalpurushUrl + "') format('truetype');font-weight:normal;font-style:normal;font-display:swap;}"
+      : '';
     tinymce.init({
       selector: '#assignmentEditor',
       height: 780,
@@ -433,13 +479,89 @@
       branding: false,
       promotion: false,
       readonly: !cfg.canEdit,
-      plugins: 'advlist autolink lists link charmap searchreplace visualblocks fullscreen table wordcount help',
-      toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | blockquote subscript superscript | wafootnote link table hr charmap | removeformat | fullscreen',
+      browser_spellcheck: true,
+      contextmenu: false,
+      toolbar_sticky: true,
+      toolbar_mode: 'sliding',
+      keep_styles: false,
+      forced_root_block: 'p',
+      newline_behavior: 'block',
+      plugins: 'advlist autolink lists link charmap searchreplace visualblocks fullscreen table wordcount help quickbars',
+      toolbar: 'undo redo | wah2 wah3 wah4 wapara | bold italic underline strikethrough | fontfamily fontsize | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | blockquote subscript superscript | wafootnote link table hr charmap | removeformat | fullscreen',
+      block_formats: 'Paragraph=p; Heading 1=h2; Heading 2=h3; Heading 3=h4',
+      font_family_formats: 'Kalpurush=Kalpurush,Georgia,serif; Georgia=georgia,serif; Times New Roman="Times New Roman",Times,serif',
+      font_size_formats: '12pt 13pt 14pt 16pt 18pt 22pt',
+      quickbars_selection_toolbar: 'bold italic underline | wah2 wah3 wapara | blockquote',
+      quickbars_insert_toolbar: false,
       paste_data_images: false,
       extended_valid_elements: 'sup[class|id|data-note],a[href|id|class],ol[class|id],li[id|class],hr[class]',
-      content_style: 'body { font-family: Kalpurush, Georgia, serif; font-size: 17px; line-height: 1.7; max-width: 760px; margin: 16px auto; } table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #ccc; padding: 6px; } sup.wa-fn-ref a { color: #1d4ed8; text-decoration: none; font-weight: 700; } hr.wa-fn-rule { border: 0; border-top: 1px solid #cbd5e1; margin: 1.4rem 0 0.6rem; } ol.wa-footnotes { font-size: 14px; color: #334155; padding-left: 1.3rem; }',
+      content_style: kalpurushFace +
+        "body{font-family:'Kalpurush',Georgia,'Times New Roman',serif;font-size:17px;line-height:1.75;color:#111827;max-width:760px;margin:20px auto;padding:0 8px;}" +
+        "p{margin:0 0 .85em;font-size:17px;font-weight:400;font-family:'Kalpurush',Georgia,'Times New Roman',serif;}" +
+        "h1,h2,h3,h4,h5,h6{font-family:'Kalpurush',Georgia,serif;font-weight:700;line-height:1.3;color:#0f172a;margin:1.1em 0 .4em;}" +
+        "h1{font-size:1.65em;}h2{font-size:1.4em;}h3{font-size:1.22em;}h4{font-size:1.08em;}" +
+        "table{border-collapse:collapse;width:100%;}td,th{border:1px solid #ccc;padding:6px;}" +
+        "blockquote{margin:.6em 0;padding-left:12px;border-left:3px solid #94a3b8;color:#334155;}" +
+        "sup.wa-fn-ref a{color:#1d4ed8;text-decoration:none;font-weight:700;}" +
+        "hr.wa-fn-rule{border:0;border-top:1px solid #cbd5e1;margin:1.4rem 0 .6rem;}" +
+        "ol.wa-footnotes{font-size:14px;color:#334155;padding-left:1.3rem;}",
       setup: function(editor) {
         editorApi = editor;
+        function applyBlock(name) {
+          editor.formatter.apply(name);
+          if (name === 'p') {
+            editor.formatter.remove('h1');
+            editor.formatter.remove('h2');
+            editor.formatter.remove('h3');
+            editor.formatter.remove('h4');
+            editor.formatter.remove('h5');
+            editor.formatter.remove('h6');
+            editor.formatter.remove('fontsize');
+            editor.formatter.remove('bold');
+            try { editor.execCommand('FontName', false, 'Kalpurush'); } catch (err) {}
+          }
+          editor.focus();
+        }
+        editor.ui.registry.addToggleButton('wah2', {
+          text: 'H1',
+          tooltip: 'Heading',
+          onAction: function() { applyBlock('h2'); },
+          onSetup: function(api) {
+            const sync = function() { api.setActive(editor.formatter.match('h2')); };
+            editor.on('NodeChange', sync);
+            return function() { editor.off('NodeChange', sync); };
+          }
+        });
+        editor.ui.registry.addToggleButton('wah3', {
+          text: 'H2',
+          tooltip: 'Subheading',
+          onAction: function() { applyBlock('h3'); },
+          onSetup: function(api) {
+            const sync = function() { api.setActive(editor.formatter.match('h3')); };
+            editor.on('NodeChange', sync);
+            return function() { editor.off('NodeChange', sync); };
+          }
+        });
+        editor.ui.registry.addToggleButton('wah4', {
+          text: 'H3',
+          tooltip: 'Small heading',
+          onAction: function() { applyBlock('h4'); },
+          onSetup: function(api) {
+            const sync = function() { api.setActive(editor.formatter.match('h4')); };
+            editor.on('NodeChange', sync);
+            return function() { editor.off('NodeChange', sync); };
+          }
+        });
+        editor.ui.registry.addToggleButton('wapara', {
+          text: '¶',
+          tooltip: 'Body paragraph',
+          onAction: function() { applyBlock('p'); },
+          onSetup: function(api) {
+            const sync = function() { api.setActive(editor.formatter.match('p') && !editor.dom.getParent(editor.selection.getNode(), 'h1,h2,h3,h4,h5,h6')); };
+            editor.on('NodeChange', sync);
+            return function() { editor.off('NodeChange', sync); };
+          }
+        });
         editor.ui.registry.addButton('wafootnote', {
           text: 'Fn',
           tooltip: 'Insert footnote',
@@ -486,6 +608,21 @@
             event.preventDefault();
             notePasteBlocked('কপি-পেস্ট নিষিদ্ধ। নিজের ভাষায় টাইপ করুন।');
             return;
+          }
+          if (event.key === 'Enter' && !event.shiftKey) {
+            const heading = editor.dom.getParent(editor.selection.getNode(), 'h1,h2,h3,h4,h5,h6');
+            if (heading) {
+              setTimeout(function() {
+                const block = editor.dom.getParent(editor.selection.getNode(), 'h1,h2,h3,h4,h5,h6,p,div');
+                if (block && /^H[1-6]$/i.test(block.nodeName)) {
+                  applyBlock('p');
+                } else {
+                  editor.formatter.remove('fontsize');
+                  editor.formatter.remove('bold');
+                  try { editor.execCommand('FontName', false, 'Kalpurush'); } catch (err) {}
+                }
+              }, 0);
+            }
           }
           if (event.isComposing || event.keyCode === 229) return;
           if (event.key && event.key.length === 1 && !mod && !event.altKey) typedDelta += 1;
@@ -595,6 +732,56 @@
   });
   window.addEventListener('beforeprint', function() { postIntegrity('screenshot_hint'); });
 
+  function renderOwnTabs(rows) {
+    const host = document.getElementById('waOwnTabs');
+    if (!host || !rows) return;
+    const addForm = host.querySelector('form');
+    const existing = {};
+    host.querySelectorAll('.wa-sectab-wrap').forEach(function(node) {
+      existing[node.dataset.sec] = node;
+    });
+    rows.forEach(function(row, index) {
+      const node = existing[String(row.id)];
+      if (!node) return;
+      host.insertBefore(node, addForm || null);
+      const indexEl = node.querySelector('.wa-sectab-index');
+      if (indexEl) indexEl.textContent = row.index || (index + 1);
+      const titleEl = node.querySelector('.wa-sectab-title');
+      if (titleEl) titleEl.textContent = row.title || ('Section ' + (index + 1));
+      const wordsEl = node.querySelector('.wa-sectab-words');
+      if (wordsEl) wordsEl.textContent = '· ' + (row.word_count || 0) + 'w';
+      const upBtn = node.querySelector('[data-dir="up"]');
+      const downBtn = node.querySelector('[data-dir="down"]');
+      if (upBtn) upBtn.disabled = index === 0;
+      if (downBtn) downBtn.disabled = index === rows.length - 1;
+    });
+  }
+
+  const ownTabHost = document.getElementById('waOwnTabs');
+  if (ownTabHost && cfg.moveUrl) {
+    ownTabHost.addEventListener('click', async function(event) {
+      const btn = event.target.closest('.wa-own-move');
+      if (!btn || btn.disabled) return;
+      event.preventDefault();
+      btn.disabled = true;
+      try {
+        const res = await fetch(cfg.moveUrl, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: headers(),
+          body: JSON.stringify({ section_id: parseInt(btn.dataset.sec, 10), direction: btn.dataset.dir, scope: 'own' })
+        });
+        const data = await res.json().catch(function() { return {}; });
+        if (res.ok && data.ok) {
+          renderOwnTabs(data.own_sections || []);
+          renderDoc(data.sections || []);
+        } else if (data.error) showWarning(data.error);
+      } catch (err) {} finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
   const docHost = document.getElementById('groupDoc');
 
   function renderDoc(sections) {
@@ -618,7 +805,7 @@
               '<div><strong></strong> <span class="badge text-bg-warning d-none">Yours</span>' +
               '<div class="text-muted small sec-meta"></div></div>' +
             '</div>' +
-            ((cfg.canEdit || cfg.allowUnsubmit) && cfg.moveUrl ?
+            ((sec.mine && (cfg.canEdit || cfg.allowUnsubmit) && cfg.moveUrl) ?
               '<div class="wa-order-btns">' +
               '<button class="btn btn-outline-secondary btn-sm wa-move" type="button" data-dir="up" aria-label="Move up"><i class="fas fa-arrow-up"></i></button>' +
               '<button class="btn btn-outline-secondary btn-sm wa-move" type="button" data-dir="down" aria-label="Move down"><i class="fas fa-arrow-down"></i></button>' +
@@ -671,8 +858,10 @@
           body: JSON.stringify({ section_id: parseInt(btn.dataset.sec, 10), direction: btn.dataset.dir })
         });
         const data = await res.json().catch(function() { return {}; });
-        if (res.ok && data.ok) renderDoc(data.sections || []);
-        else if (data.error) showWarning(data.error);
+        if (res.ok && data.ok) {
+          renderDoc(data.sections || []);
+          if (data.own_sections) renderOwnTabs(data.own_sections);
+        } else if (data.error) showWarning(data.error);
       } catch (err) {} finally {
         btn.disabled = false;
       }

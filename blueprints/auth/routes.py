@@ -39,6 +39,25 @@ from role_utils import (
 auth_bp = Blueprint('auth', __name__, template_folder='templates')
 
 
+def _safe_post_login_next(value):
+    """Only return the student back to the feedback form they opened."""
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip()
+    if not candidate.startswith('/feedback/'):
+        return None
+    if candidate.startswith('//') or '\\' in candidate or '://' in candidate:
+        return None
+    return candidate
+
+
+def _redirect_after_auth(fallback_endpoint='index'):
+    nxt = _safe_post_login_next(session.pop('post_login_next', None))
+    if nxt:
+        return redirect(nxt)
+    return redirect(url_for(fallback_endpoint))
+
+
 def _client_ip():
     """Client IP for throttle keying (ProxyFix-aware; ignores spoofed X-Forwarded-For)."""
     return client_ip()
@@ -51,9 +70,12 @@ def login():
     student_default_password = current_app.config.get('DEFAULT_STUDENT_PASSWORD', '')
     
     if request.method == 'POST':
+        saved_next = session.get('post_login_next')
         if current_user.is_authenticated:
             logout_user()
         session.clear()
+        if saved_next:
+            session['post_login_next'] = saved_next
         
         username = request.form.get('username')
         password = request.form.get('password')
@@ -120,11 +142,9 @@ def login():
         from utils.window_utils import resolve_window_after_login
         next_endpoint = resolve_window_after_login(user, selected_role)
         if next_endpoint:
-            target = url_for(next_endpoint)
+            response = redirect(url_for(next_endpoint))
         else:
-            target = url_for('index')
-        
-        response = redirect(target)
+            response = _redirect_after_auth()
         session.permanent = True
         
         # Add cache-control headers to prevent browser caching
@@ -150,9 +170,9 @@ def select_window():
 
     active_role = session.get('active_role')
     if user_bypasses_window_selection(current_user, active_role):
-        return redirect(url_for('index'))
+        return _redirect_after_auth()
     if not role_needs_window_selection(active_role):
-        return redirect(url_for('index'))
+        return _redirect_after_auth()
 
     windows = get_active_windows()
     if not windows:
@@ -160,7 +180,7 @@ def select_window():
     if len(windows) == 1:
         from utils.window_utils import set_session_window_id
         set_session_window_id(windows[0].id)
-        return redirect(url_for('index'))
+        return _redirect_after_auth()
 
     return render_template('auth/select_window.html', windows=windows)
 
@@ -177,9 +197,9 @@ def set_window():
 
     active_role = session.get('active_role')
     if user_bypasses_window_selection(current_user, active_role):
-        return redirect(url_for('index'))
+        return _redirect_after_auth()
     if not role_needs_window_selection(active_role):
-        return redirect(url_for('index'))
+        return _redirect_after_auth()
 
     try:
         window_id = int(request.form.get('window_id', ''))
@@ -194,7 +214,7 @@ def set_window():
 
     set_session_window_id(window_id)
     flash('Window selected.', 'success')
-    return redirect(url_for('index'))
+    return _redirect_after_auth()
 
 
 @auth_bp.route('/no-active-window', methods=['GET'])

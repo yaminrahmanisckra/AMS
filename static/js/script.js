@@ -65,10 +65,24 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Confirmation dialogs for delete actions
+    // Confirmation for actual delete controls only — not every red-styled button.
+    // PDF/Excel/DOC download links use btn-outline-danger for color, not for delete.
     const deleteButtons = document.querySelectorAll('.btn-outline-danger');
     deleteButtons.forEach(button => {
         button.addEventListener('click', function(e) {
+            if (button.hasAttribute('data-skip-delete-confirm')) {
+                return;
+            }
+            const href = (button.getAttribute('href') || '').trim();
+            if (href && href !== '#' && !href.toLowerCase().startsWith('javascript:')) {
+                const path = href.split('?')[0].toLowerCase();
+                const isDownload = /\.(pdf|xlsx|xls|docx|doc|csv|zip)$/.test(path)
+                    || path.includes('/download');
+                const looksLikeDelete = /delete|remove|destroy/.test(path);
+                if (isDownload || !looksLikeDelete) {
+                    return;
+                }
+            }
             if (!confirm('Are you sure you want to delete this item?')) {
                 e.preventDefault();
             }

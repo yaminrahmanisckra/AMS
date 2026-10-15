@@ -28,6 +28,16 @@ class Teacher(db.Model):
     def __repr__(self):
         return f"Teacher('{self.name}', '{self.short_name}')"
 
+
+class TeacherFeedbackVisibility(db.Model):
+    """Per-teacher switch for seeing who submitted student feedback. Default off."""
+    __tablename__ = 'teacher_feedback_visibility'
+
+    teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), primary_key=True)
+    show_respondents = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+
+    teacher = db.relationship('Teacher', backref=db.backref('feedback_visibility', uselist=False))
+
 # Database Models
 class Session(db.Model):
     __tablename__ = 'class_session'

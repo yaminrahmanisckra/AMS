@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Feedback Identity{% endblock %}
+{% block mobile_title %}Feedback Names{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <h1 class="mb-1">Student Feedback Names</h1>
+            <p class="text-muted mb-0">Each teacher is off by default. Turn a teacher on to let that teacher see student names and who has or has not submitted feedback.</p>
+        </div>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Admin Dashboard
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Teacher</th>
+                            <th>Designation</th>
+                            <th style="width: 140px;">Show names</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for teacher in teachers %}
+                        <tr>
+                            <td>
+                                <strong>{{ teacher.name }}</strong>
+                                <div class="text-muted small">{{ teacher.short_name }}{% if teacher.is_external %} · External{% endif %}</div>
+                            </td>
+                            <td class="text-muted">{{ teacher.designation or '—' }}</td>
+                            <td>
+                                <form method="POST" action="{{ url_for('admin_feedback_identity') }}" class="m-0">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="teacher_id" value="{{ teacher.id }}">
+                                    <div class="form-check form-switch m-0">
+                                        <input class="form-check-input"
+                                               type="checkbox"
+                                               role="switch"
+                                               name="show_respondents"
+                                               value="1"
+                                               id="feedback_names_{{ teacher.id }}"
+                                               {% if teacher.id in enabled_ids %}checked{% endif %}
+                                               onchange="this.form.submit()">
+                                        <label class="form-check-label" for="feedback_names_{{ teacher.id }}">
+                                            {{ 'On' if teacher.id in enabled_ids else 'Off' }}
+                                        </label>
+                                    </div>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="3" class="text-muted text-center py-4">No teachers found.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

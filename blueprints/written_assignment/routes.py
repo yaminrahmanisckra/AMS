@@ -364,6 +364,36 @@ def _move_section(assignment, group, section_id, direction):
     return None
 
 
+def _ordered_own_sections(part):
+    return sorted(part.sections or [], key=lambda row: (int(row.sort_order or 0), int(row.id or 0)))
+
+
+def _own_section_payload(part):
+    rows = []
+    for index, section in enumerate(_ordered_own_sections(part), start=1):
+        rows.append({
+            'id': section.id,
+            'index': index,
+            'title': section.display_title(index),
+            'word_count': int(section.word_count or 0),
+        })
+    return rows
+
+
+def _move_own_section(part, section_id, direction):
+    """Swap one of the student's sections with their previous/next own section."""
+    own = _ordered_own_sections(part)
+    index = next((i for i, row in enumerate(own) if row.id == section_id), None)
+    if index is None:
+        return 'Section not found.'
+    other = index - 1 if direction == 'up' else index + 1
+    if other < 0 or other >= len(own):
+        return None
+    own[index].sort_order, own[other].sort_order = own[other].sort_order, own[index].sort_order
+    db.session.commit()
+    return None
+
+
 def _mentions_of(row):
     try:
         data = json.loads(row.mentions_json or '[]')
@@ -1870,7 +1900,7 @@ def student_write(assignment_id):
                         break
         db.session.commit()
         if group:
-            own_sections = list(part.sections or [])
+            own_sections = _ordered_own_sections(part)
             group_doc = _section_payload(assignment, group, me=class_student.student_id)
     warning = student_writing_warning(part, assignment) if part else None
     config = {
@@ -1886,6 +1916,7 @@ def student_write(assignment_id):
         'integrityUrl': url_for('written_assignment.student_integrity', assignment_id=assignment.id),
         'peersUrl': url_for('written_assignment.student_peers', assignment_id=assignment.id) if group else '',
         'moveUrl': url_for('written_assignment.student_move_section', assignment_id=assignment.id) if group else '',
+        'kalpurushUrl': url_for('static', filename='Fonts/kalpurush.ttf'),
         'warningText': SOCRATES_AI_USE_WARNING,
         'groupMode': assignment.mode == WrittenAssignment.MODE_GROUP,
         'sectionId': active_section.id if active_section else None,
@@ -2115,12 +2146,27 @@ def student_move_section(assignment_id):
         section_id = int(section_id)
     except (TypeError, ValueError):
         return jsonify({'ok': False, 'error': 'Section not found.'}), 404
-    move_error = _move_section(assignment, ctx['group'], section_id, direction)
+    class_student = ctx['class_student']
+    part = _get_or_create_part(
+        assignment,
+        class_student.student_id,
+        class_student.name or current_user.full_name,
+        ctx['group'].id,
+    )
+    section = _own_section(assignment, part, section_id)
+    if section is None:
+        return jsonify({'ok': False, 'error': 'You can only rearrange your own sections.'}), 403
+    scope = str(data.get('scope') or request.form.get('scope') or 'group').strip().lower()
+    if scope == 'own':
+        move_error = _move_own_section(part, section.id, direction)
+    else:
+        move_error = _move_section(assignment, ctx['group'], section.id, direction)
     if move_error:
         return jsonify({'ok': False, 'error': move_error}), 404
     return jsonify({
         'ok': True,
-        'sections': _section_payload(assignment, ctx['group'], me=ctx['class_student'].student_id),
+        'sections': _section_payload(assignment, ctx['group'], me=class_student.student_id),
+        'own_sections': _own_section_payload(part),
     })
 
 

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Student List</title>
+    <style>
+        @page {
+            size: A4 portrait;
+            margin: 12mm 12mm 14mm 12mm;
+            @bottom-center {
+                content: "Page " counter(page) " of " counter(pages);
+                font-size: 9pt;
+                color: #555;
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'PDFSerif', 'Times New Roman', Times, serif;
+            font-size: 10.5pt;
+            color: #111;
+            line-height: 1.35;
+        }
+        h1, h2 {
+            page-break-after: auto;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 1.5pt solid #1a1a1a;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }
+        .header h1 {
+            font-size: 16pt;
+            margin: 0 0 2px;
+        }
+        .header h2 {
+            font-size: 12pt;
+            font-weight: normal;
+            margin: 0 0 6px;
+        }
+        .header .doc-title {
+            font-size: 13pt;
+            font-weight: bold;
+            margin: 4px 0 2px;
+            letter-spacing: 0.02em;
+        }
+        .header .meta {
+            font-size: 9pt;
+            color: #333;
+        }
+        .batch {
+            page-break-inside: auto;
+            margin-bottom: 16px;
+        }
+        .batch-head {
+            background: #f3f3f3;
+            border: 0.6pt solid #222;
+            border-bottom: 0;
+            padding: 6px 8px;
+            margin-bottom: 0;
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }
+        .batch-head .context {
+            font-size: 11.5pt;
+            font-weight: bold;
+        }
+        .batch-head .count {
+            font-size: 9.5pt;
+            margin-top: 2px;
+        }
+        table.roster {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            page-break-inside: auto;
+        }
+        table.roster thead {
+            display: table-header-group;
+        }
+        table.roster tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+        }
+        table.roster th,
+        table.roster td {
+            border: 0.5pt solid #333;
+            padding: 4px 6px;
+            vertical-align: top;
+            word-wrap: break-word;
+        }
+        table.roster th {
+            background: #1f3d2a;
+            color: #fff;
+            font-size: 9.5pt;
+            text-align: left;
+        }
+        table.roster td {
+            font-size: 10pt;
+        }
+        table.roster .col-sl { width: 8%; }
+        table.roster .col-id { width: 16%; }
+        table.roster .col-name { width: 26%; }
+        table.roster .col-hall { width: 18%; }
+        table.roster .col-email { width: 18%; }
+        table.roster .col-phone { width: 14%; }
+        .empty {
+            text-align: center;
+            font-style: italic;
+            color: #555;
+        }
+        .mono { font-family: 'PDFSerif', 'Times New Roman', Times, serif; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ tenant.university_name }}</h1>
+        <h2>{{ tenant.display_with_university }}</h2>
+        <div class="doc-title">Student List</div>
+        <div class="meta">
+            Generated: {{ generated_at }}
+            {% if single_batch and batches %}
+            · Batch {{ batches[0].batch_label }}
+            {% endif %}
+        </div>
+    </div>
+
+    {% for group in batches %}
+    <section class="batch">
+        <div class="batch-head">
+            <div class="context">Batch {{ group.batch_label }}</div>
+            <div class="count">{{ group.count }} student{% if group.count != 1 %}s{% endif %}</div>
+        </div>
+        <table class="roster">
+            <thead>
+                <tr>
+                    <th class="col-sl">SL</th>
+                    <th class="col-id">Student ID</th>
+                    <th class="col-name">Name</th>
+                    <th class="col-hall">Hall</th>
+                    <th class="col-email">Email</th>
+                    <th class="col-phone">Phone</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if group.students %}
+                    {% for student in group.students %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td class="mono">{{ student.student_id or '—' }}</td>
+                        <td>{{ student.name or '—' }}</td>
+                        <td>{{ student.hall or '—' }}</td>
+                        <td>{{ student.email or '—' }}</td>
+                        <td>{{ student.phone or '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="6" class="empty">No students in this batch.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </section>
+    {% endfor %}
+</body>
+</html>

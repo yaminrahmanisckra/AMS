@@ -117,6 +117,53 @@ def _registrations_in_window_query(window_id=None, **filters):
     query = StudentCourseRegistration.query.filter_by(**filters) if filters else StudentCourseRegistration.query
     return query.filter(_window_rows_filter(StudentCourseRegistration, window_id))
 
+
+def _registration_role_set():
+    return set(parse_roles(getattr(current_user, 'role', None)))
+
+
+def _is_officer_registration_viewer():
+    roles = _registration_role_set()
+    return 'officer' in roles and not is_admin(current_user)
+
+
+def _can_access_registration_review():
+    roles = _registration_role_set()
+    if is_admin(current_user) or roles & {'head', 'dean', 'teacher'}:
+        return True
+    if 'officer' in roles:
+        try:
+            from utils.dashboard_settings import is_officer_dashboard_card_enabled
+            return is_officer_dashboard_card_enabled('course_registration')
+        except Exception:
+            return True
+    return False
+
+
+def _officer_registration_card_block():
+    """Redirect officers when the Course Registration dashboard card is off."""
+    if not _is_officer_registration_viewer():
+        return None
+    from utils.dashboard_settings import require_officer_dashboard_card
+    return require_officer_dashboard_card('course_registration')
+
+
+def _reject_officer_registration_edit():
+    if not _is_officer_registration_viewer():
+        return None
+    message = 'Officers can view course registrations but cannot edit them.'
+    wants_json = (
+        request.is_json
+        or (request.accept_mimetypes.best or '').startswith('application/json')
+        or request.path.endswith('/save')
+        or '/api/' in (request.path or '')
+        or request.method == 'POST'
+    )
+    if wants_json and request.method != 'GET':
+        return jsonify({'success': False, 'message': message}), 403
+    flash(message, 'danger')
+    return redirect(url_for('course_management.coordinator_registrations'))
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -2311,6 +2358,193 @@ def save_course_registration():
         current_app.logger.error(f'Failed to save registration: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': 'Failed to save registration.'}), 500
 
+def _empty_photo_cell():
+    photo_box = Table([['']], colWidths=[30 * mm], rowHeights=[30 * mm])
+    photo_box.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+    return photo_box
+
+
+def _registration_card_pdf_response(
+    student_name,
+    student_id,
+    hall,
+    contact_no,
+    session_name,
+    year,
+    term,
+    courses,
+    photo_path=None,
+):
+    """Build the official Course Registration Card PDF response."""
+    from flask import Response
+
+    buffer = BytesIO()
+
+    def add_watermark(canvas_obj, doc):
+        try:
+            logo_path = os.path.join(current_app.static_folder, 'Images', 'KU_logo_2.png')
+            if os.path.exists(logo_path):
+                canvas_obj.saveState()
+                canvas_obj.setFillAlpha(0.1)
+                x_center = A4[0] / 2
+                y_center = A4[1] / 2
+                logo_size = 150 * mm
+                canvas_obj.drawImage(
+                    logo_path,
+                    x_center - logo_size / 2,
+                    y_center - logo_size / 2,
+                    width=logo_size,
+                    height=logo_size,
+                    preserveAspectRatio=True,
+                    mask='auto',
+                )
+                canvas_obj.restoreState()
+        except Exception as exc:
+            current_app.logger.warning(f'Could not add watermark: {exc}')
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        topMargin=15 * mm,
+        bottomMargin=15 * mm,
+        leftMargin=15 * mm,
+        rightMargin=15 * mm,
+        onFirstPage=add_watermark,
+        onLaterPages=add_watermark,
+    )
+    styles = getSampleStyleSheet()
+    university_style = ParagraphStyle(
+        'University', parent=styles['Normal'], alignment=TA_CENTER,
+        fontSize=14, leading=16, textColor=colors.black, fontName='Helvetica-Bold', spaceAfter=4,
+    )
+    title_style = ParagraphStyle(
+        'Title', parent=styles['Normal'], alignment=TA_CENTER,
+        fontSize=12, leading=14, textColor=colors.black, fontName='Helvetica-Bold', spaceAfter=6,
+    )
+    session_style = ParagraphStyle(
+        'Session', parent=styles['Normal'], alignment=TA_CENTER,
+        fontSize=10, leading=12, textColor=colors.black, spaceAfter=12,
+    )
+    discipline_style = ParagraphStyle(
+        'Discipline', parent=styles['Normal'], alignment=TA_LEFT,
+        fontSize=11, leading=13, textColor=colors.black, fontName='Helvetica-Bold', spaceAfter=8,
+    )
+    info_style = ParagraphStyle(
+        'Info', parent=styles['Normal'], alignment=TA_LEFT,
+        fontSize=10, leading=14, textColor=colors.black, leftIndent=0, spaceAfter=4,
+    )
+
+    elements = []
+    logo_path = os.path.join(current_app.static_folder, 'Images', 'KU_logo_2.png')
+    logo_cell = ''
+    if os.path.exists(logo_path):
+        try:
+            logo_cell = Image(logo_path, width=35 * mm, height=35 * mm, kind='proportional')
+        except Exception:
+            logo_cell = ''
+
+    center_table = Table([
+        [Paragraph(current_tenant().university_name.upper() + ', KHULNA', university_style)],
+        [Paragraph('Course Registration Card', title_style)],
+        [Paragraph(f'Session: {session_name}', session_style)],
+    ], colWidths=[100 * mm])
+    center_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
+
+    photo_cell = _empty_photo_cell()
+    if photo_path:
+        try:
+            student_photo = Image(photo_path, width=30 * mm, height=30 * mm, kind='proportional')
+            photo_table = Table([[student_photo]], colWidths=[30 * mm], rowHeights=[30 * mm])
+            photo_table.setStyle(TableStyle([
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ]))
+            photo_cell = photo_table
+        except Exception as exc:
+            current_app.logger.warning(f'Could not add student photo to PDF: {exc}')
+
+    header_table = Table(
+        [[logo_cell, center_table, photo_cell]],
+        colWidths=[40 * mm, 100 * mm, 40 * mm],
+    )
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+        ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+        ('ALIGN', (2, 0), (2, 0), 'RIGHT'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    elements.append(header_table)
+    elements.append(Spacer(1, 12))
+    elements.append(Paragraph(current_tenant().name, discipline_style))
+    for info in [
+        f'1. Roll Number: {student_id}',
+        f'2. Name: {(student_name or "").upper()}',
+        f'3. Year: {year}',
+        f'4. Term: {term}',
+        f'5. Hall: {hall or "N/A"}',
+        f'6. Contact No: {contact_no or "N/A"}',
+    ]:
+        elements.append(Paragraph(info, info_style))
+    elements.append(Spacer(1, 10))
+
+    course_data = [['Course No.', 'Course Title', 'Credit', 'Remarks']]
+    total_credits = 0
+    for course in courses:
+        course_data.append([
+            course.get('course_code', ''),
+            course.get('course_name', ''),
+            str(course.get('credit', 0)),
+            course.get('remark', '') or '',
+        ])
+        total_credits += float(course.get('credit', 0) or 0)
+    course_data.append(['', 'Total', str(int(total_credits)), ''])
+    course_table = Table(course_data, colWidths=[40 * mm, 75 * mm, 20 * mm, 35 * mm])
+    course_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e0e0e0')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, -1), (-1, -1), 10),
+    ]))
+    elements.append(course_table)
+    doc.build(elements)
+    pdf_data = buffer.getvalue()
+    filename = f'course_registration_{student_id}_{datetime.now().strftime("%Y%m%d")}.pdf'
+    return Response(
+        pdf_data,
+        mimetype='application/pdf',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+            'Content-Length': str(len(pdf_data)),
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY',
+        },
+    )
+
+
 @course_management_bp.route('/student/registration/download-pdf', methods=['POST'])
 @login_required
 def download_registration_pdf():
@@ -2336,292 +2570,21 @@ def download_registration_pdf():
         student_record = Student.query.filter_by(student_id=student_id).first()
         hall = student_record.hall if student_record else None
         contact_no = student_record.phone if student_record else None
-        
-        # Get registration data for approval timestamps
-        registration_record = None
-        if student_record:
-            registration_record = _registrations_in_window_query(
-                student_id=student_record.id,
-                academic_session=session_name,
-                year=year,
-                term=term,
-            ).first()
-        
-        # Generate PDF with custom canvas for watermark
-        buffer = BytesIO()
-        
-        def add_watermark(canvas_obj, doc):
-            """Add watermark logo in background"""
-            try:
-                logo_path = os.path.join(current_app.static_folder, 'Images', 'KU_logo_2.png')
-                if os.path.exists(logo_path):
-                    # Draw large faded logo in center as watermark
-                    canvas_obj.saveState()
-                    canvas_obj.setFillAlpha(0.1)  # Very transparent
-                    # Center position
-                    x_center = A4[0] / 2
-                    y_center = A4[1] / 2
-                    logo_size = 150 * mm  # Large watermark size
-                    canvas_obj.drawImage(logo_path, 
-                                       x_center - logo_size/2, 
-                                       y_center - logo_size/2,
-                                       width=logo_size, 
-                                       height=logo_size, 
-                                       preserveAspectRatio=True,
-                                       mask='auto')
-                    canvas_obj.restoreState()
-            except Exception as e:
-                current_app.logger.warning(f"Could not add watermark: {e}")
-        
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=A4,
-            topMargin=15 * mm,
-            bottomMargin=15 * mm,
-            leftMargin=15 * mm,
-            rightMargin=15 * mm,
-            onFirstPage=add_watermark,
-            onLaterPages=add_watermark,
-        )
-        
-        styles = getSampleStyleSheet()
-        
-        # Custom styles
-        university_style = ParagraphStyle(
-            'University',
-            parent=styles['Normal'],
-            alignment=TA_CENTER,
-            fontSize=14,
-            leading=16,
-            textColor=colors.black,
-            fontName='Helvetica-Bold',
-            spaceAfter=4,
-        )
-        
-        title_style = ParagraphStyle(
-            'Title',
-            parent=styles['Normal'],
-            alignment=TA_CENTER,
-            fontSize=12,
-            leading=14,
-            textColor=colors.black,
-            fontName='Helvetica-Bold',
-            spaceAfter=6,
-        )
-        
-        session_style = ParagraphStyle(
-            'Session',
-            parent=styles['Normal'],
-            alignment=TA_CENTER,
-            fontSize=10,
-            leading=12,
-            textColor=colors.black,
-            spaceAfter=12,
-        )
-        
-        discipline_style = ParagraphStyle(
-            'Discipline',
-            parent=styles['Normal'],
-            alignment=TA_LEFT,
-            fontSize=11,
-            leading=13,
-            textColor=colors.black,
-            fontName='Helvetica-Bold',
-            spaceAfter=8,
-        )
-        
-        info_style = ParagraphStyle(
-            'Info',
-            parent=styles['Normal'],
-            alignment=TA_LEFT,
-            fontSize=10,
-            leading=14,
-            textColor=colors.black,
-            leftIndent=0,
-            spaceAfter=4,
-        )
-        
-        approval_style = ParagraphStyle(
-            'Approval',
-            parent=styles['Normal'],
-            alignment=TA_LEFT,
-            fontSize=9,
-            leading=12,
-            textColor=colors.black,
-            spaceAfter=3,
-        )
-        
-        elements = []
-        
-        # Header with logo, title, and photo placeholder
-        # Left: Logo
-        logo_path = os.path.join(current_app.static_folder, 'Images', 'KU_logo_2.png')
-        logo_cell = ''
-        if os.path.exists(logo_path):
-            try:
-                logo_img = Image(logo_path, width=35*mm, height=35*mm, kind='proportional')
-                logo_cell = logo_img
-            except:
-                logo_cell = ''
-        
-        # Center: University name and title (create a table for vertical stacking)
-        center_table = Table([
-            [Paragraph(current_tenant().university_name.upper() + ', KHULNA', university_style)],
-            [Paragraph('Course Registration Card', title_style)],
-            [Paragraph(f'Session: {session_name}', session_style)],
-        ], colWidths=[100*mm])
-        center_table.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-        ]))
-        
-        # Right: Student photo
-        photo_cell = ''
+        photo_path = None
         if current_user.photo:
             from utils.safe_files import confined_existing_file
-            student_photo_path = confined_existing_file(current_user.photo)
-            if student_photo_path:
-                try:
-                    # Resize photo to fit in the box (30mm x 30mm)
-                    student_photo = Image(student_photo_path, width=30*mm, height=30*mm, kind='proportional')
-                    # Create a table with border for the photo
-                    photo_table = Table([[student_photo]], colWidths=[30*mm], rowHeights=[30*mm])
-                    photo_table.setStyle(TableStyle([
-                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ]))
-                    photo_cell = photo_table
-                except Exception as e:
-                    current_app.logger.warning(f"Could not add student photo to PDF: {e}")
-                    # Fallback to empty box
-                    photo_box = Table([['']], colWidths=[30*mm], rowHeights=[30*mm])
-                    photo_box.setStyle(TableStyle([
-                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ]))
-                    photo_cell = photo_box
-            else:
-                # Photo path exists in DB but file not found - use empty box
-                photo_box = Table([['']], colWidths=[30*mm], rowHeights=[30*mm])
-                photo_box.setStyle(TableStyle([
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ]))
-                photo_cell = photo_box
-        else:
-            # No photo uploaded - use empty box
-            photo_box = Table([['']], colWidths=[30*mm], rowHeights=[30*mm])
-            photo_box.setStyle(TableStyle([
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ]))
-            photo_cell = photo_box
-        
-        # Create header table with 3 columns
-        header_table = Table(
-            [[logo_cell, center_table, photo_cell]],
-            colWidths=[40*mm, 100*mm, 40*mm]
+            photo_path = confined_existing_file(current_user.photo)
+        return _registration_card_pdf_response(
+            student_name=student_name,
+            student_id=student_id,
+            hall=hall,
+            contact_no=contact_no,
+            session_name=session_name,
+            year=year,
+            term=term,
+            courses=courses,
+            photo_path=photo_path,
         )
-        header_table.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
-            ('ALIGN', (1, 0), (1, 0), 'CENTER'),
-            ('ALIGN', (2, 0), (2, 0), 'RIGHT'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 2),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 2),
-        ]))
-        elements.append(header_table)
-        elements.append(Spacer(1, 12))
-        
-        # Discipline heading
-        elements.append(Paragraph(current_tenant().name, discipline_style))
-        
-        # Student information in numbered list format
-        student_info = [
-            f'1. Roll Number: {student_id}',
-            f'2. Name: {student_name.upper()}',
-            f'3. Year: {year}',
-            f'4. Term: {term}',
-            f'5. Hall: {hall or "N/A"}',
-            f'6. Contact No: {contact_no or "N/A"}',
-        ]
-        
-        for info in student_info:
-            elements.append(Paragraph(info, info_style))
-        
-        elements.append(Spacer(1, 10))
-        
-        # Course table with columns: Course No., Course Title, Credit, Remarks
-        course_headers = ['Course No.', 'Course Title', 'Credit', 'Remarks']
-        course_data = [course_headers]
-        
-        total_credits = 0
-        for course in courses:
-            course_code = course.get('course_code', '')
-            
-            course_data.append([
-                course_code,
-                course.get('course_name', ''),
-                str(course.get('credit', 0)),
-                course.get('remark', '') or ''
-            ])
-            total_credits += float(course.get('credit', 0))
-        
-        # Add total row
-        course_data.append([
-            '',
-            'Total',
-            str(int(total_credits)),
-            ''
-        ])
-        
-        course_table = Table(course_data, colWidths=[40*mm, 75*mm, 20*mm, 35*mm])
-        course_table.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),  # Header row
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e0e0e0')),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (1, 0), (1, -1), 'LEFT'),  # Course Title left aligned
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, -1), (-1, -1), 10),
-        ]))
-        elements.append(course_table)
-        
-        # Build PDF
-        doc.build(elements)
-        buffer.seek(0)
-        pdf_data = buffer.getvalue()
-        
-        filename = f'course_registration_{student_id}_{datetime.now().strftime("%Y%m%d")}.pdf'
-        
-        # Use Response instead of send_file for better cPanel compatibility
-        from flask import Response
-        response = Response(
-            pdf_data,
-            mimetype='application/pdf',
-            headers={
-                'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-                'Content-Length': str(len(pdf_data)),
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0',
-                'X-Content-Type-Options': 'nosniff',
-                'X-Frame-Options': 'DENY'
-            }
-        )
-        return response
     except Exception as e:
         current_app.logger.error(f"Error generating registration PDF: {e}", exc_info=True)
         return api_error(e, 'Error generating PDF')
@@ -2748,14 +2711,20 @@ def send_to_coordinator():
 @login_required
 def coordinator_registrations():
     """View course registrations as coordinator with session/batch filters"""
+    blocked = _officer_registration_card_block()
+    if blocked:
+        return blocked
+
     roles = parse_roles(current_user.role)
-    if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
+    if not _can_access_registration_review():
         flash('This page is available only for coordinators.', 'danger')
         return redirect(url_for('index'))
 
-    # Get current teacher profile
-    teacher = resolve_caller_teacher(current_user)
-    if not teacher:
+    registration_view_only = _is_officer_registration_viewer()
+
+    # Officers have no teacher profile; coordinators/head still need one.
+    teacher = None if registration_view_only else resolve_caller_teacher(current_user)
+    if not registration_view_only and not teacher:
         flash('Teacher profile not found.', 'warning')
         return redirect(url_for('index'))
 
@@ -2772,15 +2741,18 @@ def coordinator_registrations():
         batch_filter = session.get('coordinator_registrations_batch', '')
         student_id_filter = session.get('coordinator_registrations_student_id')
 
-    # Get pending invites for this coordinator (always show, even without filters)
+    # Get pending invites (always show, even without filters)
     # Exclude invites for archived registrations
     pending_invites_query = query_for_window(CourseRegistrationInvite).filter_by(
         status='pending',
-        coordinator_teacher_id=teacher.id
     ).join(StudentCourseRegistration).filter(
         StudentCourseRegistration.status != 'archived',
         _window_rows_filter(StudentCourseRegistration),
     )
+    if teacher:
+        pending_invites_query = pending_invites_query.filter(
+            CourseRegistrationInvite.coordinator_teacher_id == teacher.id
+        )
     
     # Apply filters to pending invites if provided
     if session_filter:
@@ -2813,7 +2785,10 @@ def coordinator_registrations():
         # registrations found" even though they exist. The explicit
         # session/batch/student filters below already scope the results.
         can_view_all_registrations = (
-            is_admin(current_user) or 'head' in roles or 'dean' in roles
+            is_admin(current_user)
+            or 'head' in roles
+            or 'dean' in roles
+            or registration_view_only
         )
 
         # Apply active semester filtering (if not privileged and filter function available)
@@ -2924,7 +2899,9 @@ def coordinator_registrations():
         students_query = students_query.filter_by(batch=batch_filter)
     students = students_query.order_by(Student.student_id.asc()).limit(500).all()
 
-    can_course_wise_review = is_admin(current_user) or 'head' in roles or 'dean' in roles
+    can_course_wise_review = (
+        is_admin(current_user) or 'head' in roles or 'dean' in roles or registration_view_only
+    )
 
     return render_template('course_management/coordinator_registrations.html',
                          pending_registrations=pending_by_student,
@@ -2936,15 +2913,81 @@ def coordinator_registrations():
                          selected_batch=batch_filter,
                          selected_student_id=student_id_filter,
                          can_course_wise_review=can_course_wise_review,
+                         registration_view_only=registration_view_only,
                          active_window_id=window_id)
+
+@course_management_bp.route('/coordinator/registrations/pdf')
+@login_required
+def coordinator_download_registration_pdf():
+    """Download a student's course registration card (staff / officer view)."""
+    blocked = _officer_registration_card_block()
+    if blocked:
+        return blocked
+    if not _can_access_registration_review():
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('index'))
+
+    student_id = request.args.get('student_id', type=int)
+    session_name = (request.args.get('session') or '').strip()
+    year = (request.args.get('year') or '').strip()
+    term = (request.args.get('term') or '').strip()
+    if not student_id or not session_name or not year or not term:
+        flash('Student, session, year, and term are required to download the PDF.', 'danger')
+        return redirect(url_for('course_management.coordinator_registrations'))
+
+    student = Student.query.get(student_id)
+    if not student:
+        flash('Student not found.', 'danger')
+        return redirect(url_for('course_management.coordinator_registrations'))
+
+    registrations = _registrations_in_window_query(
+        student_id=student_id,
+        academic_session=session_name,
+        year=year,
+        term=term,
+    ).filter(StudentCourseRegistration.status != 'archived').order_by(
+        StudentCourseRegistration.course_code.asc()
+    ).all()
+    if not registrations:
+        flash('No registrations found for this student in the selected term.', 'warning')
+        return redirect(url_for('course_management.coordinator_registrations'))
+
+    courses = [{
+        'course_code': reg.course_code or '',
+        'course_name': reg.course_name or '',
+        'credit': reg.credit or 0,
+        'remark': reg.remark or '',
+    } for reg in registrations]
+
+    photo_path = None
+    user = User.query.filter_by(username=student.student_id).first()
+    if user and user.photo:
+        from utils.safe_files import confined_existing_file
+        photo_path = confined_existing_file(user.photo)
+
+    try:
+        return _registration_card_pdf_response(
+            student_name=student.name,
+            student_id=student.student_id,
+            hall=student.hall,
+            contact_no=student.phone,
+            session_name=session_name,
+            year=year,
+            term=term,
+            courses=courses,
+            photo_path=photo_path,
+        )
+    except Exception as exc:
+        current_app.logger.error(f'Coordinator registration PDF failed: {exc}', exc_info=True)
+        flash('Could not generate the registration PDF.', 'danger')
+        return redirect(url_for('course_management.coordinator_registrations'))
 
 
 @course_management_bp.route('/coordinator/registrations/api/course-subjects', methods=['GET'])
 @login_required
 def get_course_subjects_for_registration_review():
     """List subjects with registrations for course-wise review (Head/Dean)."""
-    roles = parse_roles(current_user.role)
-    if not (is_admin(current_user) or 'head' in roles or 'dean' in roles):
+    if not _can_access_registration_review():
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
 
     session_name = request.args.get('session', '').strip()
@@ -3052,8 +3095,7 @@ def get_course_subjects_for_registration_review():
 @login_required
 def get_course_wise_registrations():
     """Get registered students for a specific course (Head/Dean course-wise review)."""
-    roles = parse_roles(current_user.role)
-    if not (is_admin(current_user) or 'head' in roles or 'dean' in roles):
+    if not _can_access_registration_review():
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
 
     session_name = request.args.get('session', '').strip()
@@ -3143,8 +3185,7 @@ def get_course_wise_registrations():
 @login_required
 def view_student_registration(student_id):
     """View and edit a specific student's registration"""
-    roles = parse_roles(current_user.role)
-    if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
+    if not _can_access_registration_review():
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
 
     session_name = request.args.get('session', '').strip()
@@ -3206,6 +3247,9 @@ def view_student_registration(student_id):
 @login_required
 def remove_all_courses_from_registration():
     """Remove all courses from student registration (bulk deregister)"""
+    blocked = _reject_officer_registration_edit()
+    if blocked:
+        return blocked
     roles = parse_roles(current_user.role)
     if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
@@ -3297,6 +3341,9 @@ def remove_all_courses_from_registration():
 @login_required
 def remove_course_from_registration():
     """Remove a single course from student registration (instant deregister)"""
+    blocked = _reject_officer_registration_edit()
+    if blocked:
+        return blocked
     roles = parse_roles(current_user.role)
     if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
@@ -3376,6 +3423,9 @@ def remove_course_from_registration():
 @login_required
 def update_student_registration():
     """Update student registration (coordinator can edit)"""
+    blocked = _reject_officer_registration_edit()
+    if blocked:
+        return blocked
     roles = parse_roles(current_user.role)
     if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
@@ -3746,6 +3796,9 @@ def update_student_registration():
 @login_required
 def finalize_registration():
     """Finalize a student's registration"""
+    blocked = _reject_officer_registration_edit()
+    if blocked:
+        return blocked
     roles = parse_roles(current_user.role)
     if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
@@ -3802,6 +3855,9 @@ def finalize_registration():
 @login_required
 def coordinator_register_student():
     """Coordinator can register students for a course (course-wise)"""
+    blocked = _reject_officer_registration_edit()
+    if blocked:
+        return blocked
     roles = parse_roles(current_user.role)
     if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
         flash('This page is available only for coordinators.', 'danger')
@@ -3831,6 +3887,9 @@ def coordinator_register_student():
 @login_required
 def coordinator_save_student_registration():
     """Save course registration for multiple students by coordinator (course-wise)"""
+    blocked = _reject_officer_registration_edit()
+    if blocked:
+        return blocked
     roles = parse_roles(current_user.role)
     if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403

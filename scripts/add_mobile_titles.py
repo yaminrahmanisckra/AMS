@@ -112,6 +112,7 @@ TITLE_RULES: list[tuple[str, str]] = [
     ("head/session_archive", "Archive"),
     ("head/dashboard", "Head"),
     ("officer/exam_info", "Exam Info"),
+    ("officer/student_list", "Student List"),
     ("admin/active_semester", "Semester"),
     ("admin/active_window", "Window"),
     ("admin_dashboard", "Admin"),
