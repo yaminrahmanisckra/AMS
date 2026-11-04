@@ -2,6 +2,25 @@
 {% block mobile_title %}AI Report{% endblock %}
 
 {% block content %}
+{% macro ai_prose(value, fallback='') %}
+{%- set ns = namespace(text=value) -%}
+{%- if ns.text is mapping -%}
+  {%- set ns.text = ns.text.get('text') or ns.text.get('summary') or ns.text.get('content') or fallback -%}
+{%- endif -%}
+{%- if ns.text is string -%}
+  {%- set t = ns.text.strip() -%}
+  {%- if t[:1] == '{' and t[-1:] == '}' and ':' in t and 'text' in (t[:48] | lower) -%}
+    {%- set after = t.split(':', 1)[1].strip() -%}
+    {%- if after[-1:] == '}' -%}{%- set after = after[:-1].strip() -%}{%- endif -%}
+    {%- if after|length >= 2 and after[-1:] in ['"', "'", '`', '“', '”', '‘', '’'] -%}
+      {%- set ns.text = after[1:-1] -%}
+    {%- else -%}
+      {%- set ns.text = after -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endif -%}
+{{- ns.text if ns.text not in [None, ''] else fallback -}}
+{% endmacro %}
 <div class="container mt-4 feedback-ai-report">
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
@@ -88,7 +107,7 @@
 
         <section class="mb-4">
           <h3 class="h5">2. Methodology</h3>
-          <p>{{ narrative.methodology or 'not reported' }}</p>
+          <p>{{ ai_prose(narrative.methodology, 'not reported') }}</p>
         </section>
 
         <section class="mb-4">
@@ -141,7 +160,7 @@
               {% for row in quantitative.lowest_rated %}{{ row.item }} ({{ '%.2f'|format(row.mean) }}){% if not loop.last %}; {% endif %}{% endfor %}.
             </p>
           {% endif %}
-          <p>{{ narrative.quantitative_narrative or '' }}</p>
+          <p>{{ ai_prose(narrative.quantitative_narrative) }}</p>
         </section>
 
         <section class="mb-4">

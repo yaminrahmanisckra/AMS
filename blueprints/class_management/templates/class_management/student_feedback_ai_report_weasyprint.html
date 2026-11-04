@@ -105,6 +105,25 @@
 <body>
 {% set narrative = report.narrative or {} %}
 {% set quantitative = report.quantitative or {} %}
+{% macro ai_prose(value, fallback='') %}
+{%- set ns = namespace(text=value) -%}
+{%- if ns.text is mapping -%}
+  {%- set ns.text = ns.text.get('text') or ns.text.get('summary') or ns.text.get('content') or fallback -%}
+{%- endif -%}
+{%- if ns.text is string -%}
+  {%- set t = ns.text.strip() -%}
+  {%- if t[:1] == '{' and t[-1:] == '}' and ':' in t and 'text' in (t[:48] | lower) -%}
+    {%- set after = t.split(':', 1)[1].strip() -%}
+    {%- if after[-1:] == '}' -%}{%- set after = after[:-1].strip() -%}{%- endif -%}
+    {%- if after|length >= 2 and after[-1:] in ['"', "'", '`', '“', '”', '‘', '’'] -%}
+      {%- set ns.text = after[1:-1] -%}
+    {%- else -%}
+      {%- set ns.text = after -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endif -%}
+{{- ns.text if ns.text not in [None, ''] else fallback -}}
+{% endmacro %}
 
 <h1>Course-wise Student Feedback Report</h1>
 <p class="subtitle">Institutional Quality Assurance / Self-Assessment</p>
@@ -128,7 +147,7 @@
 </table>
 
 <h2>2. Methodology</h2>
-<p>{{ narrative.methodology or 'not reported' }}</p>
+<p>{{ ai_prose(narrative.methodology, 'not reported') }}</p>
 
 <h2>3. Quantitative Findings</h2>
 <p class="caption">Table 1. Item-wise ratings (1 = strongly disagree to 5 = strongly agree). Favourable responses are ratings of 4 and 5 combined.</p>
@@ -175,7 +194,7 @@
 <p>Lowest-rated items:
     {% for row in quantitative.lowest_rated %}{{ row.item }} ({{ '%.2f'|format(row.mean) }}){% if not loop.last %}; {% endif %}{% endfor %}.</p>
 {% endif %}
-<p>{{ narrative.quantitative_narrative or '' }}</p>
+<p>{{ ai_prose(narrative.quantitative_narrative) }}</p>
 
 <h2>4. Qualitative Findings</h2>
 {% set themes = narrative.qualitative_findings or [] %}

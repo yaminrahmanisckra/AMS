@@ -1,6 +1,51 @@
 {% extends "base.html" %}
 
 {% block mobile_title %}Exam Eval{% endblock %}
+{% block extra_css %}
+<style>
+.exam-eval-page .exam-eval-qs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+.exam-eval-page .exam-eval-qs-item {
+    border: 1px solid #e4e6eb;
+    border-radius: 0.5rem;
+    padding: 0.65rem 0.75rem;
+    background: #fff;
+}
+.exam-eval-page .exam-eval-qs-item__title {
+    font-weight: 600;
+    font-size: 0.92rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    margin-bottom: 0.3rem;
+}
+.exam-eval-page .exam-eval-qs-item__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    line-height: 1.35;
+    color: #475569;
+}
+@media (max-width: 575.98px) {
+    .exam-eval-page .exam-eval-collapse-toggle {
+        align-items: flex-start;
+    }
+    .exam-eval-page .exam-eval-collapse-toggle h5 {
+        font-size: 0.9rem;
+        line-height: 1.3;
+    }
+    .exam-eval-page .exam-eval-qs-item__meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.22rem;
+    }
+}
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="container mt-3 exam-eval-page">
@@ -45,39 +90,24 @@
                 <div class="collapse" id="questionSetterCollapse">
                     <div class="card-body pt-2">
                         {% if question_setter_roster %}
-                            <div class="table-responsive">
-                                <table class="table table-sm align-middle mb-0 exam-eval-qs-table">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th scope="col" class="col-course">Course</th>
-                                            <th scope="col" class="col-code">Code</th>
-                                            <th scope="col" class="col-part">Part</th>
-                                            <th scope="col" class="col-session">Session / Year / Term</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for group in question_setter_roster %}
-                                            {% for row in group.rows %}
-                                            <tr>
-                                                <td data-label="Course">{{ row.course_name or '—' }}</td>
-                                                <td data-label="Code"><span class="font-monospace small">{{ row.course_code or '—' }}</span></td>
-                                                <td data-label="Part">
-                                                    {% if row.part %}
-                                                    <span class="badge bg-info text-white exam-eval-badge-part">Part {{ row.part }}</span>
-                                                    {% else %}
-                                                    <span class="text-muted">—</span>
-                                                    {% endif %}
-                                                </td>
-                                                <td data-label="Session" class="small">
-                                                    {{ row.academic_session or '—' }}
-                                                    <span class="text-muted">·</span>
-                                                    {{ row.year or '—' }} / {{ row.term or '—' }}
-                                                </td>
-                                            </tr>
-                                            {% endfor %}
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
+                            <div class="exam-eval-qs-list">
+                                {% for group in question_setter_roster %}
+                                    {% for row in group.rows %}
+                                    <article class="exam-eval-qs-item">
+                                        <div class="exam-eval-qs-item__title">{{ row.course_name or '—' }}</div>
+                                        <div class="exam-eval-qs-item__meta">
+                                            <span class="exam-eval-qs-item__code font-monospace">{{ row.course_code or '—' }}</span>
+                                            {% if row.part %}
+                                            <span class="badge bg-info text-white exam-eval-badge-part">Part {{ row.part }}</span>
+                                            {% endif %}
+                                            <span class="exam-eval-qs-item__session">
+                                                {{ row.academic_session or '—' }}
+                                                · {{ row.year or '—' }} / {{ row.term or '—' }}
+                                            </span>
+                                        </div>
+                                    </article>
+                                    {% endfor %}
+                                {% endfor %}
                             </div>
                         {% else %}
                             <p class="text-muted mb-0 small">

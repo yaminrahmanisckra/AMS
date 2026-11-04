@@ -2731,6 +2731,21 @@ def _build_attendance_summary(session, include_archived=False):
     }
 
 
+def _attendance_marks_by_public_id(session):
+    """Map public student_id -> attendance marks from the combined attendance sheet."""
+    try:
+        summary = _build_attendance_summary(session, include_archived=True)
+    except Exception:
+        return {}
+    per_student = summary.get('per_student') or {}
+    marks_map = {}
+    for public_id, stats in per_student.items():
+        if not isinstance(stats, dict):
+            continue
+        marks_map[public_id] = stats.get('marks')
+    return marks_map
+
+
 def _split_attendance_part_breakdown(attendance_summary, student_id):
     """Part A / Part B class and present totals for one student on a split course."""
     related_sessions = attendance_summary.get('related_sessions') or []
@@ -8733,6 +8748,15 @@ def assessment(session_id):
                     'report_editable': 'sessional_report' in editable_sessional_fields,
                     'viva_editable': 'sessional_viva' in editable_sessional_fields
                 }
+
+        attendance_marks_map = {}
+        if session.course_type == 'sessional' and session.category == 'ug':
+            attendance_marks_map = _attendance_marks_by_public_id(session)
+            for student in students:
+                if student.student_id in attendance_marks_map:
+                    continue
+                if student.attendance_marks_manual is not None:
+                    attendance_marks_map[student.student_id] = student.attendance_marks_manual
         
         # Written-assignment marks can be fetched into an empty assessment column.
         assignment_fetch = None
@@ -8822,6 +8846,7 @@ def assessment(session_id):
             external_assessment_modes=_external_assessment_modes(),
             external_total_column_label=external_total_column_label,
             sessional_display_map=sessional_display_map,
+            attendance_marks_map=attendance_marks_map,
             absent_status_map=absent_status_map,
             current_teacher_id=reveal_teacher_id,
             reveal_status=current_teacher_reveals,
@@ -8927,21 +8952,29 @@ def toggle_round_assessment_total(session_id):
         students = _class_students_for_session(session_id)
         _, combined_best3, _, combined_pg_total = _build_combined_assessment_values(session)
         totals = {}
-        for student in students:
-            if session.course_type == 'sessional' and session.category == 'ug':
+        if session.course_type == 'sessional' and session.category == 'ug':
+            attendance_marks_map = _attendance_marks_by_public_id(session)
+            for student in students:
+                att = attendance_marks_map.get(student.student_id)
+                if att is None and student.attendance_marks_manual is not None:
+                    att = student.attendance_marks_manual
                 report = student.sessional_report or 0
                 viva = student.sessional_viva or 0
-                totals[str(student.id)] = _maybe_round_assessment_total(session, report + viva)
-            elif _session_uses_assessment_mode_picker(session) or session.course_type == 'theory':
-                mode = _effective_assessment_mode(session)
-                if mode == 'best_three_40':
+                totals[str(student.id)] = _maybe_round_assessment_total(
+                    session, (att or 0) + report + viva
+                )
+        else:
+            for student in students:
+                if _session_uses_assessment_mode_picker(session) or session.course_type == 'theory':
+                    mode = _effective_assessment_mode(session)
+                    if mode == 'best_three_40':
+                        totals[str(student.id)] = combined_pg_total.get(student.student_id)
+                    else:
+                        totals[str(student.id)] = combined_best3.get(student.student_id)
+                elif session.category == 'pg':
                     totals[str(student.id)] = combined_pg_total.get(student.student_id)
                 else:
                     totals[str(student.id)] = combined_best3.get(student.student_id)
-            elif session.category == 'pg':
-                totals[str(student.id)] = combined_pg_total.get(student.student_id)
-            else:
-                totals[str(student.id)] = combined_best3.get(student.student_id)
 
         return jsonify({
             'success': True,
@@ -9680,15 +9713,16 @@ def course_questions(session_id):
                     key=lambda m: (m.created_at or datetime.min, m.id or 0)
                 )
             thread.last_message_role = last_message.sender_role if last_message else None
-            # Teacher opening the thread marks all student messages as seen.
+            # Opening the page marks student messages as seen (student "Seen by Teacher")
+            # but does not dismiss the bell — teacher_read_at is set only on reply or Mark as read.
             for msg in thread.messages:
                 if msg.sender_role == 'student' and msg.seen_by_teacher_at is None:
                     msg.seen_by_teacher_at = seen_at
-                    thread.teacher_read_at = seen_at
                     teacher_seen_updates = True
-            thread.is_unread_for_teacher = any(
-                m.sender_role == 'student' and m.seen_by_teacher_at is None
-                for m in thread.messages
+            thread.is_unread_for_teacher = (
+                thread.teacher_read_at is None
+                and last_message is not None
+                and last_message.sender_role == 'student'
             )
         if teacher_seen_updates:
             db.session.commit()
@@ -10204,25 +10238,45 @@ def download_assessment_excel(session_id):
                     combined_pg_total.get(s.student_id)
                 ])
         elif session.course_type == 'sessional' and session.category == 'ug':
-            columns = ['Student ID', 'Name', 'Sessional Report (60)', 'Sessional Viva (30)', 'Total (Sessional: 90)']
+            sess = result_split('sessional')
+            att_max = sess.get('attendance', 10)
+            report_max = sess.get('report', 60)
+            viva_max = sess.get('viva', 30)
+            attendance_marks_map = _attendance_marks_by_public_id(session)
+            for s in students:
+                if s.student_id not in attendance_marks_map and s.attendance_marks_manual is not None:
+                    attendance_marks_map[s.student_id] = s.attendance_marks_manual
+            columns = [
+                'Student ID',
+                'Name',
+                f'Attendance ({att_max})',
+                f'Sessional Report ({report_max})',
+                f'Sessional Viva ({viva_max})',
+                f'Total (Sessional: {att_max + report_max + viva_max})',
+            ]
             for s in students:
                 report_val = get_sessional_value(s, 'report')
                 viva_val = get_sessional_value(s, 'viva')
-                
-                # Calculate total (skip if either is 'Absent')
-                if report_val == 'Absent' or viva_val == 'Absent':
+                att_val = attendance_marks_map.get(s.student_id)
+                if att_val is None:
+                    att_display = ''
+                    att_num = 0
+                else:
+                    att_num = float(att_val)
+                    att_display = int(att_num) if att_num == int(att_num) else round(att_num, 1)
+
+                report_n = 0 if report_val == 'Absent' else (s.sessional_report or 0)
+                viva_n = 0 if viva_val == 'Absent' else (s.sessional_viva or 0)
+                if report_val == 'Absent' and viva_val == 'Absent' and att_val is None:
                     total = 'Absent'
                 else:
-                    total = (s.sessional_report or 0) + (s.sessional_viva or 0)
-                    if total:
-                        rounded = _maybe_round_assessment_total(session, total)
-                        total = rounded if rounded is not None else ''
-                    else:
-                        total = ''
+                    rounded = _maybe_round_assessment_total(session, att_num + report_n + viva_n)
+                    total = rounded if rounded is not None else ''
                 
                 data.append([
                     s.student_id,
                     s.name,
+                    att_display,
                     report_val,
                     viva_val,
                     total
@@ -10643,8 +10697,12 @@ def course_assessment(session_id):
         teachers_by_id=teachers_by_id
     )
 
-def _pending_teacher_question_threads_query(teacher_id):
-    """Threads where the teacher has not acknowledged (teacher_read_at is null) and the latest message is from the student."""
+def _teacher_question_threads_query(teacher_id, unread_only=False):
+    """Threads whose latest message is from the student (still pending a teacher reply).
+
+    unread_only=True is used for the red badge. The bell list uses unread_only=False
+    so questions stay visible after the teacher opens them.
+    """
     last_msg_sq = (
         db.session.query(
             CourseQuestionMessage.thread_id.label('t_id'),
@@ -10654,20 +10712,27 @@ def _pending_teacher_question_threads_query(teacher_id):
         .subquery()
     )
     latest_msg = aliased(CourseQuestionMessage)
+    filters = [
+        CourseQuestionThread.teacher_id == teacher_id,
+        latest_msg.sender_role == 'student',
+    ]
+    if unread_only:
+        filters.append(CourseQuestionThread.teacher_read_at.is_(None))
     q = (
         CourseQuestionThread.query.join(
             last_msg_sq, CourseQuestionThread.id == last_msg_sq.c.t_id
         )
         .join(latest_msg, latest_msg.id == last_msg_sq.c.max_msg_id)
-        .filter(
-            CourseQuestionThread.teacher_id == teacher_id,
-            CourseQuestionThread.teacher_read_at.is_(None),
-            latest_msg.sender_role == 'student',
-        )
+        .filter(*filters)
     )
     if filter_by_window_sessions:
         q = filter_by_window_sessions(q, CourseQuestionThread.session_id, admin_override=False)
     return q.order_by(CourseQuestionThread.updated_at.desc())
+
+
+def _pending_teacher_question_threads_query(teacher_id):
+    """Unread student questions the teacher has not opened yet."""
+    return _teacher_question_threads_query(teacher_id, unread_only=True)
 
 
 # Context processor to inject pending invites count, question notifications, and student notifications
@@ -10694,10 +10759,10 @@ def inject_invites_count():
                     split_q = filter_by_window_sessions(split_q, ClassSplitInvite.inviter_session_id, admin_override=False)
                 split_count = split_q.count()
                 out['pending_invites_count'] = count + exam_count + split_count
-                pending_q = _pending_teacher_question_threads_query(teacher.id)
-                out['question_notification_count'] = pending_q.count()
-                unread = pending_q.limit(20).all()
-                session_ids = list({t.session_id for t in unread})
+                unread_q = _teacher_question_threads_query(teacher.id, unread_only=True)
+                out['question_notification_count'] = unread_q.count()
+                recent = _teacher_question_threads_query(teacher.id, unread_only=False).limit(20).all()
+                session_ids = list({t.session_id for t in recent})
                 sessions_by_id = {s.id: s for s in query_for_window(Session).filter(Session.id.in_(session_ids)).all()} if session_ids else {}
                 out['question_notifications'] = [
                     {
@@ -10706,9 +10771,10 @@ def inject_invites_count():
                         'student_name': t.student_name,
                         'created_at': t.created_at,
                         'session_id': t.session_id,
+                        'unread': t.teacher_read_at is None,
                         'course_label': (sessions_by_id.get(t.session_id).course_name or sessions_by_id.get(t.session_id).course_code or 'Course') if sessions_by_id.get(t.session_id) else 'Course',
                     }
-                    for t in unread
+                    for t in recent
                 ]
         if current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role):
             unread_student = _student_notifications_query(current_user.id).filter(
@@ -11204,7 +11270,12 @@ def student_feedback_ai_report(session_id):
 
     response_count = StudentFeedbackResponse.query.filter_by(feedback_link_id=feedback_link.id).count()
     report = load_stored_report(feedback_link)
-    report_is_stale = bool(report and report.get('response_count') != response_count)
+    stored_total = None
+    if report:
+        stored_total = report.get('raw_response_count')
+        if stored_total is None:
+            stored_total = report.get('response_count')
+    report_is_stale = bool(report and stored_total != response_count)
     return render_template(
         'class_management/student_feedback_ai_report.html',
         session=session_obj,

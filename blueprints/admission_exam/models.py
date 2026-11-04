@@ -36,11 +36,16 @@ class AdmissionCycle(db.Model):
     # Zero-pad numeric part: 0/1 = none, 2 = 01, 3 = 001, 4 = 0001, …
     roll_pad_width = db.Column(db.Integer, nullable=False, default=0)
     admit_published = db.Column(db.Boolean, nullable=False, default=False)
+    # Public result lists on the admission portal (+ downloadable PDF).
+    eligible_list_published = db.Column(db.Boolean, nullable=False, default=False)
+    selected_list_published = db.Column(db.Boolean, nullable=False, default=False)
     instructions = db.Column(db.Text, nullable=True)
     # JSON list of field defs (form / admit card / application PDF). See fields.py.
     field_schema = db.Column(db.Text, nullable=True)
     # JSON list of suggested document tags for certificate/transcript uploads.
     document_tags = db.Column(db.Text, nullable=True)
+    # When False, applicants cannot upload academic certificates / transcripts.
+    documents_enabled = db.Column(db.Boolean, nullable=False, default=True)
     # Application form declaration text (customizable; NULL = use default).
     declaration_text = db.Column(db.Text, nullable=True)
     exam_date = db.Column(db.String(120), nullable=True)   # shown on admit card
@@ -58,6 +63,11 @@ class AdmissionCycle(db.Model):
         'AdmissionCandidate', backref='cycle', lazy='dynamic',
         cascade='all, delete-orphan'
     )
+    waiting_lists = db.relationship(
+        'AdmissionWaitingList', backref='cycle', lazy='dynamic',
+        cascade='all, delete-orphan',
+        order_by='AdmissionWaitingList.sort_order, AdmissionWaitingList.id',
+    )
 
     @property
     def is_cycle_enabled(self):
@@ -66,6 +76,32 @@ class AdmissionCycle(db.Model):
         if isinstance(val, str):
             return val.strip().lower() in ('1', 'true', 'yes', 'on')
         return bool(val)
+
+    @property
+    def is_documents_enabled(self):
+        """False when admin has turned off certificate/transcript uploads."""
+        val = getattr(self, 'documents_enabled', True)
+        if val is None:
+            return True
+        if isinstance(val, str):
+            return val.strip().lower() in ('1', 'true', 'yes', 'on')
+        return bool(val)
+
+    @staticmethod
+    def _flag_true(val, default=False):
+        if val is None:
+            return default
+        if isinstance(val, str):
+            return val.strip().lower() in ('1', 'true', 'yes', 'on')
+        return bool(val)
+
+    @property
+    def is_eligible_list_published(self):
+        return self._flag_true(getattr(self, 'eligible_list_published', False))
+
+    @property
+    def is_selected_list_published(self):
+        return self._flag_true(getattr(self, 'selected_list_published', False))
 
     @property
     def is_application_open(self):
@@ -205,7 +241,8 @@ class AdmissionCandidate(db.Model):
     verified_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     verified_at = db.Column(db.DateTime, nullable=True)
 
-    application_status = db.Column(db.String(20), nullable=False, default='submitted')  # submitted / selected / rejected
+    # submitted → eligible (exam) → selected (admission) / rejected
+    application_status = db.Column(db.String(20), nullable=False, default='submitted')
     roll_no = db.Column(db.String(30), nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -244,6 +281,109 @@ class AdmissionCandidate(db.Model):
 
     def __repr__(self):
         return f"<AdmissionCandidate {self.application_id}>"
+
+
+# Merit / nomination list kinds (ordered membership = মেধাক্রম).
+MERIT_LIST_KINDS = ('viva', 'final', 'waiting')
+MERIT_LIST_KIND_LABELS = {
+    'viva': 'Nominated for Viva',
+    'final': 'Finally Nominated',
+    'waiting': 'Waiting List',
+}
+
+
+class AdmissionWaitingList(db.Model):
+    """Named merit/nomination list for a cycle (viva, final, or waiting).
+
+    Member ``position`` is the merit rank (1 = highest).
+    Multiple waiting lists are allowed; viva/final are typically one each.
+    """
+    __tablename__ = 'admission_waiting_list'
+    id = db.Column(db.Integer, primary_key=True)
+    cycle_id = db.Column(db.Integer, db.ForeignKey('admission_cycle.id'), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    # viva | final | waiting
+    list_kind = db.Column(db.String(20), nullable=False, default='waiting')
+    is_published = db.Column(db.Boolean, nullable=False, default=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    members = db.relationship(
+        'AdmissionWaitingListMember', backref='waiting_list', lazy='dynamic',
+        cascade='all, delete-orphan',
+        order_by='AdmissionWaitingListMember.position, AdmissionWaitingListMember.id',
+    )
+
+    @property
+    def is_list_published(self):
+        return AdmissionCycle._flag_true(getattr(self, 'is_published', False))
+
+    @property
+    def kind_key(self):
+        kind = (getattr(self, 'list_kind', None) or 'waiting').strip().lower()
+        return kind if kind in MERIT_LIST_KINDS else 'waiting'
+
+    @property
+    def kind_label(self):
+        return MERIT_LIST_KIND_LABELS.get(self.kind_key, 'Waiting List')
+
+    def ordered_members(self):
+        return (
+            self.members
+            .order_by(
+                AdmissionWaitingListMember.position,
+                AdmissionWaitingListMember.id,
+            )
+            .all()
+        )
+
+    def ordered_candidates(self):
+        """Candidates in merit-rank order (position then id)."""
+        return [row.candidate for row in self.ordered_members() if row.candidate]
+
+    def merit_rows(self):
+        """[{rank, candidate}, ...] in মেধাক্রম order."""
+        rows = []
+        for i, member in enumerate(self.ordered_members(), start=1):
+            if not member.candidate:
+                continue
+            rows.append({
+                'rank': member.position or i,
+                'candidate': member.candidate,
+                'member': member,
+            })
+        return rows
+
+    def __repr__(self):
+        return f"<AdmissionWaitingList {self.id} {self.kind_key}:{self.name}>"
+
+
+class AdmissionWaitingListMember(db.Model):
+    """Ordered membership of a candidate on a waiting list."""
+    __tablename__ = 'admission_waiting_list_member'
+    id = db.Column(db.Integer, primary_key=True)
+    waiting_list_id = db.Column(
+        db.Integer, db.ForeignKey('admission_waiting_list.id'), nullable=False, index=True
+    )
+    candidate_id = db.Column(
+        db.Integer, db.ForeignKey('admission_candidate.id'), nullable=False, index=True
+    )
+    position = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    candidate = db.relationship(
+        'AdmissionCandidate',
+        backref=db.backref('waiting_list_memberships', lazy='dynamic'),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'waiting_list_id', 'candidate_id', name='uq_admission_waiting_member'
+        ),
+    )
+
+    def __repr__(self):
+        return f"<AdmissionWaitingListMember list={self.waiting_list_id} cand={self.candidate_id}>"
 
 
 class AdmissionCandidateDocument(db.Model):

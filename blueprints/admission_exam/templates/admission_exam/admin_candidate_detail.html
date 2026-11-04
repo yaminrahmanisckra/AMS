@@ -421,6 +421,8 @@
                     <p class="small mb-2">Current status:
                         {% if candidate.application_status == 'selected' %}
                         <span class="badge bg-primary">Selected</span>
+                        {% elif candidate.application_status == 'eligible' %}
+                        <span class="badge bg-info text-dark">Eligible</span>
                         {% elif candidate.application_status == 'rejected' %}
                         <span class="badge bg-secondary">Rejected</span>
                         {% else %}
@@ -429,12 +431,14 @@
                     </p>
                     <form method="POST" action="{{ url_for('admission_exam.candidate_select', candidate_id=candidate.id) }}" class="d-flex flex-wrap gap-2">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" name="status" value="eligible" class="btn btn-sm btn-info">Mark Eligible</button>
                         <button type="submit" name="status" value="selected" class="btn btn-sm btn-primary">Select</button>
                         <button type="submit" name="status" value="rejected" class="btn btn-sm btn-outline-danger">Reject</button>
                         <button type="submit" name="status" value="submitted" class="btn btn-sm btn-outline-secondary">Reset</button>
                     </form>
                     <p class="small text-muted mt-2 mb-0">
-                        Roll numbers can be managed in the Roll Number card above, or bulk-assigned from the cycle page.
+                        Eligible = can sit for the exam (also set when a roll is assigned).
+                        Selected = chosen for admission. Publish either list from the cycle page.
                     </p>
                 </div>
             </div>

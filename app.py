@@ -550,6 +550,8 @@ def create_app():
     app.register_blueprint(result_management_bp, url_prefix='/result-management')
     app.register_blueprint(routine_management_bp, url_prefix='/routine-management')
     app.register_blueprint(auth_bp)
+    from blueprints.mobile_api import mobile_api_bp
+    app.register_blueprint(mobile_api_bp)
     app.register_blueprint(student_management_bp, url_prefix='/student-management')
     app.register_blueprint(course_management_bp, url_prefix='/course-management')
     app.register_blueprint(leave_application_bp, url_prefix='/leave-application')

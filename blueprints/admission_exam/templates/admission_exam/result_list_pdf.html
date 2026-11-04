@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ list_title }} – {{ cycle.name }}</title>
+<style>
+@page { size: A4; margin: 16mm 14mm 16mm 14mm; }
+body {
+    font-family: "Noto Sans Bengali", "Kalpurush", "Noto Sans", DejaVu Sans, sans-serif;
+    font-size: 11pt;
+    color: #111;
+    line-height: 1.35;
+}
+.header { text-align: center; margin-bottom: 8pt; }
+.logo {
+    display: block;
+    width: 18mm;
+    height: auto;
+    margin: 0 auto 1.5pt;
+}
+.uni { font-size: 13pt; font-weight: 700; margin: 0; line-height: 1.2; }
+.disc { font-size: 11pt; margin: 1pt 0 0; line-height: 1.2; }
+.cycle { font-size: 12pt; font-weight: 700; margin: 5pt 0 1pt; line-height: 1.25; }
+.sub { font-size: 10pt; color: #444; margin: 0; line-height: 1.25; }
+.meta { font-size: 9pt; color: #666; margin-top: 3pt; }
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8pt;
+}
+th, td {
+    border: 1px solid #333;
+    padding: 5pt 6pt;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f0f0;
+    font-size: 9.5pt;
+    font-weight: 700;
+}
+td { font-size: 10pt; }
+.sl { width: 8%; text-align: center; }
+.roll { width: 18%; }
+.appid { width: 22%; }
+.sign-block {
+    margin-top: 28pt;
+    width: 100%;
+}
+.sign-block td {
+    border: none;
+    padding: 0;
+    vertical-align: bottom;
+}
+.sign-spacer { width: 52%; }
+.sign-box {
+    width: 48%;
+    text-align: center;
+}
+.sign-space {
+    height: 22mm;
+    margin: 0 auto 4pt;
+}
+.sign-line {
+    border-top: 0.7pt solid #222;
+    width: 70%;
+    margin: 0 auto 6pt;
+    padding-top: 4pt;
+    font-size: 9pt;
+    color: #555;
+}
+.sign-name {
+    font-size: 10.5pt;
+    font-weight: 700;
+    margin: 0;
+    min-height: 14pt;
+}
+.sign-desig {
+    font-size: 9.5pt;
+    margin: 2pt 0 0;
+    color: #222;
+}
+.sign-role {
+    font-size: 9.5pt;
+    font-weight: 700;
+    margin: 2pt 0 0;
+}
+.footer {
+    margin-top: 18pt;
+    font-size: 8.5pt;
+    color: #555;
+    text-align: center;
+}
+</style>
+</head>
+<body>
+<div class="header">
+    {% if logo_data_uri %}
+    <img class="logo" src="{{ logo_data_uri }}" alt="Khulna University">
+    {% endif %}
+    <p class="uni">{{ tenant.university_name }}</p>
+    <p class="disc">{{ tenant.name }}</p>
+    <p class="cycle">{{ cycle.name }}</p>
+    <p class="sub"><strong>{{ list_title }}</strong></p>
+    <p class="sub">{{ list_subtitle }}</p>
+    <p class="meta">Total: {{ candidates|length }} · Generated: {{ generated_at }}</p>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th class="sl">{% if kind in ('viva', 'final', 'waiting') %}Merit{% else %}SL{% endif %}</th>
+            <th class="roll">Roll No.</th>
+            <th class="appid">Application ID</th>
+            <th>Name of the Candidate</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for c in candidates %}
+        <tr>
+            <td class="sl">{{ loop.index }}</td>
+            <td class="roll">{{ c.roll_no or '—' }}</td>
+            <td class="appid">{{ c.application_id }}</td>
+            <td>{{ c.full_name }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="4" style="text-align:center; padding: 16pt;">No candidates on this list.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<table class="sign-block">
+    <tr>
+        <td class="sign-spacer"></td>
+        <td class="sign-box">
+            <div class="sign-space"></div>
+            <div class="sign-line">Signature</div>
+            {% if chairman_name %}
+            <p class="sign-name">{{ chairman_name }}</p>
+            {% else %}
+            <p class="sign-name" style="border-bottom: 0.6pt solid #999; width: 70%; margin: 0 auto 4pt; min-height: 14pt;"></p>
+            {% endif %}
+            <p class="sign-role">{{ chairman_designation }}</p>
+        </td>
+    </tr>
+</table>
+
+<p class="footer">
+    Published by the Examination Committee · {{ tenant.display_with_university }}
+</p>
+</body>
+</html>

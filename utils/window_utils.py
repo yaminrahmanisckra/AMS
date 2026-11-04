@@ -23,6 +23,11 @@ WINDOW_EXEMPT_ENDPOINTS = frozenset({
     'auth.stop_login_as',
     'media_user_photo',
     'media_user_signature',
+    'mobile_api.login',
+    'mobile_api.me',
+    'mobile_api.routine',
+    'mobile_api.routine_web',
+    'mobile_api.web_session',
 })
 
 

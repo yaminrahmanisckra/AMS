@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description_medium">আজকের ক্লাস, মাঝারি</string>
+    <string name="widget_description_small">আজকের ক্লাস, ছোট</string>
+    <string name="widget_description_large">আজকের ক্লাস, বড়</string>
+</resources>

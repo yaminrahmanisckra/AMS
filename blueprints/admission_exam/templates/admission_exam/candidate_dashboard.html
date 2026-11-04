@@ -1,75 +1,127 @@
 {% extends "base.html" %}
 {% block title %}My Application – {{ cycle.name }}{% endblock %}
 {% block mobile_title %}My Application{% endblock %}
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/admission_public.css') }}?v=adm1" rel="stylesheet">
+{% endblock %}
 {% block content %}
-<div class="container my-4" style="max-width: 860px;">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+<div class="adm-shell">
+<div class="adm-wrap">
+    <div class="adm-page-head adm-rise">
         <div>
-            <h4 class="fw-bold mb-0">My Application</h4>
-            <span class="text-muted small">{{ cycle.name }}</span>
+            <div class="adm-hero-kicker mb-2">Candidate Dashboard</div>
+            <h1 style="font-family:var(--adm-font-display);font-size:clamp(1.45rem,4vw,2rem);margin:0;">My Application</h1>
+            <div class="adm-muted mt-1">{{ cycle.name }}</div>
         </div>
         <form method="POST" action="{{ url_for('admission_exam.candidate_logout', token=cycle.public_token) }}" class="m-0">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-outline-secondary">
-                <i class="fas fa-sign-out-alt me-1"></i>Logout
+            <button type="submit" class="adm-btn adm-btn-ghost adm-btn-sm">
+                <i class="fas fa-sign-out-alt"></i>Logout
             </button>
         </form>
     </div>
 
-    <div class="row g-3 mb-4">
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm">
-                <div class="card-body text-center">
-                    <div class="small text-muted mb-1">Application ID</div>
-                    <div class="fs-5 fw-bold">{{ candidate.application_id }}</div>
+    <div class="adm-stat-grid adm-rise adm-rise-delay-1">
+        <div class="adm-stat">
+            <div class="adm-stat-label">Application ID</div>
+            <div class="adm-stat-value">{{ candidate.application_id }}</div>
+        </div>
+        <div class="adm-stat">
+            <div class="adm-stat-label">Payment Status</div>
+            <div class="adm-stat-value" style="font-size:1.05rem;">
+                {% if candidate.payment_status == 'verified' %}
+                <span class="adm-status adm-status-open">Verified</span>
+                {% elif candidate.payment_status == 'rejected' %}
+                <span class="badge bg-danger">Rejected</span>
+                {% else %}
+                <span class="badge bg-warning text-dark">Pending</span>
+                {% endif %}
+            </div>
+            {% if candidate.payment_note %}
+            <div class="small text-muted mt-2">{{ candidate.payment_note }}</div>
+            {% endif %}
+        </div>
+        <div class="adm-stat">
+            <div class="adm-stat-label">Roll Number</div>
+            <div class="adm-stat-value">{{ candidate.roll_no or '—' }}</div>
+        </div>
+    </div>
+
+    {% if my_merit_lists %}
+    <div class="adm-panel adm-panel-amber mb-3 adm-rise adm-rise-delay-2">
+        <div class="adm-panel-head">
+            <strong><i class="fas fa-award me-1"></i>Your nomination status</strong>
+        </div>
+        <div class="adm-panel-body">
+            <div class="adm-result-grid">
+                {% for item in my_merit_lists %}
+                <div class="adm-result-item">
+                    <h3 class="mb-1">{{ item.name }}</h3>
+                    <div class="small text-muted mb-1">{{ item.kind_label }}</div>
+                    <div class="fw-bold">Merit rank: {{ item.rank }}</div>
+                    <a href="{{ url_for('admission_exam.public_waiting_list', token=cycle.public_token, list_id=item.list.id) }}"
+                       class="adm-btn adm-btn-ghost adm-btn-sm mt-2">View full list</a>
                 </div>
+                {% endfor %}
             </div>
         </div>
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm">
-                <div class="card-body text-center">
-                    <div class="small text-muted mb-1">Payment Status</div>
-                    {% if candidate.payment_status == 'verified' %}
-                    <span class="badge bg-success fs-6">Verified</span>
-                    {% elif candidate.payment_status == 'rejected' %}
-                    <span class="badge bg-danger fs-6">Rejected</span>
-                    {% else %}
-                    <span class="badge bg-warning text-dark fs-6">Pending</span>
-                    {% endif %}
-                    {% if candidate.payment_note %}
-                    <div class="small text-muted mt-1">{{ candidate.payment_note }}</div>
-                    {% endif %}
+    </div>
+    {% endif %}
+
+    {% if published_merit_lists %}
+    <div class="adm-panel mb-3 adm-rise">
+        <div class="adm-panel-head">
+            <strong><i class="fas fa-list me-1"></i>Published result lists</strong>
+        </div>
+        <div class="adm-panel-body">
+            <div class="adm-result-grid">
+                {% for item in published_merit_lists %}
+                <div class="adm-result-item">
+                    <h3 class="mb-1">{{ item.list.name }}</h3>
+                    <div class="small text-muted mb-2">{{ item.kind_label }} · {{ item.count }} candidate(s)</div>
+                    <div class="adm-cta-row" style="justify-content:flex-start;">
+                        <a href="{{ url_for('admission_exam.public_waiting_list', token=cycle.public_token, list_id=item.list.id) }}"
+                           class="adm-btn adm-btn-primary adm-btn-sm"><i class="fas fa-eye"></i>View</a>
+                        <a href="{{ url_for('admission_exam.public_waiting_list_pdf', token=cycle.public_token, list_id=item.list.id) }}"
+                           class="adm-btn adm-btn-ghost adm-btn-sm"><i class="fas fa-file-pdf"></i>PDF</a>
+                    </div>
                 </div>
+                {% endfor %}
             </div>
         </div>
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm">
-                <div class="card-body text-center">
-                    <div class="small text-muted mb-1">Roll Number</div>
-                    <div class="fs-5 fw-bold">{{ candidate.roll_no or '—' }}</div>
-                </div>
+    </div>
+    {% endif %}
+
+    <div class="adm-panel adm-panel-accent mb-3 adm-rise adm-rise-delay-2">
+        <div class="adm-action-bar">
+            <div>
+                <strong><i class="fas fa-file-alt me-1"></i>Application form PDF</strong>
+                <div class="small text-muted">Download your submitted application{% if documents_enabled or documents %} (with certificates, if any){% endif %}.</div>
             </div>
+            <a href="{{ url_for('admission_exam.candidate_application_form', token=cycle.public_token) }}?v={{ range(100000, 999999) | random }}"
+               class="adm-btn adm-btn-primary" target="_blank" rel="noopener">
+                <i class="fas fa-file-pdf"></i>Download PDF
+            </a>
         </div>
     </div>
 
     {% if can_download_admit %}
-    <div class="card border-success shadow-sm mb-4" id="admitDownloadBar">
-        <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2 py-3">
-            <div class="text-success">
+    <div class="adm-panel adm-panel-success mb-3" id="admitDownloadBar">
+        <div class="adm-action-bar">
+            <div style="color:#217a52;">
                 <i class="fas fa-check-circle me-1"></i><strong>Your admit card is ready.</strong>
             </div>
             <a href="{{ url_for('admission_exam.candidate_admit_card', token=cycle.public_token) }}?v={{ range(100000, 999999) | random }}"
-               class="btn btn-success" target="_blank" rel="noopener">
-                <i class="fas fa-file-pdf me-1"></i>Open Admit Card
+               class="adm-btn adm-btn-primary" style="background:linear-gradient(135deg,#2f9e6b,#217a52);" target="_blank" rel="noopener">
+                <i class="fas fa-file-pdf"></i>Open Admit Card
             </a>
         </div>
     </div>
     {% else %}
-    <div class="card border-0 bg-light mb-4">
-        <div class="card-body small text-muted py-3">
+    <div class="adm-panel mb-3">
+        <div class="adm-panel-body small text-muted py-3">
             <i class="fas fa-info-circle me-1"></i>
-            Your admit card will be available here once your payment is verified,
-            a roll number is assigned, and the committee publishes admit cards.
+            Your admit card will appear here after payment verification, roll assignment, and committee publish.
         </div>
     </div>
     {% endif %}
@@ -161,6 +213,7 @@
     </div>
     {% endif %}
 
+    {% if documents_enabled or documents %}
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-light"><strong>Academic Certificates &amp; Transcripts</strong></div>
         <div class="card-body">
@@ -194,7 +247,7 @@
                                 {% if doc.note %}<div class="text-muted mt-1">{{ doc.note }}</div>{% endif %}
                             </td>
                             <td class="text-end">
-                                {% if candidate.payment_status != 'verified' and documents|length > 1 %}
+                                {% if documents_enabled and candidate.payment_status != 'verified' and documents|length > 1 %}
                                 <form method="POST" class="d-inline"
                                       action="{{ url_for('admission_exam.candidate_delete_document', token=cycle.public_token, doc_id=doc.id) }}"
                                       onsubmit="return confirm('Remove this document?');">
@@ -212,7 +265,7 @@
             <p class="small text-muted">No documents uploaded yet.</p>
             {% endif %}
 
-            {% if candidate.payment_status != 'verified' %}
+            {% if documents_enabled and candidate.payment_status != 'verified' %}
             <hr>
             <p class="small text-muted mb-2">Upload additional attested certificates / transcripts (JPG or PNG only — PDF not allowed; max {{ document_max_label }}).</p>
             <form method="POST" enctype="multipart/form-data"
@@ -228,6 +281,7 @@
             {% endif %}
         </div>
     </div>
+    {% endif %}
 
     {% set selected_pay = candidate.payment_method or 'agrani_bank' %}
     {% set selected_is_mfs = selected_pay in mfs_payment_methods %}
@@ -333,6 +387,7 @@
             {% endif %}
         </div>
     </div>
+</div>
 </div>
 {% endblock %}
 {% block scripts %}

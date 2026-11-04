@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}{{ waiting_list.name }} – Waiting List{% endblock %}
+{% block mobile_title %}Waiting List{% endblock %}
+{% block content %}
+<div class="container my-4" style="max-width: 1000px;">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-1">
+                    <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.index') }}">Admission Exam</a></li>
+                    <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}">{{ cycle.name }}</a></li>
+                    <li class="breadcrumb-item active">{{ waiting_list.name }}</li>
+                </ol>
+            </nav>
+            <h3 class="fw-bold mb-0">{{ waiting_list.name }}</h3>
+            <div class="small text-muted">
+                {{ waiting_list.kind_label }} · merit order · {{ members|length }} candidate(s)
+                {% if waiting_list.is_list_published %}
+                · <span class="badge bg-success">Published</span>
+                {% else %}
+                · <span class="badge bg-secondary">Hidden</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{{ url_for('admission_exam.export_waiting_list_pdf', cycle_id=cycle.id, list_id=waiting_list.id) }}"
+               class="btn btn-outline-primary btn-sm"><i class="fas fa-file-pdf me-1"></i>PDF</a>
+            <a href="{{ url_for('admission_exam.export_waiting_list_xlsx', cycle_id=cycle.id, list_id=waiting_list.id) }}"
+               class="btn btn-outline-success btn-sm"><i class="fas fa-file-excel me-1"></i>Excel</a>
+            <a href="{{ url_for('admission_exam.export_waiting_list_docx', cycle_id=cycle.id, list_id=waiting_list.id) }}"
+               class="btn btn-outline-dark btn-sm"><i class="fas fa-file-word me-1"></i>DOC</a>
+            <form method="POST" action="{{ url_for('admission_exam.waiting_list_publish', cycle_id=cycle.id, list_id=waiting_list.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if waiting_list.is_list_published %}
+                <button type="submit" class="btn btn-outline-warning btn-sm">Unpublish</button>
+                {% else %}
+                <button type="submit" class="btn btn-success btn-sm">Publish</button>
+                {% endif %}
+            </form>
+            {% if waiting_list.is_list_published %}
+            <a href="{{ url_for('admission_exam.public_waiting_list', token=cycle.public_token, list_id=waiting_list.id) }}"
+               class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener">Portal view</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light"><strong>Rename / Delete</strong></div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('admission_exam.waiting_list_rename', cycle_id=cycle.id, list_id=waiting_list.id) }}"
+                  class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="col-md-8">
+                    <label class="form-label small mb-1">List name</label>
+                    <input type="text" class="form-control form-control-sm" name="name" value="{{ waiting_list.name }}" required maxlength="120">
+                </div>
+                <div class="col-md-4">
+                    <button type="submit" class="btn btn-sm btn-primary">Save name</button>
+                </div>
+            </form>
+            <form method="POST" action="{{ url_for('admission_exam.waiting_list_delete', cycle_id=cycle.id, list_id=waiting_list.id) }}"
+                  class="mt-3"
+                  onsubmit="return confirm('Delete this waiting list and all memberships?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="fas fa-trash me-1"></i>Delete waiting list
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light"><strong>Candidates on this list</strong></div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 4rem;">Merit</th>
+                        <th>Roll</th>
+                        <th>Application ID</th>
+                        <th>Name</th>
+                        <th class="text-end">Reorder</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in members %}
+                    <tr>
+                        <td>{{ m.position }}</td>
+                        <td class="fw-semibold">{{ m.candidate.roll_no or '—' }}</td>
+                        <td>
+                            <a href="{{ url_for('admission_exam.candidate_detail', candidate_id=m.candidate.id) }}">
+                                {{ m.candidate.application_id }}
+                            </a>
+                        </td>
+                        <td>{{ m.candidate.full_name }}</td>
+                        <td class="text-end">
+                            <form method="POST" action="{{ url_for('admission_exam.waiting_list_members', cycle_id=cycle.id, list_id=waiting_list.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="member_id" value="{{ m.id }}">
+                                <button type="submit" name="action" value="move_up" class="btn btn-sm btn-outline-secondary" title="Move up" {% if loop.first %}disabled{% endif %}>
+                                    <i class="fas fa-arrow-up"></i>
+                                </button>
+                                <button type="submit" name="action" value="move_down" class="btn btn-sm btn-outline-secondary" title="Move down" {% if loop.last %}disabled{% endif %}>
+                                    <i class="fas fa-arrow-down"></i>
+                                </button>
+                                <button type="submit" name="action" value="remove" class="btn btn-sm btn-outline-danger"
+                                        onclick="return confirm('Remove this candidate from the waiting list?');">
+                                    Remove
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">No candidates yet. Add from below or from the candidates list.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light"><strong>Add candidates</strong></div>
+        <div class="card-body">
+            {% if available_candidates %}
+            <form method="POST" action="{{ url_for('admission_exam.waiting_list_members', cycle_id=cycle.id, list_id=waiting_list.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="add">
+                <select class="form-select form-select-sm" name="candidate_ids" multiple size="10" required>
+                    {% for c in available_candidates %}
+                    <option value="{{ c.id }}">
+                        {{ c.application_id }} — {{ c.full_name }}{% if c.roll_no %} (Roll {{ c.roll_no }}){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <div class="form-text">Hold Ctrl/Cmd to select multiple.</div>
+                <button type="submit" class="btn btn-sm btn-primary mt-2">
+                    <i class="fas fa-plus me-1"></i>Add selected
+                </button>
+            </form>
+            {% else %}
+                    <p class="small text-muted mb-0">Every candidate in this cycle is already on this list.</p>
+                    <p class="small text-muted mb-0">Tip: use ↑ ↓ to set মেধাক্রম (merit rank 1 = top).</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}" class="btn btn-outline-secondary btn-sm">
+        <i class="fas fa-arrow-left me-1"></i>Back to cycle
+    </a>
+</div>
+{% endblock %}

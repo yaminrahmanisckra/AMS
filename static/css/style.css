@@ -1878,6 +1878,11 @@ main {
     user-select: none;
 }
 
+.exam-eval-page .exam-eval-collapse-toggle h5 {
+    font-size: 1rem;
+    line-height: 1.3;
+}
+
 .exam-eval-page .exam-eval-collapse-toggle .collapse-chevron {
     transition: transform 0.2s ease;
 }
@@ -1886,21 +1891,40 @@ main {
     transform: rotate(-90deg);
 }
 
-.exam-eval-page .exam-eval-qs-table {
-    table-layout: fixed;
-    width: 100%;
+.exam-eval-page .exam-eval-qs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
 }
 
-.exam-eval-page .exam-eval-qs-table th,
-.exam-eval-page .exam-eval-qs-table td {
-    vertical-align: middle;
-    word-break: break-word;
+.exam-eval-page .exam-eval-qs-item {
+    border: 1px solid #e4e6eb;
+    border-radius: 0.5rem;
+    padding: 0.65rem 0.75rem;
+    background: #fff;
 }
 
-.exam-eval-page .exam-eval-qs-table .col-course { width: 34%; }
-.exam-eval-page .exam-eval-qs-table .col-code { width: 18%; }
-.exam-eval-page .exam-eval-qs-table .col-part { width: 12%; }
-.exam-eval-page .exam-eval-qs-table .col-session { width: 36%; }
+.exam-eval-page .exam-eval-qs-item__title {
+    font-weight: 600;
+    font-size: 0.92rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    margin-bottom: 0.3rem;
+}
+
+.exam-eval-page .exam-eval-qs-item__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    line-height: 1.35;
+    color: #475569;
+}
+
+.exam-eval-page .exam-eval-qs-item__code {
+    font-size: 0.8rem;
+}
 
 .exam-eval-page .exam-eval-badge-part {
     font-size: 0.68rem;
@@ -1929,6 +1953,24 @@ main {
     .exam-eval-page .exam-eval-more-dropdown,
     .exam-eval-page .exam-eval-more-dropdown .dropdown-toggle {
         width: 100%;
+    }
+
+    .exam-eval-page .exam-eval-collapse-toggle {
+        align-items: flex-start;
+    }
+
+    .exam-eval-page .exam-eval-collapse-toggle h5 {
+        font-size: 0.9rem;
+    }
+
+    .exam-eval-page .exam-eval-qs-item {
+        padding: 0.7rem 0.75rem;
+    }
+
+    .exam-eval-page .exam-eval-qs-item__meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.22rem;
     }
 }
 

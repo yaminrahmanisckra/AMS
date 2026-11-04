@@ -102,6 +102,14 @@ PATCHES = {
     ],
     'room': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
     'teacher': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
+    'admission_cycle': [
+        ('documents_enabled', 'documents_enabled BOOLEAN NOT NULL DEFAULT 1'),
+        ('eligible_list_published', 'eligible_list_published BOOLEAN NOT NULL DEFAULT 0'),
+        ('selected_list_published', 'selected_list_published BOOLEAN NOT NULL DEFAULT 0'),
+    ],
+    'admission_waiting_list': [
+        ('list_kind', "list_kind VARCHAR(20) NOT NULL DEFAULT 'waiting'"),
+    ],
 }
 
 WINDOW_BACKFILL_TABLES = [

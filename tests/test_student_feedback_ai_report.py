@@ -212,3 +212,75 @@ def test_ai_analyze_404_for_other_window(
     rv = client.post(f'/class-management/evaluation/{session_id}/student-feedback/ai-analyze')
     assert rv.status_code == 404
     mock_generate.assert_not_called()
+
+
+def test_text_unwraps_wrapped_methodology():
+    from utils.ai.feedback_report import _normalize_narrative, _text
+
+    prose = (
+        'Student feedback was collected via an anonymous online questionnaire '
+        'administered through the Academic Management System.'
+    )
+    assert _text({'text': prose}) == prose
+    assert _text("{'text': %r}" % prose) == prose
+    assert _text(json.dumps({'text': prose})) == prose
+    curly = "{‘text’: ‘%s’}" % prose
+    assert _text(curly) == prose
+    screenshot = (
+        "{'text': 'An anonymous online feedback survey was administered through the "
+        "Academic Management System from 10–\n13 October 2026 to students enrolled in "
+        "Law of Criminal Procedure (n = 37). No inferential statistics were applied.'}"
+    )
+    unwrapped = _text(screenshot)
+    assert unwrapped.startswith('An anonymous online feedback survey')
+    assert "{'text'" not in unwrapped
+    assert "‘text’" not in unwrapped
+
+    narrative = _normalize_narrative({
+        'methodology': {'text': prose},
+        'quantitative_narrative': "{'text': 'Means were favourable.'}",
+        'qualitative_findings': [],
+        'triangulated_key_findings': [],
+        'strengths': [{'text': 'Clear structure'}],
+        'areas_requiring_improvement': [],
+        'action_plan': [],
+        'limitations': [],
+        'excluded_comments_reason': '',
+    })
+    assert narrative['methodology'] == prose
+    assert narrative['quantitative_narrative'] == 'Means were favourable.'
+    assert narrative['strengths'] == ['Clear structure']
+    assert "{'text'" not in narrative['methodology']
+
+
+def test_stored_report_hides_wrapped_methodology_object(
+    app, client, teacher_user, class_session_w1, windows,
+):
+    prose = (
+        'Student feedback was collected via an anonymous online questionnaire '
+        'administered through the Academic Management System between 10 and 13 October 2026.'
+    )
+    with app.app_context():
+        link_id = _seed_feedback(class_session_w1['session_id'])
+        link = StudentFeedbackLink.query.get(link_id)
+        payload = _ai_payload()
+        payload['methodology'] = "{'text': %r}" % prose
+        link.ai_report_json = json.dumps({
+            'generated_at': '2026-10-13 09:00 UTC',
+            'discipline': 'Law Discipline, Khulna University',
+            'indicative_only': False,
+            'profile': [{'field': 'Form title', 'value': 'Law of Criminal Procedure Feedback'}],
+            'quantitative': {'likert_items': [], 'overall_mean': 4.1},
+            'comments': [],
+            'narrative': payload,
+        })
+        db.session.commit()
+        session_id = class_session_w1['session_id']
+
+    login_client(client, teacher_user['username'], window_id=windows['w1_id'])
+    page = client.get(f'/class-management/evaluation/{session_id}/student-feedback/ai-report')
+    assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert prose in html
+    assert "{'text'" not in html
+    assert '&#39;text&#39;' not in html

@@ -54,6 +54,7 @@
                     <select class="form-select form-select-sm" name="status">
                         <option value="">All</option>
                         <option value="submitted" {% if status == 'submitted' %}selected{% endif %}>Submitted</option>
+                        <option value="eligible" {% if status == 'eligible' %}selected{% endif %}>Eligible</option>
                         <option value="selected" {% if status == 'selected' %}selected{% endif %}>Selected</option>
                         <option value="rejected" {% if status == 'rejected' %}selected{% endif %}>Rejected</option>
                     </select>
@@ -73,8 +74,12 @@
                     onclick="return confirm('Mark payment as VERIFIED for all checked candidates?');">
                 <i class="fas fa-check me-1"></i>Verify Payment
             </button>
+            <button type="submit" name="action" value="eligible" class="btn btn-sm btn-outline-info"
+                    onclick="return confirm('Mark all checked candidates as ELIGIBLE for the exam?');">
+                <i class="fas fa-clipboard-check me-1"></i>Mark Eligible
+            </button>
             <button type="submit" name="action" value="select" class="btn btn-sm btn-outline-primary"
-                    onclick="return confirm('Mark all checked candidates as SELECTED?');">
+                    onclick="return confirm('Mark all checked candidates as SELECTED for admission?');">
                 <i class="fas fa-user-check me-1"></i>Select
             </button>
             <button type="submit" name="action" value="reject" class="btn btn-sm btn-outline-danger"
@@ -85,6 +90,22 @@
                     onclick="return confirm('Unassign roll numbers from all checked candidates?');">
                 <i class="fas fa-eraser me-1"></i>Unassign Rolls
             </button>
+            <button type="submit" name="action" value="delete" class="btn btn-sm btn-outline-danger"
+                    onclick="return confirm('Permanently delete all checked applications? This cannot be undone.');">
+                <i class="fas fa-trash me-1"></i>Delete
+            </button>
+            {% if waiting_lists %}
+            <select class="form-select form-select-sm" name="waiting_list_id" style="width: auto; max-width: 220px;">
+                <option value="">Waiting list…</option>
+                {% for wl in waiting_lists %}
+                <option value="{{ wl.id }}">{{ wl.kind_label }} — {{ wl.name }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" name="action" value="add_to_waiting_list" class="btn btn-sm btn-outline-dark"
+                    onclick="return confirm('Add checked candidates to the chosen merit/nomination list (appended at end of merit order)?');">
+                <i class="fas fa-list-ol me-1"></i>Add to Merit List
+            </button>
+            {% endif %}
             <span class="vr d-none d-md-inline mx-1"></span>
             <button type="submit" name="action" value="download_forms_zip" class="btn btn-sm btn-primary"
                     title="ZIP of selected forms; each PDF includes certificate attachments">
@@ -98,13 +119,14 @@
                 <i class="fas fa-id-card me-1"></i>Selected Admit Cards
             </button>
         </div>
+    </form>
 
         <div class="card shadow-sm">
             <div class="table-responsive">
                 <table class="table table-hover table-sm align-middle mb-0">
                     <thead class="table-light">
                         <tr>
-                            <th style="width: 30px;"><input type="checkbox" class="form-check-input" id="checkAll"></th>
+                            <th style="width: 30px;"><input type="checkbox" class="form-check-input" id="checkAll" form="bulkForm"></th>
                             <th>Application ID</th>
                             <th>Name</th>
                             <th>Phone</th>
@@ -118,7 +140,7 @@
                     <tbody>
                         {% for c in candidates %}
                         <tr>
-                            <td><input type="checkbox" class="form-check-input row-check" name="candidate_ids" value="{{ c.id }}"></td>
+                            <td><input type="checkbox" class="form-check-input row-check" form="bulkForm" name="candidate_ids" value="{{ c.id }}"></td>
                             <td class="fw-semibold">{{ c.application_id }}</td>
                             <td>{{ c.full_name }}</td>
                             <td class="small">{{ c.phone }}</td>
@@ -152,6 +174,8 @@
                             <td>
                                 {% if c.application_status == 'selected' %}
                                 <span class="badge bg-primary">Selected</span>
+                                {% elif c.application_status == 'eligible' %}
+                                <span class="badge bg-info text-dark">Eligible</span>
                                 {% elif c.application_status == 'rejected' %}
                                 <span class="badge bg-secondary">Rejected</span>
                                 {% else %}
@@ -159,11 +183,19 @@
                                 {% endif %}
                             </td>
                             <td class="fw-semibold">{{ c.roll_no or '—' }}</td>
-                            <td class="text-end">
+                            <td class="text-end text-nowrap">
                                 <a href="{{ url_for('admission_exam.candidate_detail', candidate_id=c.id) }}"
                                    class="btn btn-sm btn-outline-primary" title="View / manage">
                                     <i class="fas fa-eye"></i>
                                 </a>
+                                <form method="POST" class="d-inline"
+                                      action="{{ url_for('admission_exam.candidate_delete', candidate_id=c.id) }}"
+                                      onsubmit="return confirm('Delete application {{ c.application_id }} permanently? This cannot be undone.');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete application">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
                             </td>
                         </tr>
                         {% else %}
@@ -173,7 +205,6 @@
                 </table>
             </div>
         </div>
-    </form>
 </div>
 {% endblock %}
 

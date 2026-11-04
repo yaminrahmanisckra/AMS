@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ cycle.name }} – Manage{% endblock %}
 {% block mobile_title %}Cycle{% endblock %}
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/admission_admin.css') }}?v=adm-m3" rel="stylesheet">
+{% endblock %}
 {% block content %}
-<div class="container my-4" style="max-width: 1100px;">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+<div class="container my-4 adm-manage">
+    <div class="adm-manage-hero">
         <div>
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb mb-1">
@@ -11,31 +14,45 @@
                     <li class="breadcrumb-item active">{{ cycle.name }}</li>
                 </ol>
             </nav>
-            <h3 class="fw-bold mb-0">{{ cycle.name }}</h3>
+            <h1>{{ cycle.name }}</h1>
         </div>
-        <div class="d-flex flex-wrap gap-2">
-            <a href="{{ url_for('admission_exam.cycle_field_schema', cycle_id=cycle.id) }}" class="btn btn-outline-primary">
+        <div class="adm-manage-actions">
+            <a href="{{ url_for('admission_exam.cycle_field_schema', cycle_id=cycle.id) }}" class="btn btn-outline-primary btn-sm">
                 <i class="fas fa-sliders-h me-1"></i>Form &amp; Admit Card Fields
             </a>
-            <a href="{{ url_for('admission_exam.candidates_list', cycle_id=cycle.id) }}" class="btn btn-primary">
+            <a href="#merit-lists" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-trophy me-1"></i>Merit Lists
+            </a>
+            <a href="{{ url_for('admission_exam.candidates_list', cycle_id=cycle.id) }}" class="btn btn-primary btn-sm">
                 <i class="fas fa-users me-1"></i>Candidates ({{ counts.total }})
             </a>
         </div>
     </div>
 
-    <!-- Stats -->
-    <div class="row g-2 mb-4 text-center">
-        <div class="col-6 col-md-2"><div class="border rounded p-2 bg-light"><div class="fw-bold fs-5">{{ counts.total }}</div><div class="small text-muted">Applicants</div></div></div>
-        <div class="col-6 col-md-2"><div class="border rounded p-2 bg-light"><div class="fw-bold fs-5 text-warning">{{ counts.payment_pending }}</div><div class="small text-muted">Payment Pending</div></div></div>
-        <div class="col-6 col-md-2"><div class="border rounded p-2 bg-light"><div class="fw-bold fs-5 text-success">{{ counts.payment_verified }}</div><div class="small text-muted">Payment Verified</div></div></div>
-        <div class="col-6 col-md-2"><div class="border rounded p-2 bg-light"><div class="fw-bold fs-5 text-danger">{{ counts.payment_rejected }}</div><div class="small text-muted">Payment Rejected</div></div></div>
-        <div class="col-6 col-md-2"><div class="border rounded p-2 bg-light"><div class="fw-bold fs-5 text-primary">{{ counts.selected }}</div><div class="small text-muted">Selected</div></div></div>
-        <div class="col-6 col-md-2"><div class="border rounded p-2 bg-light"><div class="fw-bold fs-5">{{ counts.rolls_assigned }}</div><div class="small text-muted">Rolls Assigned</div></div></div>
+    <nav class="adm-jump" aria-label="Jump to section">
+        <a href="#public-link"><i class="fas fa-link"></i> Link</a>
+        <a href="#merit-lists" class="adm-jump-hot"><i class="fas fa-trophy"></i> Viva / Merit / Waiting</a>
+        <a href="#public-content"><i class="fas fa-file-alt"></i> Page Content</a>
+        <a href="#rolls-admit"><i class="fas fa-list-ol"></i> Rolls &amp; Admit</a>
+        <a href="#documents"><i class="fas fa-tags"></i> Certificates</a>
+        <a href="#declaration"><i class="fas fa-file-signature"></i> Declaration</a>
+        <a href="#settings-committee"><i class="fas fa-cog"></i> Settings</a>
+        <a href="{{ url_for('admission_exam.candidates_list', cycle_id=cycle.id) }}"><i class="fas fa-users"></i> Candidates</a>
+    </nav>
+
+    <div class="adm-stat-row">
+        <div class="adm-stat-tile"><div class="n">{{ counts.total }}</div><div class="l">Applicants</div></div>
+        <div class="adm-stat-tile"><div class="n text-warning">{{ counts.payment_pending }}</div><div class="l">Payment Pending</div></div>
+        <div class="adm-stat-tile"><div class="n text-success">{{ counts.payment_verified }}</div><div class="l">Payment Verified</div></div>
+        <div class="adm-stat-tile"><div class="n text-info">{{ counts.eligible }}</div><div class="l">Eligible</div></div>
+        <div class="adm-stat-tile"><div class="n text-primary">{{ counts.selected }}</div><div class="l">Selected</div></div>
+        <div class="adm-stat-tile"><div class="n">{{ counts.rolls_assigned }}</div><div class="l">Rolls Assigned</div></div>
     </div>
 
     <!-- Public link + status -->
-    <div class="card shadow-sm mb-4">
-        <div class="card-header bg-light"><strong><i class="fas fa-link me-1"></i>Public Application Link</strong></div>
+    <div class="card shadow-sm mb-4" id="public-link">
+        <button type="button" class="card-header bg-light adm-collapse-toggle w-100 text-start d-flex justify-content-between align-items-center flex-wrap gap-2" data-bs-toggle="collapse" data-bs-target="#public-link-body" aria-expanded="false" aria-controls="public-link-body"><span class="adm-collapse-title"><strong><i class="fas fa-link me-1"></i>Public Application Link</strong></span><i class="fas fa-chevron-down adm-collapse-chevron" aria-hidden="true"></i></button>
+        <div id="public-link-body" class="collapse">
         <div class="card-body">
             <div class="input-group mb-3">
                 <input type="text" class="form-control" id="publicUrlInput" value="{{ public_url }}" readonly>
@@ -134,14 +151,204 @@
                 </div>
             </div>
         </div>
+        </div>
+    </div>
+
+    <!-- Result + Merit / Viva / Waiting lists -->
+    <div class="card shadow-sm mb-4" id="merit-lists">
+        <button type="button" class="card-header bg-light adm-collapse-toggle w-100 text-start d-flex justify-content-between align-items-center flex-wrap gap-2" data-bs-toggle="collapse" data-bs-target="#merit-lists-body" aria-expanded="false" aria-controls="merit-lists-body"><span class="adm-collapse-title"><strong><i class="fas fa-trophy me-1"></i>Result &amp; Merit Lists</strong>
+            <span class="small text-muted">Viva · Final · Waiting · Eligible · Selected</span></span><i class="fas fa-chevron-down adm-collapse-chevron" aria-hidden="true"></i></button>
+        <div id="merit-lists-body" class="collapse">
+        <div class="card-body">
+            <p class="small text-muted mb-3">
+                Open <strong>Viva</strong>, <strong>Final Merit</strong>, or <strong>Waiting</strong> lists with
+                <strong>View / Manage</strong>. Eligible and Selected lists can be published to the portal (with PDF).
+            </p>
+            <div class="mb-3">
+                <div class="fw-semibold"><i class="fas fa-trophy me-1 text-warning"></i>Merit / Nomination Lists</div>
+                <div class="small text-muted">
+                    Add candidates in merit order (1 = highest). Publish to the portal &amp; candidate dashboard.
+                    Export as PDF, Excel, or Word anytime.
+                </div>
+            </div>
+
+            {% macro merit_list_card(wl, waiting=false) %}
+            <div class="adm-merit-card{% if waiting %} waiting{% endif %}">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div>
+                        <p class="title">{{ wl.name }}</p>
+                        <div class="meta">
+                            {{ wl.kind_label }} · {{ waiting_list_counts.get(wl.id, 0) }} candidate(s)
+                        </div>
+                    </div>
+                    {% if wl.is_list_published %}
+                    <span class="badge bg-success">Published</span>
+                    {% else %}
+                    <span class="badge bg-secondary">Hidden</span>
+                    {% endif %}
+                </div>
+                <div class="actions">
+                    <a href="{{ url_for('admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=wl.id) }}"
+                       class="btn btn-sm btn-view">
+                        <i class="fas fa-list me-1"></i>View / Manage
+                    </a>
+                    <a href="{{ url_for('admission_exam.export_waiting_list_pdf', cycle_id=cycle.id, list_id=wl.id) }}"
+                       class="btn btn-sm btn-outline-primary" title="PDF">PDF</a>
+                    <a href="{{ url_for('admission_exam.export_waiting_list_xlsx', cycle_id=cycle.id, list_id=wl.id) }}"
+                       class="btn btn-sm btn-outline-success" title="Excel">Excel</a>
+                    <a href="{{ url_for('admission_exam.export_waiting_list_docx', cycle_id=cycle.id, list_id=wl.id) }}"
+                       class="btn btn-sm btn-outline-dark" title="Word">DOC</a>
+                    <form method="POST" action="{{ url_for('admission_exam.waiting_list_publish', cycle_id=cycle.id, list_id=wl.id) }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        {% if wl.is_list_published %}
+                        <button type="submit" class="btn btn-sm btn-outline-warning">Unpublish</button>
+                        {% else %}
+                        <button type="submit" class="btn btn-sm btn-success">Publish</button>
+                        {% endif %}
+                    </form>
+                    {% if wl.is_list_published %}
+                    <a href="{{ url_for('admission_exam.public_waiting_list', token=cycle.public_token, list_id=wl.id) }}"
+                       class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener">Portal</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endmacro %}
+
+            <div class="adm-section-label">Nominated for Viva</div>
+            <div class="adm-merit-grid mb-3">
+                {% for wl in merit_lists_by_kind.viva %}
+                {{ merit_list_card(wl) }}
+                {% else %}
+                <p class="small text-muted mb-0">Opening this page creates the viva list automatically.</p>
+                {% endfor %}
+            </div>
+
+            <div class="adm-section-label">Finally Nominated (Merit)</div>
+            <div class="adm-merit-grid mb-3">
+                {% for wl in merit_lists_by_kind.final %}
+                {{ merit_list_card(wl) }}
+                {% else %}
+                <p class="small text-muted mb-0">Opening this page creates the final list automatically.</p>
+                {% endfor %}
+            </div>
+
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2 mt-1">
+                <div class="adm-section-label mb-0">Waiting Lists</div>
+                <form method="POST" action="{{ url_for('admission_exam.waiting_list_create', cycle_id=cycle.id) }}"
+                      class="d-flex flex-wrap gap-2 align-items-center">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="list_kind" value="waiting">
+                    <input type="text" class="form-control form-control-sm" name="name" required
+                           placeholder="e.g. Waiting List 1" style="min-width: 200px;">
+                    <button type="submit" class="btn btn-sm btn-primary">
+                        <i class="fas fa-plus me-1"></i>Create waiting list
+                    </button>
+                </form>
+            </div>
+            <div class="adm-merit-grid">
+                {% for wl in merit_lists_by_kind.waiting %}
+                {{ merit_list_card(wl, waiting=true) }}
+                {% else %}
+                <p class="small text-muted mb-0">No waiting lists yet. Create one above.</p>
+                {% endfor %}
+            </div>
+            <hr class="my-4">
+            <div class="fw-semibold mb-2"><i class="fas fa-bullhorn me-1"></i>Eligible &amp; Selected (Portal + PDF)</div>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="border rounded p-3 h-100">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                            <div>
+                                <div class="fw-semibold">Eligible Candidates</div>
+                                <div class="small text-muted">{{ counts.eligible }} on list</div>
+                            </div>
+                            {% if cycle.is_eligible_list_published %}
+                            <span class="badge bg-success">Published</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Hidden</span>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a href="{{ url_for('admission_exam.export_result_list_pdf', cycle_id=cycle.id, kind='eligible') }}"
+                               class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-file-pdf me-1"></i>Download PDF
+                            </a>
+                            <form method="POST" action="{{ url_for('admission_exam.publish_result_list', cycle_id=cycle.id, kind='eligible') }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                {% if cycle.is_eligible_list_published %}
+                                <button type="submit" class="btn btn-sm btn-outline-warning"
+                                        onclick="return confirm('Unpublish the eligible candidates list from the portal?');">
+                                    <i class="fas fa-eye-slash me-1"></i>Unpublish
+                                </button>
+                                {% else %}
+                                <button type="submit" class="btn btn-sm btn-success"
+                                        onclick="return confirm('Publish the eligible candidates list on the admission portal?');">
+                                    <i class="fas fa-bullhorn me-1"></i>Publish
+                                </button>
+                                {% endif %}
+                            </form>
+                            {% if cycle.is_eligible_list_published %}
+                            <a href="{{ url_for('admission_exam.public_result_list', token=cycle.public_token, kind='eligible') }}"
+                               class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener">
+                                <i class="fas fa-external-link-alt me-1"></i>View portal
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="border rounded p-3 h-100">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                            <div>
+                                <div class="fw-semibold">Selected Candidates</div>
+                                <div class="small text-muted">{{ counts.selected }} on list</div>
+                            </div>
+                            {% if cycle.is_selected_list_published %}
+                            <span class="badge bg-success">Published</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Hidden</span>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a href="{{ url_for('admission_exam.export_result_list_pdf', cycle_id=cycle.id, kind='selected') }}"
+                               class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-file-pdf me-1"></i>Download PDF
+                            </a>
+                            <form method="POST" action="{{ url_for('admission_exam.publish_result_list', cycle_id=cycle.id, kind='selected') }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                {% if cycle.is_selected_list_published %}
+                                <button type="submit" class="btn btn-sm btn-outline-warning"
+                                        onclick="return confirm('Unpublish the selected candidates list from the portal?');">
+                                    <i class="fas fa-eye-slash me-1"></i>Unpublish
+                                </button>
+                                {% else %}
+                                <button type="submit" class="btn btn-sm btn-success"
+                                        onclick="return confirm('Publish the selected candidates list on the admission portal?');">
+                                    <i class="fas fa-bullhorn me-1"></i>Publish
+                                </button>
+                                {% endif %}
+                            </form>
+                            {% if cycle.is_selected_list_published %}
+                            <a href="{{ url_for('admission_exam.public_result_list', token=cycle.public_token, kind='selected') }}"
+                               class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener">
+                                <i class="fas fa-external-link-alt me-1"></i>View portal
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            
+        </div>
+        </div>
     </div>
 
     <!-- Landing page content: conditions, guidelines, etc. -->
-    <div class="card shadow-sm mb-4">
-        <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <strong><i class="fas fa-file-alt me-1"></i>Public Page Content</strong>
-            <span class="small text-muted">Shown on the application link (conditions, guidelines, …)</span>
-        </div>
+    <div class="card shadow-sm mb-4" id="public-content">
+        <button type="button" class="card-header bg-light adm-collapse-toggle w-100 text-start d-flex justify-content-between align-items-center flex-wrap gap-2" data-bs-toggle="collapse" data-bs-target="#public-content-body" aria-expanded="false" aria-controls="public-content-body"><span class="adm-collapse-title"><strong><i class="fas fa-file-alt me-1"></i>Public Page Content</strong>
+            <span class="small text-muted">Shown on the application link (conditions, guidelines, …)</span></span><i class="fas fa-chevron-down adm-collapse-chevron" aria-hidden="true"></i></button>
+        <div id="public-content-body" class="collapse">
         <div class="card-body">
             <form method="POST" action="{{ url_for('admission_exam.cycle_landing_content', cycle_id=cycle.id) }}" id="landingContentForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -216,11 +423,13 @@
             <p class="small text-muted mb-0">No files uploaded yet.</p>
             {% endif %}
         </div>
+        </div>
     </div>
 
     <!-- Rolls + admit cards -->
-    <div class="card shadow-sm mb-4">
-        <div class="card-header bg-light"><strong><i class="fas fa-list-ol me-1"></i>Roll Numbers &amp; Admit Cards</strong></div>
+    <div class="card shadow-sm mb-4" id="rolls-admit">
+        <button type="button" class="card-header bg-light adm-collapse-toggle w-100 text-start d-flex justify-content-between align-items-center flex-wrap gap-2" data-bs-toggle="collapse" data-bs-target="#rolls-admit-body" aria-expanded="false" aria-controls="rolls-admit-body"><span class="adm-collapse-title"><strong><i class="fas fa-list-ol me-1"></i>Roll Numbers &amp; Admit Cards</strong></span><i class="fas fa-chevron-down adm-collapse-chevron" aria-hidden="true"></i></button>
+        <div id="rolls-admit-body" class="collapse">
         <div class="card-body">
             <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
                 <form method="POST" action="{{ url_for('admission_exam.assign_rolls', cycle_id=cycle.id) }}" class="d-inline"
@@ -330,16 +539,38 @@
                 </div>
             </div>
         </div>
+        </div>
     </div>
 
-    <div class="card shadow-sm mb-4">
-        <div class="card-header bg-light">
-            <strong><i class="fas fa-tags me-1"></i>Document Upload Tags</strong>
-        </div>
+    <div class="card shadow-sm mb-4" id="documents">
+        <button type="button" class="card-header bg-light adm-collapse-toggle w-100 text-start d-flex justify-content-between align-items-center flex-wrap gap-2" data-bs-toggle="collapse" data-bs-target="#documents-body" aria-expanded="false" aria-controls="documents-body">
+            <span class="adm-collapse-title"><strong><i class="fas fa-tags me-1"></i>Academic Certificates &amp; Transcripts</strong></span>
+            <i class="fas fa-chevron-down adm-collapse-chevron" aria-hidden="true"></i>
+        </button>
+        <div id="documents-body" class="collapse">
         <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-end mb-2">
+            <form method="POST" action="{{ url_for('admission_exam.cycle_toggle_documents', cycle_id=cycle.id) }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if cycle.is_documents_enabled %}
+                <input type="hidden" name="enabled" value="0">
+                <span class="badge bg-success me-2">Upload on</span>
+                <button type="submit" class="btn btn-outline-danger btn-sm"
+                        onclick="return confirm('Turn off certificate uploads? Applicants will not be able to upload academic certificates or transcripts.');">
+                    <i class="fas fa-ban me-1"></i>Turn off uploads
+                </button>
+                {% else %}
+                <input type="hidden" name="enabled" value="1">
+                <span class="badge bg-secondary me-2">Upload off</span>
+                <button type="submit" class="btn btn-outline-success btn-sm">
+                    <i class="fas fa-check me-1"></i>Turn on uploads
+                </button>
+                {% endif %}
+            </form>
+            </div>
             <p class="small text-muted mb-2">
-                Suggested tags for attested academic certificates / transcripts on the application form.
-                Candidates can also type a custom tag. One tag per line.
+                When uploads are on, applicants must attach attested academic certificates / transcripts on the application form.
+                Suggested tags below (one per line); candidates can also type a custom tag.
             </p>
             <form method="POST" action="{{ url_for('admission_exam.cycle_document_tags', cycle_id=cycle.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -352,12 +583,12 @@
                 </div>
             </form>
         </div>
+        </div>
     </div>
 
-    <div class="card shadow-sm mb-4">
-        <div class="card-header bg-light">
-            <strong><i class="fas fa-file-signature me-1"></i>Application Form Declaration</strong>
-        </div>
+    <div class="card shadow-sm mb-4" id="declaration">
+        <button type="button" class="card-header bg-light adm-collapse-toggle w-100 text-start d-flex justify-content-between align-items-center flex-wrap gap-2" data-bs-toggle="collapse" data-bs-target="#declaration-body" aria-expanded="false" aria-controls="declaration-body"><span class="adm-collapse-title"><strong><i class="fas fa-file-signature me-1"></i>Application Form Declaration</strong></span><i class="fas fa-chevron-down adm-collapse-chevron" aria-hidden="true"></i></button>
+        <div id="declaration-body" class="collapse">
         <div class="card-body">
             <p class="small text-muted mb-2">
                 Shown on the public apply form and on application form PDFs, above the applicant’s signature.
@@ -374,13 +605,15 @@
                 </div>
             </form>
         </div>
+        </div>
     </div>
 
-    <div class="row g-4">
+    <div class="row g-4" id="settings-committee">
         <!-- Settings -->
         <div class="col-lg-7">
-            <div class="card shadow-sm h-100">
-                <div class="card-header bg-light"><strong><i class="fas fa-cog me-1"></i>Cycle Settings</strong></div>
+            <div class="card shadow-sm h-100 adm-collapse-card">
+                <button type="button" class="card-header bg-light adm-collapse-toggle w-100 text-start d-flex justify-content-between align-items-center flex-wrap gap-2" data-bs-toggle="collapse" data-bs-target="#settings-body" aria-expanded="false" aria-controls="settings-body"><span class="adm-collapse-title"><strong><i class="fas fa-cog me-1"></i>Cycle Settings</strong></span><i class="fas fa-chevron-down adm-collapse-chevron" aria-hidden="true"></i></button>
+                <div id="settings-body" class="collapse">
                 <div class="card-body">
                     <form method="POST" action="{{ url_for('admission_exam.cycle_edit', cycle_id=cycle.id) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -491,13 +724,15 @@
                         <button type="submit" class="btn btn-outline-danger btn-sm"><i class="fas fa-trash me-1"></i>Delete Cycle</button>
                     </form>
                 </div>
+                </div>
             </div>
         </div>
 
         <!-- Committee -->
         <div class="col-lg-5">
-            <div class="card shadow-sm h-100">
-                <div class="card-header bg-light"><strong><i class="fas fa-users-cog me-1"></i>Exam Committee</strong></div>
+            <div class="card shadow-sm h-100 adm-collapse-card">
+                <button type="button" class="card-header bg-light adm-collapse-toggle w-100 text-start d-flex justify-content-between align-items-center flex-wrap gap-2" data-bs-toggle="collapse" data-bs-target="#committee-body" aria-expanded="false" aria-controls="committee-body"><span class="adm-collapse-title"><strong><i class="fas fa-users-cog me-1"></i>Exam Committee</strong></span><i class="fas fa-chevron-down adm-collapse-chevron" aria-hidden="true"></i></button>
+                <div id="committee-body" class="collapse">
                 <div class="card-body">
                     {% if cycle.committee_members.count() == 0 %}
                     <p class="text-muted small">No committee members yet. Members can manage this cycle (verify payments, assign rolls, issue admit cards).</p>
@@ -509,20 +744,23 @@
                                 <div class="fw-semibold">{{ m.user.full_name if m.user else 'Unknown user' }}</div>
                                 <span class="badge bg-light text-dark border">{{ m.position|capitalize }}</span>
                             </div>
+                            {% if can_edit_committee %}
                             <form method="POST" action="{{ url_for('admission_exam.committee_remove', cycle_id=cycle.id, member_id=m.id) }}"
                                   onsubmit="return confirm('Remove this committee member?');">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-times"></i></button>
                             </form>
+                            {% endif %}
                         </li>
                         {% endfor %}
                     </ul>
+                    {% if can_edit_committee %}
                     <form method="POST" action="{{ url_for('admission_exam.committee_add', cycle_id=cycle.id) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="row g-2">
                             <div class="col-7">
                                 <select class="form-select form-select-sm" name="user_id" required>
-                                    <option value="">Select teacher / officer…</option>
+                                    <option value="">Select teacher / head / officer…</option>
                                     {% for u in users %}
                                     {% if u.id not in member_user_ids %}
                                     <option value="{{ u.id }}">{{ u.full_name }} — {{ u.username }}</option>
@@ -542,6 +780,10 @@
                             </div>
                         </div>
                     </form>
+                    {% else %}
+                    <p class="small text-muted mb-0">Only administrators, heads, deans, and officers can change the committee.</p>
+                    {% endif %}
+                </div>
                 </div>
             </div>
         </div>
@@ -563,6 +805,48 @@ function copyPublicUrl() {
         alert('Public link copied.');
     });
 }
+
+(function () {
+    function expandSection(cardEl) {
+        if (!cardEl) return;
+        const body = cardEl.querySelector(':scope > .collapse');
+        if (!body) return;
+        if (window.bootstrap && bootstrap.Collapse) {
+            bootstrap.Collapse.getOrCreateInstance(body, { toggle: false }).show();
+        } else {
+            body.classList.add('show');
+            const btn = cardEl.querySelector('.adm-collapse-toggle');
+            if (btn) btn.setAttribute('aria-expanded', 'true');
+        }
+    }
+
+    document.querySelectorAll('.adm-jump a[href^="#"]').forEach(function (link) {
+        link.addEventListener('click', function () {
+            const id = (link.getAttribute('href') || '').slice(1);
+            if (!id) return;
+            const target = document.getElementById(id);
+            if (!target) return;
+            if (id === 'settings-committee') {
+                expandSection(document.getElementById('settings-body') && document.getElementById('settings-body').closest('.card'));
+                expandSection(document.getElementById('committee-body') && document.getElementById('committee-body').closest('.card'));
+            } else {
+                expandSection(target);
+            }
+        });
+    });
+
+    if (location.hash) {
+        const el = document.querySelector(location.hash);
+        if (el) {
+            if (el.id === 'settings-committee') {
+                expandSection(document.querySelector('#settings-body') && document.querySelector('#settings-body').closest('.card'));
+                expandSection(document.querySelector('#committee-body') && document.querySelector('#committee-body').closest('.card'));
+            } else {
+                expandSection(el.classList.contains('card') ? el : el.closest('.card'));
+            }
+        }
+    }
+})();
 
 (function () {
     const container = document.getElementById('landingSections');

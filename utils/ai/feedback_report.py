@@ -5,6 +5,8 @@ using the supplied figures and verbatim comments.
 """
 from __future__ import annotations
 
+import ast
+import hashlib
 import json
 import re
 import statistics
@@ -121,6 +123,86 @@ def parse_response_payload(row):
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _response_student_id(payload):
+    respondent = payload.get('respondent') if isinstance(payload.get('respondent'), dict) else {}
+    return str(respondent.get('student_id') or '').strip().casefold()
+
+
+def _canonical_answers(payload):
+    """Survey answers only — identity and metadata are ignored."""
+
+    def _norm(value):
+        if isinstance(value, dict):
+            return {str(key): _norm(val) for key, val in sorted(value.items())}
+        if isinstance(value, (list, tuple)):
+            return sorted(_norm(item) for item in value)
+        if value is None:
+            return ''
+        return str(value).strip().casefold()
+
+    sections = {}
+    for key in ('section_a', 'section_b', 'section_c', 'section_d'):
+        value = payload.get(key)
+        sections[key] = _norm(value if isinstance(value, dict) else {})
+    return sections
+
+
+def _answer_fingerprint(payload):
+    canonical = json.dumps(_canonical_answers(payload), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+
+def _comment_length(payload):
+    section_d = payload.get('section_d') if isinstance(payload.get('section_d'), dict) else {}
+    return sum(len(str(section_d.get(field) or '').strip()) for field in ('likes', 'challenges', 'suggestions'))
+
+
+def _response_sort_key(row):
+    submitted = getattr(row, 'submitted_at', None) or datetime.min
+    return (submitted, getattr(row, 'id', 0) or 0)
+
+
+def dedupe_feedback_responses(responses):
+    """Keep one submission per student (latest). Identical anonymous copies are also dropped.
+
+    Named students are never collapsed together just because Likert answers match.
+    Anonymous rows that copy a named student's full answers (including substantial
+    comments) are treated as the same submission.
+    """
+    rows = list(responses or [])
+    if len(rows) <= 1:
+        return rows, 0
+
+    ordered = sorted(rows, key=_response_sort_key)
+    by_student = {}
+    anonymous = []
+    for row in ordered:
+        payload = parse_response_payload(row)
+        student_id = _response_student_id(payload)
+        if student_id:
+            by_student[student_id] = row
+        else:
+            anonymous.append(row)
+
+    unique = list(by_student.values())
+    named_fingerprints = set()
+    for row in unique:
+        payload = parse_response_payload(row)
+        if _comment_length(payload) >= 40:
+            named_fingerprints.add(_answer_fingerprint(payload))
+
+    anonymous_kept = {}
+    for row in anonymous:
+        fingerprint = _answer_fingerprint(parse_response_payload(row))
+        if fingerprint in named_fingerprints:
+            continue
+        anonymous_kept[fingerprint] = row
+    unique.extend(anonymous_kept.values())
+
+    unique.sort(key=_response_sort_key)
+    return unique, max(0, len(rows) - len(unique))
+
+
 def _count_map(values):
     counts = Counter((str(v).strip() for v in values if str(v or '').strip()))
     return [{'label': label, 'count': count} for label, count in counts.most_common()]
@@ -135,6 +217,9 @@ def build_feedback_dataset(session, feedback_link, responses, enrolled_count=Non
     """Assemble PART A fields, item-wise stats, and anonymised comments."""
     from utils.tenant import current_tenant, year_is_postgraduate
     from utils.timezone import format_bd
+
+    raw_n = len(responses or [])
+    responses, duplicate_excluded = dedupe_feedback_responses(responses)
 
     tenant = current_tenant()
     programme = tenant.default_program or 'not reported'
@@ -248,12 +333,19 @@ def build_feedback_dataset(session, feedback_link, responses, enrolled_count=Non
         {'field': 'Credit hours', 'value': credit},
         {'field': 'Students enrolled', 'value': str(enrolled) if enrolled is not None else 'not reported'},
         {'field': 'Valid responses received', 'value': str(valid_n)},
+    ]
+    if duplicate_excluded:
+        profile.append({
+            'field': 'Duplicate submissions excluded',
+            'value': f'{duplicate_excluded} later or repeat submission(s) from the same student were not counted',
+        })
+    profile.extend([
         {'field': 'Response rate', 'value': response_rate_label},
         {'field': 'Survey instrument and scale', 'value': instrument},
         {'field': 'Mode of collection', 'value': 'Anonymous online form administered through the Academic Management System'},
         {'field': 'Period of collection', 'value': period},
         {'field': 'Form title', 'value': _missing(getattr(feedback_link, 'title', None))},
-    ]
+    ])
 
     return {
         'generated_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC'),
@@ -274,6 +366,8 @@ def build_feedback_dataset(session, feedback_link, responses, enrolled_count=Non
         'comments': comments,
         'comment_count': len(comments),
         'response_count': valid_n,
+        'raw_response_count': raw_n,
+        'duplicate_responses_excluded': duplicate_excluded,
         'enrolled_count': enrolled,
         'response_rate': response_rate,
     }
@@ -283,6 +377,7 @@ SYSTEM_PROMPT = """You are assisting a university discipline in preparing a cour
 
 QUANTITATIVE ANALYSIS
 - Use only the supplied item-wise statistics. Do not recalculate, invent, extrapolate, or estimate figures.
+- Duplicate submissions have already been removed. Use Valid responses received as n. If Duplicate submissions excluded is present, mention once in the methodology that repeat submissions from the same student were dropped and were not counted. Do not add them back into n or the response rate.
 - If indicative_only is true (response rate below 50% or fewer than 10 valid responses), state clearly at the outset of the methodology and carry that qualification into the conclusions.
 - Where an item is flagged high_sd or divided_opinion, say so — divided opinion is a finding and should not be flattened into an average.
 - Do not apply inferential statistics or significance testing.
@@ -319,12 +414,109 @@ STYLE
 - Third person throughout. Avoid "we found"; prefer "the survey indicates".
 - Evaluative language must be proportionate. Avoid "overwhelmingly", "excellent", "poor", and similar unanchored intensifiers.
 - Return JSON only, matching the schema in the user message.
+- methodology and quantitative_narrative must be plain strings, never objects such as {"text": "..."}.
 - Keep the JSON compact so it is not truncated: methodology 3–4 sentences; quantitative narrative one short paragraph; at most eight themes with two or three sentences each and at most one short quotation; four to six findings of two or three sentences; strengths, improvements and limitations as short bullet phrases; action-plan cells one sentence each. Do not paste the comment annex back into the JSON.
 """
 
 
-def _text(value):
-    return str(value or '').strip()
+_TEXT_KEYS = ('text', 'summary', 'content', 'value', 'methodology', 'narrative')
+_QUOTE_CHARS = '\'"`“”‘’«»'
+_WRAPPER_RE = re.compile(
+    r'^\{\s*[\'"`“”‘’]?(?:text|summary|content|value|methodology)[\'"`“”‘’]?\s*:\s*(.*)\s*\}$',
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _strip_matching_quotes(text):
+    text = (text or '').strip()
+    if len(text) >= 2 and text[0] in _QUOTE_CHARS and text[-1] in _QUOTE_CHARS:
+        return text[1:-1]
+    return text
+
+
+def _parse_wrapped_text(value):
+    """Parse a dict (or dict-repr string) the model used instead of a plain string."""
+    if isinstance(value, str):
+        text = value.strip().lstrip('\ufeff')
+        if len(text) < 8 or text[0] not in '{[' or text[-1] not in '}]':
+            return None
+        try:
+            return ast.literal_eval(text)
+        except (ValueError, SyntaxError, MemoryError):
+            pass
+        repaired = text.replace('\r\n', '\n').replace('\r', '\n')
+        if '\n' in repaired:
+            try:
+                return ast.literal_eval(repaired.replace('\n', '\\n'))
+            except (ValueError, SyntaxError, MemoryError):
+                pass
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+    return value if isinstance(value, (dict, list)) else None
+
+
+def _extract_wrapped_prose(text):
+    """Pull the inner sentence out of {'text': '...'} even with curly quotes or newlines."""
+    if not isinstance(text, str):
+        return None
+    raw = text.strip().lstrip('\ufeff')
+    if len(raw) < 8 or raw[0] != '{' or raw[-1] != '}':
+        return None
+    if not re.search(r'text|summary|content|methodology', raw[:64], re.I):
+        return None
+    match = _WRAPPER_RE.match(raw)
+    if not match:
+        return None
+    body = _strip_matching_quotes(match.group(1).strip())
+    if body.endswith('}') and body.count('}') > body.count('{'):
+        body = _strip_matching_quotes(body[:-1].strip())
+    body = (
+        body.replace('\\n', '\n')
+        .replace('\\r', '')
+        .replace("\\'", "'")
+        .replace('\\"', '"')
+        .replace('\\\\', '\\')
+        .strip()
+    )
+    return body or None
+
+
+def _text(value, _depth=0):
+    if value is None or _depth > 4:
+        return ''
+    if isinstance(value, bool):
+        return ''
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        text = value.strip().lstrip('\ufeff')
+        wrapped = _parse_wrapped_text(text) if text[:1] in '{[' else None
+        if wrapped is not None and wrapped != text:
+            extracted = _text(wrapped, _depth + 1)
+            if extracted:
+                return extracted
+        prose = _extract_wrapped_prose(text)
+        if prose and prose != text:
+            return _text(prose, _depth + 1)
+        return text
+    if isinstance(value, dict):
+        for key in _TEXT_KEYS:
+            if value.get(key) not in (None, ''):
+                extracted = _text(value.get(key), _depth + 1)
+                if extracted:
+                    return extracted
+        for nested in value.values():
+            if isinstance(nested, (str, dict, list)):
+                extracted = _text(nested, _depth + 1)
+                if extracted:
+                    return extracted
+        return ''
+    if isinstance(value, (list, tuple)):
+        parts = [_text(item, _depth + 1) for item in value]
+        return ' '.join(part for part in parts if part).strip()
+    return str(value).strip()
 
 
 def _string_list(value):
@@ -462,6 +654,9 @@ def generate_feedback_report(dataset):
         'task': 'iqac_course_feedback_report',
         'discipline': dataset.get('discipline'),
         'indicative_only': dataset.get('indicative_only'),
+        'duplicate_responses_excluded': dataset.get('duplicate_responses_excluded') or 0,
+        'raw_response_count': dataset.get('raw_response_count'),
+        'valid_response_count': dataset.get('response_count'),
         'course_and_survey_profile': dataset.get('profile'),
         'ratings_data': _prompt_ratings(dataset.get('quantitative')),
         'verbatim_student_comments': _prompt_comments(dataset.get('comments') or []),
@@ -522,6 +717,21 @@ def generate_feedback_report(dataset):
     return report
 
 
+def _normalize_narrative(narrative):
+    if not isinstance(narrative, dict):
+        return narrative
+    narrative['methodology'] = _text(narrative.get('methodology'))
+    narrative['quantitative_narrative'] = _text(narrative.get('quantitative_narrative'))
+    narrative['excluded_comments_reason'] = _text(narrative.get('excluded_comments_reason'))
+    narrative['qualitative_findings'] = _theme_list(narrative.get('qualitative_findings'))
+    narrative['triangulated_key_findings'] = _finding_list(narrative.get('triangulated_key_findings'))
+    narrative['strengths'] = _string_list(narrative.get('strengths'))
+    narrative['areas_requiring_improvement'] = _string_list(narrative.get('areas_requiring_improvement'))
+    narrative['action_plan'] = _action_rows(narrative.get('action_plan'))
+    narrative['limitations'] = _string_list(narrative.get('limitations'))
+    return narrative
+
+
 def load_stored_report(feedback_link):
     raw = getattr(feedback_link, 'ai_report_json', None) or ''
     if not raw:
@@ -530,7 +740,11 @@ def load_stored_report(feedback_link):
         parsed = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         return None
-    return parsed if isinstance(parsed, dict) else None
+    if not isinstance(parsed, dict):
+        return None
+    if isinstance(parsed.get('narrative'), dict):
+        parsed['narrative'] = _normalize_narrative(parsed['narrative'])
+    return parsed
 
 
 def _set_run_font(run, name='Calibri', size=11, bold=False):

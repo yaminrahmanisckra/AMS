@@ -38,6 +38,19 @@
         display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
         margin-top: 0.85rem; padding-top: 0.75rem;
     }
+    .as-attendance-readonly {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 2.75rem;
+        min-height: 2.1rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: 8px;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        font-weight: 700;
+        color: #334155;
+    }
     @media (min-width: 992px) {
         .assessment-page .assessment-marks-table { min-width: 700px; font-size: 0.95em; }
     }
@@ -184,6 +197,15 @@
             text-transform: uppercase;
             color: #64748b;
             margin-bottom: 0.12rem;
+        }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-attendance {
+            display: flex !important;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .assessment-page .as-attendance-readonly {
+            min-height: 36px;
+            width: 100%;
         }
         #assessmentMarksForm table.assessment-marks-table td .d-flex,
         .assessment-page .assessment-marks-table td .d-flex {
@@ -806,13 +828,15 @@
                             {% endfor %}
                         </tbody>
                         {% elif session.course_type == 'sessional' and session.category == 'ug' %}
+                        {% set sess_rules = academic_rules.results.sessional %}
                         <thead class="table-light">
                             <tr>
                                 <th class="fw-bold text-center">Student ID</th>
                                 <th class="fw-bold text-center">Name</th>
-                                <th class="fw-bold text-center">Sessional Report (60)</th>
-                                <th class="fw-bold text-center">Sessional Viva (30)</th>
-                                <th class="fw-bold text-center">Total (Sessional: 90)</th>
+                                <th class="fw-bold text-center">Attendance ({{ sess_rules.attendance }})</th>
+                                <th class="fw-bold text-center">Sessional Report ({{ sess_rules.report }})</th>
+                                <th class="fw-bold text-center">Sessional Viva ({{ sess_rules.viva }})</th>
+                                <th class="fw-bold text-center">Total (Sessional: {{ sess_rules.attendance + sess_rules.report + sess_rules.viva }})</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -820,6 +844,18 @@
                             <tr class="as-student-row" data-student-id="{{ student.id }}" data-search="{{ student.student_id }} {{ student.name }}">
                                 <td class="text-start as-col-id">{{ student.student_id }}</td>
                                 <td class="text-start as-col-name">{{ student.name }}</td>
+                                <td class="text-end as-col-mark as-col-attendance" data-label="Attendance">
+                                    {% set att_mark = (attendance_marks_map or {}).get(student.student_id) %}
+                                    <span class="as-attendance-readonly" id="sessional_attendance_{{ student.id }}" data-attendance-mark="{% if att_mark is not none %}{{ att_mark }}{% endif %}" title="From the attendance sheet. Edit attendance marks there, not here.">
+                                        {% if att_mark is none %}
+                                            <span class="text-muted">-</span>
+                                        {% elif att_mark == att_mark|int %}
+                                            {{ att_mark|int }}
+                                        {% else %}
+                                            {{ "%.1f"|format(att_mark) }}
+                                        {% endif %}
+                                    </span>
+                                </td>
                                 <td class="text-end as-col-mark" data-label="Report">
                                     {% set sessional_row = sessional_display_map.get(student.id, {}) %}
                                     {% set report_absent = sessional_row.get('report_absent', False) %}
@@ -856,7 +892,11 @@
                                     </div>
                                 </td>
                                 <td class="fw-bold text-end as-col-total" data-label="Total">
-                                    <span id="sessional_total_{{ student.id }}">{% if report_value is not none or viva_value is not none %}{{ (report_value or 0) + (viva_value or 0) }}{% else %}<span class="text-muted">Absent</span>{% endif %}</span>
+                                    {% set att_for_total = att_mark or 0 %}
+                                    {% set report_for_total = 0 if report_absent else (report_value or 0) %}
+                                    {% set viva_for_total = 0 if viva_absent else (viva_value or 0) %}
+                                    {% set sess_total = att_for_total + report_for_total + viva_for_total %}
+                                    <span id="sessional_total_{{ student.id }}" data-sessional-total="{{ sess_total }}">{% if report_absent and viva_absent and att_mark is none %}<span class="text-muted">Absent</span>{% else %}{{ sess_total|int if sess_total == sess_total|int else sess_total }}{% endif %}</span>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -1382,19 +1422,30 @@ document.querySelectorAll('.absent-checkbox').forEach(chk => {
 </script>
 {% elif session.course_type == 'sessional' and session.category == 'ug' %}
 <script>
+function sessionalAttendanceMark(studentId) {
+    const el = document.getElementById('sessional_attendance_' + studentId);
+    if (!el) return 0;
+    const n = parseFloat(el.getAttribute('data-attendance-mark'));
+    return isNaN(n) ? 0 : n;
+}
+
 function calcSessionalTotal(studentId) {
-    const reportAbsent = document.querySelector(`#sessional_absent_report_${studentId}`).checked;
-    const vivaAbsent = document.querySelector(`#sessional_absent_viva_${studentId}`).checked;
+    const reportAbsentBox = document.querySelector(`#sessional_absent_report_${studentId}`);
+    const vivaAbsentBox = document.querySelector(`#sessional_absent_viva_${studentId}`);
+    const reportAbsent = reportAbsentBox ? reportAbsentBox.checked : false;
+    const vivaAbsent = vivaAbsentBox ? vivaAbsentBox.checked : false;
     const reportInput = document.querySelector(`[name=sessional_report_${studentId}]`);
     const vivaInput = document.querySelector(`[name=sessional_viva_${studentId}]`);
+    const attendance = sessionalAttendanceMark(studentId);
     
-    let report = reportAbsent ? 0 : (reportInput.value ? parseFloat(reportInput.value) : 0);
-    let viva = vivaAbsent ? 0 : (vivaInput.value ? parseFloat(vivaInput.value) : 0);
+    let report = reportAbsent ? 0 : (reportInput && reportInput.value ? parseFloat(reportInput.value) : 0);
+    let viva = vivaAbsent ? 0 : (vivaInput && vivaInput.value ? parseFloat(vivaInput.value) : 0);
     
-    const total = window.applyOptionalTotalRounding(report + viva);
+    const total = window.applyOptionalTotalRounding(attendance + report + viva);
     const cell = document.getElementById('sessional_total_' + studentId);
+    if (!cell) return;
     
-    if (reportAbsent && vivaAbsent) {
+    if (reportAbsent && vivaAbsent && !attendance) {
         cell.innerHTML = '<span class="text-muted">Absent</span>';
     } else {
         cell.innerHTML = window.formatAssessmentTotalDisplay(total);

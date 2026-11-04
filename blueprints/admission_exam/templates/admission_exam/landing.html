@@ -2,138 +2,206 @@
 {% block title %}{{ cycle.name }} – Admission{% endblock %}
 {% block mobile_title %}Admission{% endblock %}
 {% block extra_css %}
-<style>
-.landing-html { line-height: 1.55; }
-.landing-html p { margin-bottom: 0.75rem; }
-.landing-html ul, .landing-html ol { padding-left: 1.4rem; margin-bottom: 0.75rem; }
-.landing-html li { margin-bottom: 0.25rem; }
-.landing-html a { word-break: break-word; }
-.landing-html h2, .landing-html h3, .landing-html h4 { margin-top: 1rem; margin-bottom: 0.5rem; }
-</style>
+<link href="{{ url_for('static', filename='css/admission_public.css') }}?v=adm4" rel="stylesheet">
 {% endblock %}
 {% block content %}
-<div class="container my-5" style="max-width: 860px;">
-    <div class="text-center mb-4">
-        <h2 class="fw-bold mb-1">{{ cycle.name }}</h2>
-        <h5 class="text-muted">{{ tenant.display_with_university }}</h5>
-    </div>
+<div class="adm-shell">
+    <div class="adm-wrap">
+        <header class="adm-hero adm-rise">
+            <div class="adm-hero-kicker">Admission Portal</div>
+            <h1 class="adm-hero-title">{{ cycle.name }}</h1>
+            <p class="adm-hero-sub">{{ tenant.display_with_university }}</p>
+        </header>
 
-    <div class="card shadow-sm mb-4">
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <div class="small text-muted">Application Status</div>
+        <section class="adm-facts adm-rise adm-rise-delay-1" aria-label="Key admission details">
+            <div class="adm-fact">
+                <div class="adm-fact-label">Application Status</div>
+                <div class="adm-fact-value">
                     {% if cycle.is_application_open %}
-                    <span class="badge bg-success fs-6">Open</span>
+                    <span class="adm-status adm-status-open">Open</span>
                     {% else %}
-                    <span class="badge bg-secondary fs-6">Closed</span>
-                    {% if cycle.application_closed_reason %}
-                    <div class="small text-muted mt-1">{{ cycle.application_closed_reason }}</div>
-                    {% endif %}
+                    <span class="adm-status adm-status-closed">Closed</span>
                     {% endif %}
                 </div>
-                <div class="col-md-4">
-                    <div class="small text-muted">Application Fee</div>
-                    <div class="fw-semibold">{% if cycle.fee_amount %}Tk. {{ cycle.fee_amount }}{% else %}—{% endif %}</div>
-                </div>
-                <div class="col-md-4">
-                    <div class="small text-muted">Payment Options</div>
-                    <div class="fw-semibold">
-                        {% if enabled_payment_methods %}
-                            {% for method in enabled_payment_methods %}
-                                {{ payment_method_labels.get(method, method) }}{% if not loop.last %}, {% endif %}
-                            {% endfor %}
-                        {% else %}
-                            —
-                        {% endif %}
-                    </div>
-                    {% for method in enabled_payment_methods %}
-                        {% if method == 'agrani_bank' and cycle.agrani_account_number %}
-                        <div class="small text-muted mt-1">
-                            Agrani:
-                            {% if cycle.agrani_account_name %}{{ cycle.agrani_account_name }} · {% endif %}
-                            {{ cycle.agrani_account_number }}
-                            {% if cycle.agrani_branch %} · {{ cycle.agrani_branch }}{% endif %}
-                            {% if cycle.agrani_routing_number %} · Routing: {{ cycle.agrani_routing_number }}{% endif %}
-                        </div>
-                        {% elif method in mfs_payment_methods and payment_accounts.get(method) %}
-                        <div class="small text-muted mt-1">
-                            {{ payment_method_labels.get(method, method) }}: {{ payment_accounts.get(method) }}
-                        </div>
-                        {% endif %}
-                    {% endfor %}
-                </div>
-                {% if cycle.apply_end %}
-                <div class="col-md-6">
-                    <div class="small text-muted">Application Deadline</div>
-                    <div class="fw-semibold">{{ cycle.apply_end.strftime('%d %B %Y, %I:%M %p') }}</div>
-                </div>
-                {% endif %}
-                {% if cycle.exam_date %}
-                <div class="col-md-6">
-                    <div class="small text-muted">Exam Date</div>
-                    <div class="fw-semibold">{{ cycle.exam_date }}</div>
-                </div>
-                {% endif %}
-                {% if cycle.exam_venue %}
-                <div class="col-md-6">
-                    <div class="small text-muted">Exam Venue</div>
-                    <div class="fw-semibold">{{ cycle.exam_venue }}</div>
-                </div>
+                {% if not cycle.is_application_open and cycle.application_closed_reason %}
+                <div class="adm-fact-note">{{ cycle.application_closed_reason }}</div>
                 {% endif %}
             </div>
-        </div>
-    </div>
-
-    {% for section in landing_sections %}
-    {% if section.body %}
-    <div class="card shadow-sm mb-3">
-        <div class="card-header bg-light">
-            <strong>{{ section.title }}</strong>
-        </div>
-        <div class="card-body landing-html">{{ section.body_html }}</div>
-    </div>
-    {% endif %}
-    {% endfor %}
-
-    {% if landing_attachments %}
-    <div class="card shadow-sm mb-3">
-        <div class="card-header bg-light">
-            <strong><i class="fas fa-download me-1"></i>Downloads</strong>
-        </div>
-        <ul class="list-group list-group-flush">
-            {% for f in landing_attachments %}
-            <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <div>
-                    <i class="fas fa-file me-1 text-muted"></i>
-                    {{ f.name }}
-                    <span class="small text-muted">({{ format_file_size(f.size) }})</span>
+            <div class="adm-fact">
+                <div class="adm-fact-label">Application Fee</div>
+                <div class="adm-fact-value">{% if cycle.fee_amount %}Tk. {{ cycle.fee_amount }}{% else %}—{% endif %}</div>
+            </div>
+            <div class="adm-fact">
+                <div class="adm-fact-label">Payment Options</div>
+                <div class="adm-fact-value">
+                    {% if enabled_payment_methods %}
+                        {% for method in enabled_payment_methods %}
+                            {{ payment_method_labels.get(method, method) }}{% if not loop.last %}, {% endif %}
+                        {% endfor %}
+                    {% else %}
+                        —
+                    {% endif %}
                 </div>
-                <a class="btn btn-sm btn-outline-primary"
-                   href="{{ url_for('admission_exam.landing_file_download', token=cycle.public_token, file_id=f.id) }}">
-                    <i class="fas fa-download me-1"></i>Download
-                </a>
-            </li>
-            {% endfor %}
-        </ul>
-    </div>
-    {% endif %}
+                {% for method in enabled_payment_methods %}
+                    {% if method == 'agrani_bank' and (cycle.agrani_account_number or cycle.agrani_account_name or cycle.agrani_branch) %}
+                    <div class="adm-fact-note adm-pay-details">
+                        <div class="adm-pay-row"><span class="adm-pay-k">Bank</span><span class="adm-pay-v">Agrani Bank</span></div>
+                        {% if cycle.agrani_account_name %}
+                        <div class="adm-pay-row"><span class="adm-pay-k">Account Name</span><span class="adm-pay-v">{{ cycle.agrani_account_name }}</span></div>
+                        {% endif %}
+                        {% if cycle.agrani_account_number %}
+                        <div class="adm-pay-row"><span class="adm-pay-k">Account Number</span><span class="adm-pay-v">{{ cycle.agrani_account_number }}</span></div>
+                        {% endif %}
+                        {% if cycle.agrani_branch %}
+                        <div class="adm-pay-row"><span class="adm-pay-k">Branch</span><span class="adm-pay-v">{{ cycle.agrani_branch }}</span></div>
+                        {% endif %}
+                        {% if cycle.agrani_routing_number %}
+                        <div class="adm-pay-row"><span class="adm-pay-k">Routing Number</span><span class="adm-pay-v">{{ cycle.agrani_routing_number }}</span></div>
+                        {% endif %}
+                    </div>
+                    {% elif method in mfs_payment_methods and payment_accounts.get(method) %}
+                    <div class="adm-fact-note adm-pay-details">
+                        <div class="adm-pay-row"><span class="adm-pay-k">Method</span><span class="adm-pay-v">{{ payment_method_labels.get(method, method) }}</span></div>
+                        <div class="adm-pay-row"><span class="adm-pay-k">Account Number</span><span class="adm-pay-v">{{ payment_accounts.get(method) }}</span></div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+            {% if cycle.apply_end %}
+            <div class="adm-fact">
+                <div class="adm-fact-label">Application Deadline</div>
+                <div class="adm-fact-value">{{ cycle.apply_end.strftime('%d %B %Y, %I:%M %p') }}</div>
+            </div>
+            {% endif %}
+            {% if cycle.exam_date %}
+            <div class="adm-fact">
+                <div class="adm-fact-label">Exam Date</div>
+                <div class="adm-fact-value">{{ cycle.exam_date }}</div>
+            </div>
+            {% endif %}
+            {% if cycle.exam_venue %}
+            <div class="adm-fact">
+                <div class="adm-fact-label">Exam Venue</div>
+                <div class="adm-fact-value">{{ cycle.exam_venue }}</div>
+            </div>
+            {% endif %}
+        </section>
 
-    <div class="d-flex flex-wrap gap-2 justify-content-center mt-4">
-        {% if cycle.is_application_open %}
-        <a href="{{ url_for('admission_exam.apply_form', token=cycle.public_token) }}" class="btn btn-primary btn-lg">
-            <i class="fas fa-file-signature me-1"></i>Apply Now
-        </a>
+        {% for section in landing_sections %}
+        {% if section.body %}
+        <section class="adm-panel adm-panel-accent adm-rise adm-rise-delay-2">
+            <div class="adm-panel-head">
+                <h2 class="adm-panel-title">{{ section.title }}</h2>
+            </div>
+            <div class="adm-panel-body adm-html">{{ section.body_html }}</div>
+        </section>
         {% endif %}
-        {% if candidate %}
-        <a href="{{ url_for('admission_exam.candidate_dashboard', token=cycle.public_token) }}" class="btn btn-success btn-lg">
-            <i class="fas fa-user me-1"></i>My Application
-        </a>
-        {% else %}
-        <a href="{{ url_for('admission_exam.candidate_login', token=cycle.public_token) }}" class="btn btn-outline-primary btn-lg">
-            <i class="fas fa-sign-in-alt me-1"></i>Candidate Login
-        </a>
+        {% endfor %}
+
+        {% if landing_attachments %}
+        <section class="adm-panel adm-rise">
+            <div class="adm-panel-head">
+                <h2 class="adm-panel-title"><i class="fas fa-download me-2"></i>Downloads</h2>
+            </div>
+            <ul class="adm-list">
+                {% for f in landing_attachments %}
+                <li>
+                    <div>
+                        <i class="fas fa-file me-1 text-muted"></i>
+                        {{ f.name }}
+                        <span class="small text-muted">({{ format_file_size(f.size) }})</span>
+                    </div>
+                    <a class="adm-btn adm-btn-ghost adm-btn-sm"
+                       href="{{ url_for('admission_exam.landing_file_download', token=cycle.public_token, file_id=f.id) }}">
+                        <i class="fas fa-download"></i>Download
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </section>
         {% endif %}
+
+        {% if eligible_list_published or selected_list_published or published_waiting_lists %}
+        <section class="adm-panel adm-panel-amber adm-rise adm-rise-delay-3">
+            <div class="adm-panel-head">
+                <h2 class="adm-panel-title"><i class="fas fa-list me-2"></i>Result Lists</h2>
+            </div>
+            <div class="adm-panel-body">
+                <div class="adm-result-grid">
+                    {% if eligible_list_published %}
+                    <div class="adm-result-item">
+                        <h3>Eligible Candidates</h3>
+                        <div class="small text-muted mb-2">{{ eligible_count }} candidate(s)</div>
+                        <div class="adm-cta-row" style="justify-content:flex-start;">
+                            <a href="{{ url_for('admission_exam.public_result_list', token=cycle.public_token, kind='eligible') }}"
+                               class="adm-btn adm-btn-primary adm-btn-sm"><i class="fas fa-eye"></i>View</a>
+                            <a href="{{ url_for('admission_exam.public_result_list_pdf', token=cycle.public_token, kind='eligible') }}"
+                               class="adm-btn adm-btn-ghost adm-btn-sm"><i class="fas fa-file-pdf"></i>PDF</a>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if selected_list_published %}
+                    <div class="adm-result-item">
+                        <h3>Selected Candidates</h3>
+                        <div class="small text-muted mb-2">{{ selected_count }} candidate(s)</div>
+                        <div class="adm-cta-row" style="justify-content:flex-start;">
+                            <a href="{{ url_for('admission_exam.public_result_list', token=cycle.public_token, kind='selected') }}"
+                               class="adm-btn adm-btn-primary adm-btn-sm"><i class="fas fa-eye"></i>View</a>
+                            <a href="{{ url_for('admission_exam.public_result_list_pdf', token=cycle.public_token, kind='selected') }}"
+                               class="adm-btn adm-btn-ghost adm-btn-sm"><i class="fas fa-file-pdf"></i>PDF</a>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% for item in published_waiting_lists %}
+                    <div class="adm-result-item">
+                        <h3>{{ item.list.name }}</h3>
+                        <div class="small text-muted mb-2">{{ item.kind_label }} · merit order · {{ item.count }} candidate(s)</div>
+                        <div class="adm-cta-row" style="justify-content:flex-start;">
+                            <a href="{{ url_for('admission_exam.public_waiting_list', token=cycle.public_token, list_id=item.list.id) }}"
+                               class="adm-btn adm-btn-primary adm-btn-sm"><i class="fas fa-eye"></i>View</a>
+                            <a href="{{ url_for('admission_exam.public_waiting_list_pdf', token=cycle.public_token, list_id=item.list.id) }}"
+                               class="adm-btn adm-btn-ghost adm-btn-sm"><i class="fas fa-file-pdf"></i>PDF</a>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        <section class="adm-apply-footer adm-rise" aria-label="Start application">
+            {% if cycle.is_application_open %}
+            <p class="adm-apply-footer-note">Read the instructions above, then submit your application or log in to continue.</p>
+            {% else %}
+            <p class="adm-apply-footer-note">
+                {% if cycle.application_closed_reason %}
+                {{ cycle.application_closed_reason }}
+                {% else %}
+                Applications are currently closed.
+                {% endif %}
+            </p>
+            {% endif %}
+            <div class="adm-cta-row adm-apply-footer-actions">
+                {% if cycle.is_application_open %}
+                <a href="{{ url_for('admission_exam.apply_form', token=cycle.public_token) }}" class="adm-btn adm-btn-accent adm-btn-lg">
+                    <i class="fas fa-file-signature"></i>Apply Now
+                </a>
+                {% else %}
+                <span class="adm-btn adm-btn-ghost adm-btn-lg" style="opacity:0.55; pointer-events:none;">
+                    <i class="fas fa-file-signature"></i>Apply Now
+                </span>
+                {% endif %}
+                {% if candidate %}
+                <a href="{{ url_for('admission_exam.candidate_dashboard', token=cycle.public_token) }}" class="adm-btn adm-btn-primary adm-btn-lg">
+                    <i class="fas fa-user"></i>My Application
+                </a>
+                {% else %}
+                <a href="{{ url_for('admission_exam.candidate_login', token=cycle.public_token) }}" class="adm-btn adm-btn-ghost adm-btn-lg">
+                    <i class="fas fa-sign-in-alt"></i>Candidate Login
+                </a>
+                {% endif %}
+            </div>
+        </section>
     </div>
 </div>
 {% endblock %}

@@ -31,12 +31,13 @@ from utils.safe_redirect import safe_redirect_target
 from utils.public_errors import flash_exception
 
 from extensions import db
-from role_utils import is_admin, has_role, parse_roles
+from role_utils import is_admin, has_role, parse_roles, has_stored_admin
 
 from . import admission_exam_bp
 from .models import (
     AdmissionCycle, AdmissionCommitteeMember, AdmissionCandidate,
-    AdmissionCandidateDocument,
+    AdmissionCandidateDocument, AdmissionWaitingList, AdmissionWaitingListMember,
+    MERIT_LIST_KINDS, MERIT_LIST_KIND_LABELS,
 )
 from .fields import (
     get_field_schema, serialize_field_schema, parse_schema_from_form,
@@ -68,7 +69,21 @@ ADMIT_PDF_ENGINE = 'WEASY-STAMP-6'
 APP_FORM_PDF_ENGINE = 'APP-WEASY-3'
 
 PAYMENT_STATUSES = ('pending', 'verified', 'rejected')
-APPLICATION_STATUSES = ('submitted', 'selected', 'rejected')
+APPLICATION_STATUSES = ('submitted', 'eligible', 'selected', 'rejected')
+RESULT_LIST_KINDS = {
+    'eligible': {
+        'title': 'Eligible Candidates',
+        'subtitle': 'Candidates eligible for the admission examination',
+        'publish_attr': 'eligible_list_published',
+        'publish_prop': 'is_eligible_list_published',
+    },
+    'selected': {
+        'title': 'Selected Candidates',
+        'subtitle': 'Candidates selected for admission',
+        'publish_attr': 'selected_list_published',
+        'publish_prop': 'is_selected_list_published',
+    },
+}
 CYCLE_STATUSES = ('draft', 'open', 'closed')
 BANK_SLIP_MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 BANK_SLIP_MAX_SIZE_LABEL = '2 MB'
@@ -107,8 +122,18 @@ def _redirect_back(fallback):
 
 
 def _user_is_manager():
-    """Admins and officers can create cycles and manage everything."""
-    return current_user.is_authenticated and (is_admin(current_user) or has_role(current_user, 'officer'))
+    """Admins, heads, deans, and officers can create cycles and manage the committee.
+
+    Uses stored admin as well as the session active role, so an administrator
+    who is temporarily viewing as Head/Teacher can still manage the committee.
+    """
+    if not current_user.is_authenticated:
+        return False
+    if has_stored_admin(current_user):
+        return True
+    return is_admin(current_user) or has_role(
+        current_user, 'officer', 'head', 'dean'
+    )
 
 
 def _user_committee_cycle_ids():
@@ -231,8 +256,11 @@ def _default_slug_from_prefix(prefix):
 
 
 def _user_is_committee_eligible(user):
-    """Teachers and officers only (exam committee dropdown)."""
-    return bool(set(parse_roles(getattr(user, 'role', None))) & {'teacher', 'officer'})
+    """Teachers, heads, deans, and officers (exam committee dropdown)."""
+    return bool(
+        set(parse_roles(getattr(user, 'role', None)))
+        & {'teacher', 'officer', 'head', 'dean'}
+    )
 
 
 def _committee_eligible_users():
@@ -3160,6 +3188,450 @@ def _roll_numeric_part(roll_no, prefix):
     return int(m.group(1)) if m else None
 
 
+def _result_list_meta(kind):
+    meta = RESULT_LIST_KINDS.get(kind)
+    if not meta:
+        abort(404)
+    return meta
+
+
+def _result_list_candidates(cycle, kind):
+    """Candidates shown on the eligible / selected public result list."""
+    q = AdmissionCandidate.query.filter_by(cycle_id=cycle.id)
+    if kind == 'eligible':
+        # Explicitly marked eligible, or already given a roll (exam-sitters).
+        q = q.filter(
+            AdmissionCandidate.application_status != 'rejected',
+            db.or_(
+                AdmissionCandidate.application_status == 'eligible',
+                db.and_(
+                    AdmissionCandidate.roll_no.isnot(None),
+                    AdmissionCandidate.roll_no != '',
+                ),
+            ),
+        )
+    elif kind == 'selected':
+        q = q.filter_by(application_status='selected')
+    else:
+        abort(404)
+    return q.order_by(
+        AdmissionCandidate.roll_no.is_(None),
+        AdmissionCandidate.roll_no,
+        AdmissionCandidate.application_id,
+    ).all()
+
+
+def _ku_logo_data_uri_for_list_pdf():
+    """Embeddable KU crest for WeasyPrint list PDFs; trim padding so header stays tight."""
+    path = _ku_logo_for_reportlab_stamp('ku_univ_logo_list_pdf_v2.png')
+    if not path:
+        path = _ku_logo_abs_path()
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        ext = path.rsplit('.', 1)[-1].lower()
+        if ext == 'svg':
+            with open(path, 'rb') as fh:
+                raw = fh.read()
+            if not raw:
+                return None
+            return f'data:image/svg+xml;base64,{base64.b64encode(raw).decode("ascii")}'
+
+        from PIL import Image
+        import io as _io
+
+        img = Image.open(path)
+        if img.mode not in ('RGBA', 'LA'):
+            img = img.convert('RGBA')
+        else:
+            img = img.copy()
+
+        # Trim fully transparent edges, then near-white padding common in KU crest PNGs.
+        alpha = img.split()[-1]
+        bbox = alpha.getbbox()
+        if bbox:
+            img = img.crop(bbox)
+
+        rgb = Image.new('RGB', img.size, (255, 255, 255))
+        rgb.paste(img, mask=img.split()[-1])
+        px = rgb.load()
+        w, h = rgb.size
+        left, top, right, bottom = w, h, 0, 0
+        threshold = 248
+        found = False
+        for y in range(h):
+            for x in range(w):
+                r, g, b = px[x, y]
+                if r < threshold or g < threshold or b < threshold:
+                    found = True
+                    if x < left:
+                        left = x
+                    if y < top:
+                        top = y
+                    if x > right:
+                        right = x
+                    if y > bottom:
+                        bottom = y
+        if found and right > left and bottom > top:
+            pad = 2
+            img = img.crop((
+                max(0, left - pad),
+                max(0, top - pad),
+                min(w, right + 1 + pad),
+                min(h, bottom + 1 + pad),
+            ))
+
+        # Cap long side so WeasyPrint does not stretch a huge canvas.
+        max_px = 220
+        if max(img.size) > max_px:
+            resample = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS', Image.LANCZOS)
+            img.thumbnail((max_px, max_px), resample)
+
+        buf = _io.BytesIO()
+        img.save(buf, format='PNG', optimize=True)
+        return f'data:image/png;base64,{base64.b64encode(buf.getvalue()).decode("ascii")}'
+    except Exception:
+        current_app.logger.exception('Could not build KU logo data URI for list PDF')
+        try:
+            with open(path, 'rb') as fh:
+                raw = fh.read()
+            if raw:
+                mime = 'image/png' if path.lower().endswith('.png') else 'image/jpeg'
+                return f'data:{mime};base64,{base64.b64encode(raw).decode("ascii")}'
+        except Exception:
+            pass
+        return None
+
+
+def _exam_committee_chairman_for_pdf(cycle):
+    """Name of the cycle's Examination Committee chairman (for list PDFs)."""
+    name = ''
+    try:
+        member = (
+            AdmissionCommitteeMember.query
+            .filter_by(cycle_id=cycle.id, position='chairman')
+            .first()
+        )
+    except Exception:
+        db.session.rollback()
+        member = None
+    user = getattr(member, 'user', None) if member else None
+    if user:
+        name = (getattr(user, 'full_name', None) or '').strip()
+    return {'name': name}
+
+
+def _admission_exam_committee_title(cycle):
+    """e.g. 'Chairman, LL.M. Admission Examination Committee 2027'."""
+    raw_name = (getattr(cycle, 'name', None) or '').strip()
+    prefix = (getattr(cycle, 'app_id_prefix', None) or '').strip()
+    haystack = f'{raw_name} {prefix}'
+
+    years = re.findall(r'(20\d{2}|19\d{2})', haystack)
+    year = years[-1] if years else datetime.utcnow().strftime('%Y')
+
+    compact = re.sub(r'[\s.]+', '', haystack).upper()
+    if 'LLM' in compact:
+        program = 'LL.M.'
+    else:
+        # Fall back to a short label from the cycle name (before "Admission"/year).
+        program = re.sub(
+            r'(?i)\s*(admission|exam|examination).*$',
+            '',
+            raw_name,
+        ).strip(' -–—')
+        program = re.sub(r'\s*20\d{2}\s*$', '', program).strip(' -–—') or 'Admission'
+
+    return f'Chairman, {program} Admission Examination Committee {year}'
+
+
+def _render_named_candidate_list_pdf(cycle, *, list_title, list_subtitle, candidates, kind='list'):
+    """HTML → PDF for any named candidate list (eligible / selected / waiting)."""
+    from utils.timezone import format_bd
+
+    chair = _exam_committee_chairman_for_pdf(cycle)
+    html = render_template(
+        'admission_exam/result_list_pdf.html',
+        cycle=cycle,
+        kind=kind,
+        list_title=list_title,
+        list_subtitle=list_subtitle,
+        candidates=candidates,
+        tenant=current_tenant(),
+        generated_at=format_bd(datetime.utcnow(), '%d %B %Y, %I:%M %p'),
+        logo_data_uri=_ku_logo_data_uri_for_list_pdf(),
+        chairman_name=chair['name'],
+        chairman_designation=_admission_exam_committee_title(cycle),
+    )
+    return _write_pdf(html)
+
+
+def _render_result_list_pdf(cycle, kind):
+    """HTML → PDF for eligible/selected candidate lists."""
+    meta = _result_list_meta(kind)
+    return _render_named_candidate_list_pdf(
+        cycle,
+        list_title=meta['title'],
+        list_subtitle=meta['subtitle'],
+        candidates=_result_list_candidates(cycle, kind),
+        kind=kind,
+    )
+
+
+def _cycle_waiting_lists(cycle, kind=None):
+    try:
+        q = AdmissionWaitingList.query.filter_by(cycle_id=cycle.id)
+        if kind:
+            q = q.filter_by(list_kind=kind)
+        return q.order_by(AdmissionWaitingList.sort_order, AdmissionWaitingList.id).all()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            'admission_waiting_list query failed (is list_kind column missing?)'
+        )
+        return (
+            AdmissionWaitingList.query
+            .filter_by(cycle_id=cycle.id)
+            .order_by(AdmissionWaitingList.id)
+            .all()
+        )
+
+
+def _waiting_list_for_cycle(cycle, list_id):
+    return (
+        AdmissionWaitingList.query
+        .filter_by(id=list_id, cycle_id=cycle.id)
+        .first_or_404()
+    )
+
+
+def _ensure_standard_merit_lists(cycle):
+    """Create default Viva and Final nomination lists if missing."""
+    created = False
+    defaults = (
+        ('viva', 'Nominated for Viva', 1),
+        ('final', 'Finally Nominated', 2),
+    )
+    try:
+        for kind, name, order in defaults:
+            existing = (
+                AdmissionWaitingList.query
+                .filter_by(cycle_id=cycle.id, list_kind=kind)
+                .first()
+            )
+            if existing:
+                continue
+            db.session.add(AdmissionWaitingList(
+                cycle_id=cycle.id,
+                name=name,
+                list_kind=kind,
+                is_published=False,
+                sort_order=order,
+            ))
+            created = True
+        if created:
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            'Could not ensure standard merit lists for cycle %s', getattr(cycle, 'id', None)
+        )
+    return _cycle_waiting_lists(cycle)
+
+
+def _published_merit_lists(cycle):
+    return [wl for wl in _cycle_waiting_lists(cycle) if wl.is_list_published]
+
+
+def _candidate_merit_memberships(candidate, *, published_only=True):
+    """Published (or all) merit lists this candidate belongs to, with rank."""
+    q = (
+        AdmissionWaitingListMember.query
+        .filter_by(candidate_id=candidate.id)
+        .join(AdmissionWaitingList)
+        .filter(AdmissionWaitingList.cycle_id == candidate.cycle_id)
+    )
+    if published_only:
+        q = q.filter(AdmissionWaitingList.is_published.is_(True))
+    rows = []
+    for m in q.order_by(AdmissionWaitingList.sort_order, AdmissionWaitingList.id).all():
+        wl = m.waiting_list
+        if not wl:
+            continue
+        rows.append({
+            'list': wl,
+            'rank': m.position,
+            'kind': wl.kind_key,
+            'kind_label': wl.kind_label,
+            'name': wl.name,
+        })
+    return rows
+
+
+def _merit_list_export_filename(waiting_list, ext):
+    slug = re.sub(r'[^A-Za-z0-9_-]+', '_', waiting_list.name or waiting_list.kind_key)
+    stamp = datetime.utcnow().strftime('%Y%m%d')
+    return f'{waiting_list.kind_key}_{slug}_{stamp}.{ext}'
+
+
+def _build_merit_list_xlsx(cycle, waiting_list):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    title = waiting_list.name or waiting_list.kind_label
+    ws.title = (title[:28] or 'List')
+    headers = ['Merit Rank', 'Roll No.', 'Application ID', 'Name', 'Phone']
+    ws.append([cycle.name])
+    ws.append([f'{waiting_list.kind_label}: {title}'])
+    ws.append([])
+    ws.append(headers)
+    header_font = Font(bold=True)
+    fill = PatternFill('solid', fgColor='DFF3F0')
+    thin = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin'),
+    )
+    for col in range(1, 6):
+        cell = ws.cell(row=4, column=col)
+        cell.font = header_font
+        cell.fill = fill
+        cell.border = thin
+    for row in waiting_list.merit_rows():
+        c = row['candidate']
+        ws.append([
+            row['rank'],
+            c.roll_no or '',
+            c.application_id,
+            c.full_name,
+            c.phone or '',
+        ])
+    for row in ws.iter_rows(min_row=5, max_row=ws.max_row, min_col=1, max_col=5):
+        for cell in row:
+            cell.border = thin
+            cell.alignment = Alignment(vertical='center')
+    widths = (12, 14, 18, 32, 16)
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def _build_merit_list_docx(cycle, waiting_list):
+    from docx import Document
+    from docx.shared import Pt, Cm
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Cm(1.5)
+        section.bottom_margin = Cm(1.5)
+        section.left_margin = Cm(1.8)
+        section.right_margin = Cm(1.8)
+
+    tenant = current_tenant()
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(tenant.university_name or '')
+    run.bold = True
+    run.font.size = Pt(14)
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(tenant.name or '')
+    run.font.size = Pt(11)
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(cycle.name or '')
+    run.bold = True
+    run.font.size = Pt(13)
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(f'{waiting_list.kind_label}: {waiting_list.name}')
+    run.bold = True
+    run.font.size = Pt(12)
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.add_run(f'Total: {len(waiting_list.merit_rows())} · Ordered by merit rank').font.size = Pt(9)
+
+    rows = waiting_list.merit_rows()
+    table = doc.add_table(rows=1 + len(rows), cols=4)
+    table.style = 'Table Grid'
+    hdr = table.rows[0].cells
+    for i, label in enumerate(['Merit Rank', 'Roll No.', 'Application ID', 'Name']):
+        hdr[i].text = label
+        for paragraph in hdr[i].paragraphs:
+            for run in paragraph.runs:
+                run.bold = True
+                run.font.size = Pt(10)
+    for i, row in enumerate(rows, start=1):
+        c = row['candidate']
+        cells = table.rows[i].cells
+        cells[0].text = str(row['rank'])
+        cells[1].text = c.roll_no or '—'
+        cells[2].text = c.application_id or ''
+        cells[3].text = c.full_name or ''
+        for cell in cells:
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.font.size = Pt(10)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def _next_waiting_list_position(waiting_list):
+    row = (
+        db.session.query(db.func.max(AdmissionWaitingListMember.position))
+        .filter_by(waiting_list_id=waiting_list.id)
+        .scalar()
+    )
+    return int(row or 0) + 1
+
+
+def _add_candidates_to_waiting_list(waiting_list, candidates):
+    """Append candidates not already on the list. Returns how many were added."""
+    existing = {
+        m.candidate_id
+        for m in AdmissionWaitingListMember.query.filter_by(
+            waiting_list_id=waiting_list.id
+        ).all()
+    }
+    pos = _next_waiting_list_position(waiting_list)
+    added = 0
+    for c in candidates:
+        if c.id in existing:
+            continue
+        db.session.add(AdmissionWaitingListMember(
+            waiting_list_id=waiting_list.id,
+            candidate_id=c.id,
+            position=pos,
+        ))
+        existing.add(c.id)
+        pos += 1
+        added += 1
+    return added
+
+
+def _renumber_waiting_list(waiting_list):
+    members = (
+        AdmissionWaitingListMember.query
+        .filter_by(waiting_list_id=waiting_list.id)
+        .order_by(AdmissionWaitingListMember.position, AdmissionWaitingListMember.id)
+        .all()
+    )
+    for i, m in enumerate(members, start=1):
+        m.position = i
+
+
 # ===========================================================================
 # PUBLIC (candidate) SIDE
 # ===========================================================================
@@ -3189,6 +3661,153 @@ def landing(token):
         payment_method_labels=PAYMENT_METHOD_LABELS,
         payment_accounts=_payment_accounts_map(cycle),
         mfs_payment_methods=sorted(MFS_PAYMENT_METHODS),
+        eligible_list_published=cycle.is_eligible_list_published,
+        selected_list_published=cycle.is_selected_list_published,
+        eligible_count=(
+            len(_result_list_candidates(cycle, 'eligible'))
+            if cycle.is_eligible_list_published else 0
+        ),
+        selected_count=(
+            len(_result_list_candidates(cycle, 'selected'))
+            if cycle.is_selected_list_published else 0
+        ),
+        published_waiting_lists=[
+            {
+                'list': wl,
+                'count': wl.members.count(),
+                'kind_label': wl.kind_label,
+            }
+            for wl in _published_merit_lists(cycle)
+        ],
+    )
+
+
+@admission_exam_bp.route('/apply/<token>/results/<kind>')
+def public_result_list(token, kind):
+    """Published eligible / selected candidate list on the admission portal."""
+    cycle, disabled = _public_cycle_by_token(token)
+    if disabled:
+        return disabled
+    meta = _result_list_meta(kind)
+    if not getattr(cycle, meta['publish_prop']):
+        flash(f'The {meta["title"]} list has not been published yet.', 'warning')
+        return redirect(url_for('admission_exam.landing', token=token))
+    candidates = _result_list_candidates(cycle, kind)
+    return render_template(
+        'admission_exam/public_result_list.html',
+        cycle=cycle,
+        kind=kind,
+        list_title=meta['title'],
+        list_subtitle=meta['subtitle'],
+        candidates=candidates,
+        candidate=_current_candidate(token),
+    )
+
+
+@admission_exam_bp.route('/apply/<token>/results/<kind>.pdf')
+def public_result_list_pdf(token, kind):
+    """Public PDF download for a published result list."""
+    from utils.rate_limit import PDF_EXPORT, first_blocked, reject_too_many
+    from utils.request_ip import client_ip
+
+    cycle, disabled = _public_cycle_by_token(token)
+    if disabled:
+        return disabled
+    meta = _result_list_meta(kind)
+    if not getattr(cycle, meta['publish_prop']):
+        flash(f'The {meta["title"]} list has not been published yet.', 'warning')
+        return redirect(url_for('admission_exam.landing', token=token))
+    blocked = first_blocked(
+        ('pdf.resultlist', f'{cycle.id}:{kind}', *PDF_EXPORT),
+        ('pdf.resultlist.ip', client_ip(), *PDF_EXPORT),
+    )
+    if blocked:
+        flash('Too many downloads. Please try again later.', 'warning')
+        return reject_too_many(blocked)
+    try:
+        pdf_bytes = _render_result_list_pdf(cycle, kind)
+    except Exception as e:
+        current_app.logger.exception(
+            'Public result list PDF failed for cycle %s (%s)', cycle.id, kind
+        )
+        flash_exception(e, f'Could not generate the {meta["title"]} PDF.', 'danger')
+        return redirect(url_for('admission_exam.landing', token=token))
+    slug = re.sub(r'[^A-Za-z0-9_-]+', '_', cycle.public_token or str(cycle.id))
+    stamp = datetime.utcnow().strftime('%Y%m%d')
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=f'{kind}_candidates_{slug}_{stamp}.pdf',
+    )
+
+
+@admission_exam_bp.route('/apply/<token>/waiting-list/<int:list_id>')
+def public_waiting_list(token, list_id):
+    cycle, disabled = _public_cycle_by_token(token)
+    if disabled:
+        return disabled
+    waiting_list = _waiting_list_for_cycle(cycle, list_id)
+    if not waiting_list.is_list_published:
+        flash('This waiting list has not been published yet.', 'warning')
+        return redirect(url_for('admission_exam.landing', token=token))
+    candidates = waiting_list.ordered_candidates()
+    return render_template(
+        'admission_exam/public_result_list.html',
+        cycle=cycle,
+        kind=waiting_list.kind_key,
+        list_title=waiting_list.name,
+        list_subtitle=f'{waiting_list.kind_label} · merit order',
+        candidates=candidates,
+        candidate=_current_candidate(token),
+        pdf_url=url_for(
+            'admission_exam.public_waiting_list_pdf',
+            token=cycle.public_token,
+            list_id=waiting_list.id,
+        ),
+        back_url=url_for('admission_exam.landing', token=cycle.public_token),
+        show_merit_rank=True,
+    )
+
+
+@admission_exam_bp.route('/apply/<token>/waiting-list/<int:list_id>.pdf')
+def public_waiting_list_pdf(token, list_id):
+    from utils.rate_limit import PDF_EXPORT, first_blocked, reject_too_many
+    from utils.request_ip import client_ip
+
+    cycle, disabled = _public_cycle_by_token(token)
+    if disabled:
+        return disabled
+    waiting_list = _waiting_list_for_cycle(cycle, list_id)
+    if not waiting_list.is_list_published:
+        flash('This waiting list has not been published yet.', 'warning')
+        return redirect(url_for('admission_exam.landing', token=token))
+    blocked = first_blocked(
+        ('pdf.waitlist', f'{cycle.id}:{waiting_list.id}', *PDF_EXPORT),
+        ('pdf.waitlist.ip', client_ip(), *PDF_EXPORT),
+    )
+    if blocked:
+        flash('Too many downloads. Please try again later.', 'warning')
+        return reject_too_many(blocked)
+    try:
+        pdf_bytes = _render_named_candidate_list_pdf(
+            cycle,
+            list_title=waiting_list.name,
+            list_subtitle=f'{waiting_list.kind_label} (merit order)',
+            candidates=waiting_list.ordered_candidates(),
+            kind=waiting_list.kind_key,
+        )
+    except Exception as e:
+        current_app.logger.exception(
+            'Public merit list PDF failed for cycle %s list %s', cycle.id, list_id
+        )
+        flash_exception(e, 'Could not generate the list PDF.', 'danger')
+        return redirect(url_for('admission_exam.landing', token=token))
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=_merit_list_export_filename(waiting_list, 'pdf'),
     )
 
 
@@ -3231,6 +3850,7 @@ def apply_form(token):
             bank_slip_max_label=BANK_SLIP_MAX_SIZE_LABEL,
             document_tags=get_document_tags(cycle),
             document_max_label=DOCUMENT_MAX_LABEL,
+            documents_enabled=cycle.is_documents_enabled,
             declaration_text=get_declaration_text(cycle),
             academic_extra_rows=collect_academic_extra_rows(form_data)
             if hasattr(form_data, 'getlist') else [],
@@ -3274,14 +3894,16 @@ def apply_form(token):
             if not bank_slip or not bank_slip.filename:
                 errors.append('Please upload a photo of the Agrani Bank deposit slip.')
 
-        # Peek document uploads (require ≥1); save after application_id is known
-        doc_files = request.files.getlist('doc_file')
-        has_doc = any(f and f.filename for f in doc_files)
-        if not has_doc:
-            errors.append(
-                'Please upload attested photocopies of academic certificates and transcripts '
-                '(at least one file).'
-            )
+        # Peek document uploads (require ≥1 when the cycle still collects them)
+        docs_on = cycle.is_documents_enabled
+        if docs_on:
+            doc_files = request.files.getlist('doc_file')
+            has_doc = any(f and f.filename for f in doc_files)
+            if not has_doc:
+                errors.append(
+                    'Please upload attested photocopies of academic certificates and transcripts '
+                    '(at least one file).'
+                )
 
         if errors:
             for e in errors:
@@ -3312,18 +3934,20 @@ def apply_form(token):
                 flash(slip_err, 'danger')
                 return _render_apply(request.form)
 
-        docs, doc_err = _collect_document_uploads(
-            cycle, application_id, request.form, request.files
-        )
-        if doc_err:
-            flash(doc_err, 'danger')
-            return _render_apply(request.form)
-        if not docs:
-            flash(
-                'Please upload attested photocopies of academic certificates and transcripts.',
-                'danger',
+        docs = []
+        if docs_on:
+            docs, doc_err = _collect_document_uploads(
+                cycle, application_id, request.form, request.files
             )
-            return _render_apply(request.form)
+            if doc_err:
+                flash(doc_err, 'danger')
+                return _render_apply(request.form)
+            if not docs:
+                flash(
+                    'Please upload attested photocopies of academic certificates and transcripts.',
+                    'danger',
+                )
+                return _render_apply(request.form)
 
         use_mfs = is_mfs_payment_method(payment_method)
         pin = _generate_pin()
@@ -3420,6 +4044,8 @@ def candidate_dashboard(cycle, candidate):
     db.session.refresh(cycle)
     can_download = candidate.can_download_admit
     extra = _parse_extra_fields(candidate)
+    published_lists = _published_merit_lists(cycle)
+    my_merit = _candidate_merit_memberships(candidate, published_only=True)
     resp = make_response(render_template(
         'admission_exam/candidate_dashboard.html',
         cycle=cycle,
@@ -3432,6 +4058,7 @@ def candidate_dashboard(cycle, candidate):
         documents=candidate.documents.order_by(AdmissionCandidateDocument.id).all(),
         document_tags=get_document_tags(cycle),
         document_max_label=DOCUMENT_MAX_LABEL,
+        documents_enabled=cycle.is_documents_enabled,
         extra_field_defs=personal_extra_field_defs(cycle),
         display_fields=[f for f in form_input_fields(cycle) if f.get('key') not in PAYMENT_FIELD_KEYS],
         enabled_payment_methods=cycle.enabled_payment_methods(),
@@ -3440,6 +4067,11 @@ def candidate_dashboard(cycle, candidate):
         payment_accounts=_payment_accounts_map(cycle),
         mfs_labels=mfs_field_labels(candidate.payment_method),
         bank_slip_max_label=BANK_SLIP_MAX_SIZE_LABEL,
+        published_merit_lists=[
+            {'list': wl, 'count': wl.members.count(), 'kind_label': wl.kind_label}
+            for wl in published_lists
+        ],
+        my_merit_lists=my_merit,
     ))
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private, max-age=0'
     resp.headers['Pragma'] = 'no-cache'
@@ -3568,6 +4200,9 @@ def candidate_document_file(cycle, candidate, doc_id):
 @candidate_required
 def candidate_add_documents(cycle, candidate):
     """Candidate may add more certificates while payment is not verified."""
+    if not cycle.is_documents_enabled:
+        flash('Academic certificate upload is turned off for this cycle.', 'warning')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
     if candidate.payment_status == 'verified':
         flash('Payment is already verified; documents can no longer be changed.', 'warning')
         return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
@@ -3596,6 +4231,9 @@ def candidate_add_documents(cycle, candidate):
 @admission_exam_bp.route('/apply/<token>/document/<int:doc_id>/delete', methods=['POST'])
 @candidate_required
 def candidate_delete_document(cycle, candidate, doc_id):
+    if not cycle.is_documents_enabled:
+        flash('Academic certificate upload is turned off for this cycle.', 'warning')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
     if candidate.payment_status == 'verified':
         flash('Payment is already verified; documents can no longer be changed.', 'warning')
         return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
@@ -3612,7 +4250,7 @@ def candidate_delete_document(cycle, candidate, doc_id):
     return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
 
 
-def _admit_pdf_response(pdf_bytes, download_name):
+def _admit_pdf_response(pdf_bytes, download_name, *, engine_header=None):
     """Serve PDF inline (https://… not file:// Downloads) with no-cache headers."""
     # Inline so Chrome/Acrobat opens the live URL; avoids stale Downloads copies.
     resp = make_response(send_file(
@@ -3621,11 +4259,51 @@ def _admit_pdf_response(pdf_bytes, download_name):
         as_attachment=False,
         download_name=download_name,
     ))
-    resp.headers['X-Admit-Engine'] = ADMIT_PDF_ENGINE
+    resp.headers['X-Admit-Engine'] = engine_header or ADMIT_PDF_ENGINE
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'
     resp.headers['Expires'] = '0'
     return resp
+
+
+@admission_exam_bp.route('/apply/<token>/application-form.pdf')
+@candidate_required
+def candidate_application_form(cycle, candidate):
+    """Logged-in candidate download of their filled application form PDF (+ certificates)."""
+    from utils.rate_limit import PDF_EXPORT, first_blocked, reject_too_many
+    from utils.request_ip import client_ip
+    blocked = first_blocked(
+        ('pdf.appform', str(candidate.id), *PDF_EXPORT),
+        ('pdf.appform.ip', client_ip(), *PDF_EXPORT),
+    )
+    if blocked:
+        flash('Too many downloads. Please try again later.', 'warning')
+        return reject_too_many(blocked)
+    try:
+        pdf_bytes, engine = _render_application_package_pdf(candidate)
+    except Exception as e:
+        current_app.logger.exception(
+            'Candidate application PDF failed for %s: %s', candidate.application_id, e
+        )
+        try:
+            pdf_bytes, engine = _render_application_form_pdf(candidate)
+        except Exception as e2:
+            current_app.logger.exception(
+                'Bare application PDF also failed for %s: %s', candidate.application_id, e2
+            )
+            flash_exception(
+                e2,
+                'Could not generate your application form PDF. Please try again or contact the committee.',
+                'danger',
+            )
+            return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+    stamp = datetime.utcnow().strftime('%H%M%S')
+    app_id = re.sub(r'[^A-Za-z0-9_-]+', '_', candidate.application_id or str(candidate.id))
+    return _admit_pdf_response(
+        pdf_bytes,
+        f'application_{app_id}_{stamp}.pdf',
+        engine_header=engine or APP_FORM_PDF_ENGINE,
+    )
 
 
 @admission_exam_bp.route('/apply/<token>/admit-card.pdf')
@@ -3713,6 +4391,7 @@ def cycle_new():
         public_token=slug,
         status='draft',
         is_enabled=True,
+        documents_enabled=True,
         app_id_prefix=app_id_prefix,
         created_by=current_user.id,
     )
@@ -3733,6 +4412,7 @@ def cycle_detail(cycle):
         'payment_pending': cycle.candidates.filter_by(payment_status='pending').count(),
         'payment_verified': cycle.candidates.filter_by(payment_status='verified').count(),
         'payment_rejected': cycle.candidates.filter_by(payment_status='rejected').count(),
+        'eligible': len(_result_list_candidates(cycle, 'eligible')),
         'selected': cycle.candidates.filter_by(application_status='selected').count(),
         'rolls_assigned': cycle.candidates.filter(AdmissionCandidate.roll_no.isnot(None)).count(),
     }
@@ -3744,6 +4424,15 @@ def cycle_detail(cycle):
             {'title': 'Admission Conditions', 'body': ''},
             {'title': 'Guidelines', 'body': ''},
         ]
+    waiting_lists = _ensure_standard_merit_lists(cycle)
+    waiting_list_counts = {
+        wl.id: wl.members.count() for wl in waiting_lists
+    }
+    merit_lists_by_kind = {
+        'viva': [wl for wl in waiting_lists if wl.kind_key == 'viva'],
+        'final': [wl for wl in waiting_lists if wl.kind_key == 'final'],
+        'waiting': [wl for wl in waiting_lists if wl.kind_key == 'waiting'],
+    }
     return render_template('admission_exam/admin_cycle_detail.html', cycle=cycle,
                            enabled_payment_methods=cycle.enabled_payment_methods(),
                            payment_method_labels=PAYMENT_METHOD_LABELS,
@@ -3756,7 +4445,12 @@ def cycle_detail(cycle):
                            landing_file_max_label=LANDING_FILE_MAX_LABEL,
                            document_tags=get_document_tags(cycle),
                            declaration_text=get_declaration_text(cycle),
-                           can_manage=_user_is_manager() or cycle.id in _user_committee_cycle_ids())
+                           waiting_lists=waiting_lists,
+                           waiting_list_counts=waiting_list_counts,
+                           merit_lists_by_kind=merit_lists_by_kind,
+                           merit_kind_labels=MERIT_LIST_KIND_LABELS,
+                           can_manage=_user_is_manager() or cycle.id in _user_committee_cycle_ids(),
+                           can_edit_committee=_user_is_manager())
 
 
 @admission_exam_bp.route('/cycle/<int:cycle_id>/document-tags', methods=['POST'])
@@ -3969,6 +4663,21 @@ def cycle_toggle_enabled(cycle):
     return _redirect_back(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
 
 
+@admission_exam_bp.route('/cycle/<int:cycle_id>/toggle-documents', methods=['POST'])
+@login_required
+@cycle_access_required
+def cycle_toggle_documents(cycle):
+    """Turn Academic Certificates & Transcripts uploads on or off for applicants."""
+    enabled = (request.form.get('enabled') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+    cycle.documents_enabled = enabled
+    db.session.commit()
+    if enabled:
+        flash('Academic Certificates & Transcripts upload is now required on the application form.', 'success')
+    else:
+        flash('Academic Certificates & Transcripts upload is turned off. Applicants cannot upload certificate photos.', 'warning')
+    return _redirect_back(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+
+
 @admission_exam_bp.route('/cycle/<int:cycle_id>/status', methods=['POST'])
 @login_required
 @cycle_access_required
@@ -4031,8 +4740,11 @@ def cycle_regenerate_token(cycle):
 @cycle_access_required
 def committee_add(cycle):
     if not _user_is_manager():
-        flash('Only administrators and officers can change the committee.', 'danger')
-        abort(403)
+        flash(
+            'Only administrators, heads, deans, and officers can change the committee.',
+            'danger',
+        )
+        return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
     try:
         user_id = int(request.form.get('user_id') or 0)
     except ValueError:
@@ -4042,7 +4754,7 @@ def committee_add(cycle):
         position = 'member'
     user = User.query.get(user_id)
     if not user or not _user_is_committee_eligible(user):
-        flash('Select a teacher or officer account.', 'danger')
+        flash('Select a teacher, head, dean, or officer account.', 'danger')
         return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
     if cycle.committee_members.filter_by(user_id=user.id).first():
         flash('This user is already a committee member.', 'warning')
@@ -4058,8 +4770,11 @@ def committee_add(cycle):
 @cycle_access_required
 def committee_remove(cycle, member_id):
     if not _user_is_manager():
-        flash('Only administrators and officers can change the committee.', 'danger')
-        abort(403)
+        flash(
+            'Only administrators, heads, deans, and officers can change the committee.',
+            'danger',
+        )
+        return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
     member = AdmissionCommitteeMember.query.get_or_404(member_id)
     if member.cycle_id != cycle.id:
         abort(404)
@@ -4089,9 +4804,15 @@ def cycle_delete(cycle):
 @cycle_access_required
 def candidates_list(cycle):
     candidates, payment, status, search = _filter_cycle_candidates(cycle)
-    return render_template('admission_exam/admin_candidates.html', cycle=cycle,
-                           candidates=candidates, payment=payment, status=status,
-                           search=search)
+    return render_template(
+        'admission_exam/admin_candidates.html',
+        cycle=cycle,
+        candidates=candidates,
+        payment=payment,
+        status=status,
+        search=search,
+        waiting_lists=_cycle_waiting_lists(cycle),
+    )
 
 
 @admission_exam_bp.route('/candidate/<int:candidate_id>')
@@ -4358,13 +5079,45 @@ def candidates_bulk(cycle):
         flash(f'Unassigned roll numbers from {cleared} candidate(s).', 'success')
         return redirect(url_for('admission_exam.candidates_list', cycle_id=cycle.id))
 
-    if action not in ('select', 'reject', 'verify_payment'):
+    if action == 'add_to_waiting_list':
+        try:
+            list_id = int(request.form.get('waiting_list_id') or 0)
+        except (TypeError, ValueError):
+            list_id = 0
+        waiting_list = (
+            AdmissionWaitingList.query
+            .filter_by(id=list_id, cycle_id=cycle.id)
+            .first()
+        )
+        if not waiting_list:
+            flash('Choose a waiting list first.', 'danger')
+            return redirect(url_for('admission_exam.candidates_list', cycle_id=cycle.id))
+        added = _add_candidates_to_waiting_list(waiting_list, candidates)
+        db.session.commit()
+        flash(
+            f'Added {added} candidate(s) to “{waiting_list.name}” '
+            f'({len(candidates) - added} already on the list).',
+            'success' if added else 'info',
+        )
+        return redirect(url_for(
+            'admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=waiting_list.id
+        ))
+
+    if action == 'delete':
+        deleted = _purge_candidates(candidates)
+        db.session.commit()
+        flash(f'Deleted {deleted} application(s) permanently.', 'warning')
+        return redirect(url_for('admission_exam.candidates_list', cycle_id=cycle.id))
+
+    if action not in ('select', 'eligible', 'reject', 'verify_payment'):
         flash('Unknown bulk action.', 'danger')
         return redirect(url_for('admission_exam.candidates_list', cycle_id=cycle.id))
 
     for c in candidates:
         if action == 'select':
             c.application_status = 'selected'
+        elif action == 'eligible':
+            c.application_status = 'eligible'
         elif action == 'reject':
             c.application_status = 'rejected'
         elif action == 'verify_payment':
@@ -4505,9 +5258,9 @@ def assign_rolls(cycle):
     try:
         for c in pending:
             c.roll_no = cycle.format_roll_number(next_n)
-            # Mark selected once a roll is issued (admit workflow)
+            # Roll ⇒ eligible for the exam (final admission selection is separate)
             if c.application_status == 'submitted':
-                c.application_status = 'selected'
+                c.application_status = 'eligible'
             next_n += 1
         db.session.commit()
     except Exception as e:
@@ -4574,6 +5327,328 @@ def publish_admit(cycle):
     flash('Admit cards published — eligible candidates can now download them.' if cycle.admit_published
           else 'Admit cards unpublished.', 'success')
     return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/publish-result-list/<kind>', methods=['POST'])
+@login_required
+@cycle_access_required
+def publish_result_list(cycle, kind):
+    meta = _result_list_meta(kind)
+    attr = meta['publish_attr']
+    currently = bool(getattr(cycle, attr, False))
+    setattr(cycle, attr, not currently)
+    db.session.commit()
+    published = not currently
+    label = meta['title']
+    if published:
+        flash(f'{label} list published on the admission portal (with PDF download).', 'success')
+    else:
+        flash(f'{label} list unpublished from the admission portal.', 'warning')
+    return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/result-list/<kind>.pdf')
+@login_required
+@cycle_access_required
+def export_result_list_pdf(cycle, kind):
+    meta = _result_list_meta(kind)
+    try:
+        pdf_bytes = _render_result_list_pdf(cycle, kind)
+    except Exception as e:
+        current_app.logger.exception('Result list PDF failed for cycle %s (%s)', cycle.id, kind)
+        flash_exception(e, f'Could not generate {meta["title"]} PDF.', 'danger')
+        return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+    slug = re.sub(r'[^A-Za-z0-9_-]+', '_', cycle.public_token or str(cycle.id))
+    stamp = datetime.utcnow().strftime('%Y%m%d')
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=f'{kind}_candidates_{slug}_{stamp}.pdf',
+    )
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/waiting-lists', methods=['POST'])
+@login_required
+@cycle_access_required
+def waiting_list_create(cycle):
+    name = (request.form.get('name') or '').strip()
+    kind = (request.form.get('list_kind') or 'waiting').strip().lower()
+    if kind not in MERIT_LIST_KINDS:
+        kind = 'waiting'
+    if kind in ('viva', 'final'):
+        existing = (
+            AdmissionWaitingList.query
+            .filter_by(cycle_id=cycle.id, list_kind=kind)
+            .first()
+        )
+        if existing:
+            flash(
+                f'A “{MERIT_LIST_KIND_LABELS[kind]}” list already exists. Open it to manage members.',
+                'info',
+            )
+            return redirect(url_for(
+                'admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=existing.id
+            ))
+        if not name:
+            name = MERIT_LIST_KIND_LABELS[kind]
+    if not name:
+        flash('List name is required.', 'danger')
+        return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+    if len(name) > 120:
+        flash('List name is too long (max 120 characters).', 'danger')
+        return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+    max_order = (
+        db.session.query(db.func.max(AdmissionWaitingList.sort_order))
+        .filter_by(cycle_id=cycle.id)
+        .scalar()
+    )
+    waiting_list = AdmissionWaitingList(
+        cycle_id=cycle.id,
+        name=name,
+        list_kind=kind,
+        is_published=False,
+        sort_order=int(max_order or 0) + 1,
+    )
+    db.session.add(waiting_list)
+    db.session.commit()
+    flash(
+        f'“{name}” ({MERIT_LIST_KIND_LABELS[kind]}) created. '
+        'Add candidates in merit order, then publish.',
+        'success',
+    )
+    return redirect(url_for(
+        'admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=waiting_list.id
+    ))
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/waiting-list/<int:list_id>')
+@login_required
+@cycle_access_required
+def waiting_list_detail(cycle, list_id):
+    waiting_list = _waiting_list_for_cycle(cycle, list_id)
+    members = (
+        AdmissionWaitingListMember.query
+        .filter_by(waiting_list_id=waiting_list.id)
+        .order_by(AdmissionWaitingListMember.position, AdmissionWaitingListMember.id)
+        .all()
+    )
+    member_ids = {m.candidate_id for m in members}
+    available = (
+        AdmissionCandidate.query
+        .filter_by(cycle_id=cycle.id)
+        .order_by(AdmissionCandidate.application_id)
+        .all()
+    )
+    available = [c for c in available if c.id not in member_ids]
+    return render_template(
+        'admission_exam/admin_waiting_list.html',
+        cycle=cycle,
+        waiting_list=waiting_list,
+        members=members,
+        available_candidates=available,
+    )
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/waiting-list/<int:list_id>/rename', methods=['POST'])
+@login_required
+@cycle_access_required
+def waiting_list_rename(cycle, list_id):
+    waiting_list = _waiting_list_for_cycle(cycle, list_id)
+    name = (request.form.get('name') or '').strip()
+    if not name:
+        flash('Waiting list name is required.', 'danger')
+        return redirect(url_for(
+            'admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=list_id
+        ))
+    waiting_list.name = name[:120]
+    db.session.commit()
+    flash('Waiting list renamed.', 'success')
+    return redirect(url_for(
+        'admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=list_id
+    ))
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/waiting-list/<int:list_id>/delete', methods=['POST'])
+@login_required
+@cycle_access_required
+def waiting_list_delete(cycle, list_id):
+    waiting_list = _waiting_list_for_cycle(cycle, list_id)
+    name = waiting_list.name
+    db.session.delete(waiting_list)
+    db.session.commit()
+    flash(f'Waiting list “{name}” deleted.', 'warning')
+    return redirect(url_for('admission_exam.cycle_detail', cycle_id=cycle.id))
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/waiting-list/<int:list_id>/publish', methods=['POST'])
+@login_required
+@cycle_access_required
+def waiting_list_publish(cycle, list_id):
+    waiting_list = _waiting_list_for_cycle(cycle, list_id)
+    waiting_list.is_published = not bool(waiting_list.is_published)
+    db.session.commit()
+    if waiting_list.is_list_published:
+        flash(f'“{waiting_list.name}” published on the admission portal.', 'success')
+    else:
+        flash(f'“{waiting_list.name}” unpublished from the admission portal.', 'warning')
+    return _redirect_back(url_for(
+        'admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=list_id
+    ))
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/waiting-list/<int:list_id>.pdf')
+@login_required
+@cycle_access_required
+def export_waiting_list_pdf(cycle, list_id):
+    waiting_list = _waiting_list_for_cycle(cycle, list_id)
+    try:
+        pdf_bytes = _render_named_candidate_list_pdf(
+            cycle,
+            list_title=waiting_list.name,
+            list_subtitle=f'{waiting_list.kind_label} (merit order)',
+            candidates=waiting_list.ordered_candidates(),
+            kind=waiting_list.kind_key,
+        )
+    except Exception as e:
+        current_app.logger.exception(
+            'Merit list PDF failed for cycle %s list %s', cycle.id, list_id
+        )
+        flash_exception(e, 'Could not generate list PDF.', 'danger')
+        return redirect(url_for(
+            'admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=list_id
+        ))
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=_merit_list_export_filename(waiting_list, 'pdf'),
+    )
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/waiting-list/<int:list_id>.xlsx')
+@login_required
+@cycle_access_required
+def export_waiting_list_xlsx(cycle, list_id):
+    waiting_list = _waiting_list_for_cycle(cycle, list_id)
+    try:
+        buf = _build_merit_list_xlsx(cycle, waiting_list)
+    except Exception as e:
+        current_app.logger.exception(
+            'Merit list Excel failed for cycle %s list %s', cycle.id, list_id
+        )
+        flash_exception(e, 'Could not generate Excel file.', 'danger')
+        return redirect(url_for(
+            'admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=list_id
+        ))
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=_merit_list_export_filename(waiting_list, 'xlsx'),
+    )
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/waiting-list/<int:list_id>.docx')
+@login_required
+@cycle_access_required
+def export_waiting_list_docx(cycle, list_id):
+    waiting_list = _waiting_list_for_cycle(cycle, list_id)
+    try:
+        buf = _build_merit_list_docx(cycle, waiting_list)
+    except Exception as e:
+        current_app.logger.exception(
+            'Merit list DOC failed for cycle %s list %s', cycle.id, list_id
+        )
+        flash_exception(e, 'Could not generate Word document.', 'danger')
+        return redirect(url_for(
+            'admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=list_id
+        ))
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        as_attachment=True,
+        download_name=_merit_list_export_filename(waiting_list, 'docx'),
+    )
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/waiting-list/<int:list_id>/members', methods=['POST'])
+@login_required
+@cycle_access_required
+def waiting_list_members(cycle, list_id):
+    waiting_list = _waiting_list_for_cycle(cycle, list_id)
+    action = (request.form.get('action') or '').strip().lower()
+    detail = url_for('admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=list_id)
+
+    if action == 'add':
+        raw_ids = request.form.getlist('candidate_ids')
+        try:
+            ids = [int(i) for i in raw_ids]
+        except ValueError:
+            ids = []
+        if not ids:
+            flash('Select at least one candidate to add.', 'warning')
+            return redirect(detail)
+        candidates = (
+            AdmissionCandidate.query
+            .filter(
+                AdmissionCandidate.id.in_(ids),
+                AdmissionCandidate.cycle_id == cycle.id,
+            )
+            .order_by(AdmissionCandidate.application_id)
+            .all()
+        )
+        added = _add_candidates_to_waiting_list(waiting_list, candidates)
+        db.session.commit()
+        flash(f'Added {added} candidate(s).', 'success' if added else 'info')
+        return redirect(detail)
+
+    if action == 'remove':
+        try:
+            member_id = int(request.form.get('member_id') or 0)
+        except (TypeError, ValueError):
+            member_id = 0
+        member = AdmissionWaitingListMember.query.filter_by(
+            id=member_id, waiting_list_id=waiting_list.id
+        ).first()
+        if not member:
+            flash('Member not found.', 'danger')
+            return redirect(detail)
+        db.session.delete(member)
+        db.session.flush()
+        _renumber_waiting_list(waiting_list)
+        db.session.commit()
+        flash('Candidate removed from the waiting list.', 'success')
+        return redirect(detail)
+
+    if action in ('move_up', 'move_down'):
+        try:
+            member_id = int(request.form.get('member_id') or 0)
+        except (TypeError, ValueError):
+            member_id = 0
+        members = (
+            AdmissionWaitingListMember.query
+            .filter_by(waiting_list_id=waiting_list.id)
+            .order_by(AdmissionWaitingListMember.position, AdmissionWaitingListMember.id)
+            .all()
+        )
+        idx = next((i for i, m in enumerate(members) if m.id == member_id), None)
+        if idx is None:
+            flash('Member not found.', 'danger')
+            return redirect(detail)
+        swap_with = idx - 1 if action == 'move_up' else idx + 1
+        if swap_with < 0 or swap_with >= len(members):
+            return redirect(detail)
+        members[idx].position, members[swap_with].position = (
+            members[swap_with].position, members[idx].position
+        )
+        db.session.commit()
+        _renumber_waiting_list(waiting_list)
+        db.session.commit()
+        return redirect(detail)
+
+    flash('Unknown waiting-list action.', 'danger')
+    return redirect(detail)
 
 
 @admission_exam_bp.route('/cycle/<int:cycle_id>/signature', methods=['POST'])
@@ -4752,14 +5827,31 @@ def candidate_edit(candidate):
     return redirect(url_for('admission_exam.candidate_detail', candidate_id=candidate.id))
 
 
+def _purge_candidates(candidates):
+    """Remove waiting-list memberships then delete candidate rows (and cascaded docs)."""
+    candidates = [c for c in candidates if c is not None]
+    if not candidates:
+        return 0
+    ids = [c.id for c in candidates]
+    (
+        AdmissionWaitingListMember.query
+        .filter(AdmissionWaitingListMember.candidate_id.in_(ids))
+        .delete(synchronize_session=False)
+    )
+    for c in candidates:
+        db.session.delete(c)
+    return len(candidates)
+
+
 @admission_exam_bp.route('/candidate/<int:candidate_id>/delete', methods=['POST'])
 @login_required
 @candidate_access_required
 def candidate_delete(candidate):
     cycle_id = candidate.cycle_id
-    db.session.delete(candidate)
+    app_id = candidate.application_id
+    _purge_candidates([candidate])
     db.session.commit()
-    flash('Candidate application deleted.', 'success')
+    flash(f'Application {app_id} deleted permanently.', 'warning')
     return redirect(url_for('admission_exam.candidates_list', cycle_id=cycle_id))
 
 

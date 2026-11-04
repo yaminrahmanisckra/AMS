@@ -373,7 +373,10 @@
                                                     <i class="fas fa-user-graduate text-primary"></i>
                                                 </div>
                                                 <div class="flex-grow-1 overflow-hidden">
-                                                    <div class="fw-semibold text-dark text-truncate">{{ n.subject }}</div>
+                                                    <div class="fw-semibold text-dark text-truncate">
+                                                        {{ n.subject }}
+                                                        {% if n.unread %}<span class="badge bg-danger ms-1" style="font-size: 0.65rem;">New</span>{% endif %}
+                                                    </div>
                                                     <small class="text-muted">{{ n.student_name }} · {{ n.course_label }}</small>
                                                     <div class="small text-muted mt-0">{{ n.created_at|bd('%b %d, %I:%M %p') if n.created_at else '' }}</div>
                                                 </div>
@@ -384,7 +387,7 @@
                                     {% endfor %}
                                     <li><a class="dropdown-item text-center small text-primary py-2" href="{{ url_for('class_management.index') }}">View all in Class Management</a></li>
                                     {% else %}
-                                    <li class="dropdown-item text-muted text-center py-4">No new questions</li>
+                                    <li class="dropdown-item text-muted text-center py-4">No pending questions</li>
                                     {% endif %}
                                 </ul>
                             </li>
@@ -493,11 +496,15 @@
                     <li class="dropdown-header small fw-bold">Course Questions</li>
                     {% if question_notifications|default([]) %}
                     {% for n in question_notifications[:5] %}
-                    <li><a class="dropdown-item small py-2" href="{{ url_for('class_management.course_questions', session_id=n.session_id) }}">{{ n.subject }}</a></li>
+                    <li>
+                        <a class="dropdown-item small py-2" href="{{ url_for('class_management.course_questions', session_id=n.session_id) }}">
+                            {{ n.subject }}{% if n.unread %} <span class="badge bg-danger" style="font-size: 0.6rem;">New</span>{% endif %}
+                        </a>
+                    </li>
                     {% endfor %}
                     <li><a class="dropdown-item small text-primary" href="{{ url_for('class_management.index') }}">View all</a></li>
                     {% else %}
-                    <li class="dropdown-item small text-muted">No new questions</li>
+                    <li class="dropdown-item small text-muted">No pending questions</li>
                     {% endif %}
                 </ul>
             </div>

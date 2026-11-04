@@ -94,6 +94,94 @@ def test_build_dataset_computes_overall_mean_and_comments(app, class_session_w1)
     assert dataset['quantitative']['lowest_rated'][0]['item'] in ('B3', 'B4')
 
 
+def _feedback_row(student_id, answers, submitted_at, row_id=1, comments=None):
+    payload = {
+        'respondent': {'student_id': student_id} if student_id else {},
+        'section_a': {
+            'course_structure': answers,
+            'course_goals': answers,
+            'course_content_guidance': answers,
+            'course_interest': answers,
+        },
+        'section_b': {
+            'course_plan_discussed': answers,
+            'guidelines_received': answers,
+            'assessment_helpful': answers,
+            'feedback_timely': answers,
+            'teaching_methods': ['Lectures (including online lectures)'],
+        },
+        'section_c': {},
+        'section_d': comments or {
+            'likes': f'Likes from {student_id or "anon"}',
+            'challenges': 'Late scripts',
+            'suggestions': 'Return work sooner',
+        },
+    }
+    return SimpleNamespace(id=row_id, payload=payload, submitted_at=submitted_at)
+
+
+def test_dataset_keeps_one_response_per_student(app, class_session_w1):
+    from blueprints.class_management.models import Session
+    from utils.ai.feedback_report import dedupe_feedback_responses
+
+    first = datetime(2026, 10, 11, 9, 0)
+    second = datetime(2026, 10, 13, 15, 0)
+    rows = [
+        _feedback_row('210101', 'Agree', first, row_id=1),
+        _feedback_row('210101', 'Disagree', second, row_id=2),
+        _feedback_row('210102', 'Agree', first, row_id=3),
+        _feedback_row('210102', 'Agree', first, row_id=4),
+        _feedback_row('', 'Neutral', first, row_id=5, comments={
+            'likes': 'Same anonymous comment about lectures being structured well.',
+            'challenges': 'Late scripts',
+            'suggestions': 'Return work sooner',
+        }),
+        _feedback_row('', 'Neutral', second, row_id=6, comments={
+            'likes': 'Same anonymous comment about lectures being structured well.',
+            'challenges': 'Late scripts',
+            'suggestions': 'Return work sooner',
+        }),
+    ]
+    unique, excluded = dedupe_feedback_responses(rows)
+    assert excluded == 3
+    assert {row.id for row in unique} == {2, 4, 6}
+
+    with app.app_context():
+        session = Session.query.get(class_session_w1['session_id'])
+        link = SimpleNamespace(title='Criminal Procedure Feedback')
+        dataset = build_feedback_dataset(session, link, rows, enrolled_count=37)
+
+    assert dataset['raw_response_count'] == 6
+    assert dataset['response_count'] == 3
+    assert dataset['duplicate_responses_excluded'] == 3
+    assert dataset['response_rate'] == 8.1
+    fields = {row['field']: row['value'] for row in dataset['profile']}
+    assert fields['Valid responses received'] == '3'
+    assert '3 later or repeat' in fields['Duplicate submissions excluded']
+    items = {item['item']: item for item in dataset['quantitative']['likert_items']}
+    # Latest 210101 answer is Disagree (2); 210102 Agree (4); anonymous Neutral (3)
+    assert items['A1']['n'] == 3
+    assert items['A1']['mean'] == 3.0
+
+
+def test_dataset_does_not_collapse_different_students_with_same_answers(app, class_session_w1):
+    from blueprints.class_management.models import Session
+
+    when = datetime(2026, 10, 12, 10, 0)
+    rows = [
+        _feedback_row('210201', 'Agree', when, row_id=1),
+        _feedback_row('210202', 'Agree', when, row_id=2),
+        _feedback_row('210203', 'Agree', when, row_id=3),
+    ]
+    with app.app_context():
+        session = Session.query.get(class_session_w1['session_id'])
+        dataset = build_feedback_dataset(
+            session, SimpleNamespace(title='Test'), rows, enrolled_count=3
+        )
+    assert dataset['response_count'] == 3
+    assert dataset['duplicate_responses_excluded'] == 0
+
+
 def test_prompt_comments_are_clipped_and_limited():
     comments = [{'likes': 'x' * 400, 'challenges': 'late scripts', 'suggestions': 'faster marks'}]
     comments.extend({'likes': f'ok {i}', 'challenges': '', 'suggestions': ''} for i in range(45))
