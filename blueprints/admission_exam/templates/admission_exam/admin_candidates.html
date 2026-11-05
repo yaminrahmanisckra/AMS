@@ -2,7 +2,7 @@
 {% block title %}Candidates – {{ cycle.name }}{% endblock %}
 {% block mobile_title %}Candidates{% endblock %}
 {% block content %}
-<div class="container-fluid my-4" style="max-width: 1300px;">
+<div class="container-fluid my-4" style="max-width: 1400px;">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
         <div>
             <nav aria-label="breadcrumb">
@@ -25,8 +25,20 @@
                title="Merged admit cards (verified + roll assigned only)">
                 <i class="fas fa-id-card me-1"></i>Admit Cards PDF
             </a>
-            <a href="{{ url_for('admission_exam.export_candidates', cycle_id=cycle.id) }}" class="btn btn-outline-secondary btn-sm">
+            <a href="{{ url_for('admission_exam.export_candidates', cycle_id=cycle.id, payment=payment, status=status, search=search) }}"
+               class="btn btn-outline-secondary btn-sm"
+               title="Excel of the current filter (includes marks)">
                 <i class="fas fa-file-excel me-1"></i>Export Excel
+            </a>
+            <a href="{{ url_for('admission_exam.export_candidates_marks_xlsx', cycle_id=cycle.id, payment=payment, status=status, search=search) }}"
+               class="btn btn-outline-success btn-sm"
+               title="Marks sheet for the current filter">
+                <i class="fas fa-file-excel me-1"></i>Marks Excel
+            </a>
+            <a href="{{ url_for('admission_exam.export_candidates_marks_pdf', cycle_id=cycle.id, payment=payment, status=status, search=search) }}"
+               class="btn btn-outline-danger btn-sm"
+               title="Marks PDF for the current filter">
+                <i class="fas fa-file-pdf me-1"></i>Marks PDF
             </a>
         </div>
     </div>
@@ -65,6 +77,72 @@
             </div>
         </div>
     </form>
+
+    {% if waiting_lists %}
+    <div class="card shadow-sm mb-3 border-warning">
+        <div class="card-header bg-light py-2">
+            <strong class="small"><i class="fas fa-magic me-1 text-warning"></i>One-click assign by mark range</strong>
+            <span class="small text-muted ms-1">Sends matching candidates to a viva / final / waiting list, highest marks first</span>
+        </div>
+        <div class="card-body py-2">
+            <form method="POST" action="{{ url_for('admission_exam.candidates_assign_by_marks', cycle_id=cycle.id) }}"
+                  class="row g-2 align-items-end"
+                  onsubmit="return confirm('Assign candidates in this mark range to the chosen list?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="payment" value="{{ payment }}">
+                <input type="hidden" name="status" value="{{ status }}">
+                <input type="hidden" name="search" value="{{ search }}">
+                <div class="col-md-3">
+                    <label class="form-label small mb-0">Target list</label>
+                    <select class="form-select form-select-sm" name="waiting_list_id" required>
+                        <option value="">Choose list…</option>
+                        {% for wl in waiting_lists %}
+                        <option value="{{ wl.id }}">{{ wl.kind_label }} — {{ wl.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-0">Use marks</label>
+                    <select class="form-select form-select-sm" name="mark_field">
+                        <option value="total">Total</option>
+                        <option value="written">Written</option>
+                        <option value="viva">Viva</option>
+                    </select>
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label small mb-0">Min</label>
+                    <input type="number" step="0.01" class="form-control form-control-sm" name="min_mark" placeholder="e.g. 60">
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label small mb-0">Max</label>
+                    <input type="number" step="0.01" class="form-control form-control-sm" name="max_mark" placeholder="optional">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-0">From</label>
+                    <select class="form-select form-select-sm" name="scope">
+                        <option value="filtered">Current filter</option>
+                        <option value="all">All candidates</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" name="replace_list" value="1" id="replaceListCb">
+                        <label class="form-check-label small" for="replaceListCb">Replace list</label>
+                    </div>
+                </div>
+                <div class="col-md-1">
+                    <button type="submit" class="btn btn-sm btn-warning w-100" title="Assign by mark range">
+                        <i class="fas fa-bolt"></i>
+                    </button>
+                </div>
+            </form>
+            <p class="small text-muted mb-0 mt-2">
+                Example: Total Min 70 → viva list. Leave Max blank for “Min and above”.
+                <strong>Replace list</strong> clears the list first, then fills in merit order.
+            </p>
+        </div>
+    </div>
+    {% endif %}
 
     <form method="POST" action="{{ url_for('admission_exam.candidates_bulk', cycle_id=cycle.id) }}" id="bulkForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -121,90 +199,132 @@
         </div>
     </form>
 
-        <div class="card shadow-sm">
-            <div class="table-responsive">
-                <table class="table table-hover table-sm align-middle mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width: 30px;"><input type="checkbox" class="form-check-input" id="checkAll" form="bulkForm"></th>
-                            <th>Application ID</th>
-                            <th>Name</th>
-                            <th>Phone</th>
-                            <th>Payment Ref</th>
-                            <th>Payment</th>
-                            <th>Status</th>
-                            <th>Roll</th>
-                            <th class="text-end">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for c in candidates %}
-                        <tr>
-                            <td><input type="checkbox" class="form-check-input row-check" form="bulkForm" name="candidate_ids" value="{{ c.id }}"></td>
-                            <td class="fw-semibold">{{ c.application_id }}</td>
-                            <td>{{ c.full_name }}</td>
-                            <td class="small">{{ c.phone }}</td>
-                            <td class="small">
-                                {% if c.payment_method == 'agrani_bank' %}
-                                <span class="badge bg-light text-dark border">Agrani Bank</span><br>
-                                <code>{{ c.bank_slip_txn_no or '—' }}</code>
-                                {% elif c.payment_method == 'bkash' %}
-                                <span class="badge bg-light text-dark border">bKash</span><br>
-                                <code>{{ c.rocket_txn_id or '—' }}</code><br>
-                                <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
-                                {% elif c.payment_method == 'nagad' %}
-                                <span class="badge bg-light text-dark border">Nagad</span><br>
-                                <code>{{ c.rocket_txn_id or '—' }}</code><br>
-                                <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
-                                {% else %}
-                                <span class="badge bg-light text-dark border">Rocket</span><br>
-                                <code>{{ c.rocket_txn_id or '—' }}</code><br>
-                                <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if c.payment_status == 'verified' %}
-                                <span class="badge bg-success">Verified</span>
-                                {% elif c.payment_status == 'rejected' %}
-                                <span class="badge bg-danger">Rejected</span>
-                                {% else %}
-                                <span class="badge bg-warning text-dark">Pending</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if c.application_status == 'selected' %}
-                                <span class="badge bg-primary">Selected</span>
-                                {% elif c.application_status == 'eligible' %}
-                                <span class="badge bg-info text-dark">Eligible</span>
-                                {% elif c.application_status == 'rejected' %}
-                                <span class="badge bg-secondary">Rejected</span>
-                                {% else %}
-                                <span class="badge bg-light text-dark border">Submitted</span>
-                                {% endif %}
-                            </td>
-                            <td class="fw-semibold">{{ c.roll_no or '—' }}</td>
-                            <td class="text-end text-nowrap">
-                                <a href="{{ url_for('admission_exam.candidate_detail', candidate_id=c.id) }}"
-                                   class="btn btn-sm btn-outline-primary" title="View / manage">
-                                    <i class="fas fa-eye"></i>
-                                </a>
-                                <form method="POST" class="d-inline"
-                                      action="{{ url_for('admission_exam.candidate_delete', candidate_id=c.id) }}"
-                                      onsubmit="return confirm('Delete application {{ c.application_id }} permanently? This cannot be undone.');">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete application">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </form>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="9" class="text-center text-muted py-4">No candidates found.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+    <form method="POST" action="{{ url_for('admission_exam.candidates_save_marks', cycle_id=cycle.id) }}" id="marksForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="payment" value="{{ payment }}">
+        <input type="hidden" name="status" value="{{ status }}">
+        <input type="hidden" name="search" value="{{ search }}">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <span class="small text-muted">Enter Written / Viva; Total auto-fills if both are set (you can override).</span>
+            <button type="submit" class="btn btn-sm btn-primary">
+                <i class="fas fa-save me-1"></i>Save Marks
+            </button>
         </div>
+    </form>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 30px;"><input type="checkbox" class="form-check-input" id="checkAll" form="bulkForm"></th>
+                        <th>Application ID</th>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>Payment Ref</th>
+                        <th>Payment</th>
+                        <th>Status</th>
+                        <th>Roll</th>
+                        <th style="min-width: 72px;">Written</th>
+                        <th style="min-width: 72px;">Viva</th>
+                        <th style="min-width: 72px;">Total</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in candidates %}
+                    <tr>
+                        <td><input type="checkbox" class="form-check-input row-check" form="bulkForm" name="candidate_ids" value="{{ c.id }}"></td>
+                        <td class="fw-semibold">{{ c.application_id }}</td>
+                        <td>{{ c.full_name }}</td>
+                        <td class="small">{{ c.phone }}</td>
+                        <td class="small">
+                            {% if c.payment_method == 'agrani_bank' %}
+                            <span class="badge bg-light text-dark border">Agrani Bank</span><br>
+                            <code>{{ c.bank_slip_txn_no or '—' }}</code>
+                            {% elif c.payment_method == 'bkash' %}
+                            <span class="badge bg-light text-dark border">bKash</span><br>
+                            <code>{{ c.rocket_txn_id or '—' }}</code><br>
+                            <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
+                            {% elif c.payment_method == 'nagad' %}
+                            <span class="badge bg-light text-dark border">Nagad</span><br>
+                            <code>{{ c.rocket_txn_id or '—' }}</code><br>
+                            <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
+                            {% else %}
+                            <span class="badge bg-light text-dark border">Rocket</span><br>
+                            <code>{{ c.rocket_txn_id or '—' }}</code><br>
+                            <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if c.payment_status == 'verified' %}
+                            <span class="badge bg-success">Verified</span>
+                            {% elif c.payment_status == 'rejected' %}
+                            <span class="badge bg-danger">Rejected</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">Pending</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if c.application_status == 'selected' %}
+                            <span class="badge bg-primary">Selected</span>
+                            {% elif c.application_status == 'eligible' %}
+                            <span class="badge bg-info text-dark">Eligible</span>
+                            {% elif c.application_status == 'rejected' %}
+                            <span class="badge bg-secondary">Rejected</span>
+                            {% else %}
+                            <span class="badge bg-light text-dark border">Submitted</span>
+                            {% endif %}
+                        </td>
+                        <td class="fw-semibold">{{ c.roll_no or '—' }}</td>
+                        <td>
+                            <input type="hidden" form="marksForm" name="mark_candidate_ids" value="{{ c.id }}">
+                            <input type="number" step="0.01" class="form-control form-control-sm mark-input mark-written"
+                                   form="marksForm" name="written_{{ c.id }}" data-cid="{{ c.id }}"
+                                   value="{% if c.written_marks is not none %}{{ c.written_marks }}{% endif %}"
+                                   placeholder="—">
+                        </td>
+                        <td>
+                            <input type="number" step="0.01" class="form-control form-control-sm mark-input mark-viva"
+                                   form="marksForm" name="viva_{{ c.id }}" data-cid="{{ c.id }}"
+                                   value="{% if c.viva_marks is not none %}{{ c.viva_marks }}{% endif %}"
+                                   placeholder="—">
+                        </td>
+                        <td>
+                            <input type="number" step="0.01" class="form-control form-control-sm mark-input mark-total"
+                                   form="marksForm" name="total_{{ c.id }}" data-cid="{{ c.id }}"
+                                   value="{% if c.total_marks is not none %}{{ c.total_marks }}{% endif %}"
+                                   placeholder="—">
+                        </td>
+                        <td class="text-end text-nowrap">
+                            <a href="{{ url_for('admission_exam.candidate_detail', candidate_id=c.id) }}"
+                               class="btn btn-sm btn-outline-primary" title="View / manage">
+                                <i class="fas fa-eye"></i>
+                            </a>
+                            <form method="POST" class="d-inline"
+                                  action="{{ url_for('admission_exam.candidate_delete', candidate_id=c.id) }}"
+                                  onsubmit="return confirm('Delete application {{ c.application_id }} permanently? This cannot be undone.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete application">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="12" class="text-center text-muted py-4">No candidates found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% if candidates %}
+    <div class="d-flex justify-content-end mt-2">
+        <button type="submit" form="marksForm" class="btn btn-primary btn-sm">
+            <i class="fas fa-save me-1"></i>Save Marks
+        </button>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
 
@@ -212,6 +332,37 @@
 <script>
 document.getElementById('checkAll').addEventListener('change', function () {
     document.querySelectorAll('.row-check').forEach(cb => { cb.checked = this.checked; });
+});
+
+function parseMark(el) {
+    const v = (el.value || '').trim();
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+}
+
+function maybeAutoTotal(cid) {
+    const written = document.querySelector('.mark-written[data-cid="' + cid + '"]');
+    const viva = document.querySelector('.mark-viva[data-cid="' + cid + '"]');
+    const total = document.querySelector('.mark-total[data-cid="' + cid + '"]');
+    if (!written || !viva || !total) return;
+    if (total.dataset.manual === '1') return;
+    const w = parseMark(written);
+    const v = parseMark(viva);
+    if (w === null || v === null) return;
+    const sum = Math.round((w + v) * 100) / 100;
+    total.value = String(sum);
+}
+
+document.querySelectorAll('.mark-written, .mark-viva').forEach(function (el) {
+    el.addEventListener('input', function () {
+        maybeAutoTotal(el.dataset.cid);
+    });
+});
+document.querySelectorAll('.mark-total').forEach(function (el) {
+    el.addEventListener('input', function () {
+        el.dataset.manual = (el.value || '').trim() ? '1' : '0';
+    });
 });
 </script>
 {% endblock %}

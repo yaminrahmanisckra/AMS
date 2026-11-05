@@ -3621,6 +3621,80 @@ def _add_candidates_to_waiting_list(waiting_list, candidates):
     return added
 
 
+def _parse_optional_mark(raw):
+    """Parse a marks field; blank → None. Raises ValueError on invalid input."""
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    text = str(raw).strip()
+    if not text:
+        return None
+    return float(text)
+
+
+def _candidate_mark_value(candidate, field='total'):
+    """Return numeric mark for sorting/filtering; None if missing."""
+    key = {
+        'written': 'written_marks',
+        'viva': 'viva_marks',
+        'total': 'total_marks',
+    }.get(field, 'total_marks')
+    val = getattr(candidate, key, None)
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_candidate_marks(candidate, written_raw, viva_raw, total_raw, *, auto_total=True):
+    """Set mark fields on a candidate. Returns True if anything changed."""
+    written = _parse_optional_mark(written_raw)
+    viva = _parse_optional_mark(viva_raw)
+    total = _parse_optional_mark(total_raw)
+    if auto_total and total is None and written is not None and viva is not None:
+        total = round(written + viva, 4)
+    changed = (
+        candidate.written_marks != written
+        or candidate.viva_marks != viva
+        or candidate.total_marks != total
+    )
+    candidate.written_marks = written
+    candidate.viva_marks = viva
+    candidate.total_marks = total
+    return changed
+
+
+def _candidates_in_mark_range(candidates, *, field='total', min_mark=None, max_mark=None):
+    """Filter candidates with a mark in [min_mark, max_mark], highest first."""
+    rows = []
+    for c in candidates:
+        score = _candidate_mark_value(c, field)
+        if score is None:
+            continue
+        if min_mark is not None and score < min_mark:
+            continue
+        if max_mark is not None and score > max_mark:
+            continue
+        rows.append((score, c))
+    rows.sort(key=lambda item: (-item[0], item[1].application_id or ''))
+    return [c for _score, c in rows]
+
+
+def _replace_waiting_list_members(waiting_list, candidates_in_order):
+    """Clear a list and set members in the given merit order (1 = first)."""
+    AdmissionWaitingListMember.query.filter_by(waiting_list_id=waiting_list.id).delete()
+    for i, c in enumerate(candidates_in_order, start=1):
+        db.session.add(AdmissionWaitingListMember(
+            waiting_list_id=waiting_list.id,
+            candidate_id=c.id,
+            position=i,
+        ))
+    return len(candidates_in_order)
+
+
 def _renumber_waiting_list(waiting_list):
     members = (
         AdmissionWaitingListMember.query
@@ -4804,6 +4878,7 @@ def cycle_delete(cycle):
 @cycle_access_required
 def candidates_list(cycle):
     candidates, payment, status, search = _filter_cycle_candidates(cycle)
+    waiting_lists = _ensure_standard_merit_lists(cycle)
     return render_template(
         'admission_exam/admin_candidates.html',
         cycle=cycle,
@@ -4811,8 +4886,135 @@ def candidates_list(cycle):
         payment=payment,
         status=status,
         search=search,
-        waiting_lists=_cycle_waiting_lists(cycle),
+        waiting_lists=waiting_lists,
+        merit_lists_by_kind={
+            'viva': [wl for wl in waiting_lists if wl.kind_key == 'viva'],
+            'final': [wl for wl in waiting_lists if wl.kind_key == 'final'],
+            'waiting': [wl for wl in waiting_lists if wl.kind_key == 'waiting'],
+        },
     )
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/candidates/marks', methods=['POST'])
+@login_required
+@cycle_access_required
+def candidates_save_marks(cycle):
+    """Save written / viva / total marks from the candidates table."""
+    ids = request.form.getlist('mark_candidate_ids')
+    try:
+        ids = [int(i) for i in ids]
+    except ValueError:
+        ids = []
+    if not ids:
+        flash('No candidates to update.', 'warning')
+        return redirect(url_for(
+            'admission_exam.candidates_list', cycle_id=cycle.id,
+            payment=request.form.get('payment') or None,
+            status=request.form.get('status') or None,
+            search=request.form.get('search') or None,
+        ))
+    candidates = {
+        c.id: c
+        for c in AdmissionCandidate.query.filter(
+            AdmissionCandidate.id.in_(ids),
+            AdmissionCandidate.cycle_id == cycle.id,
+        ).all()
+    }
+    updated = 0
+    errors = 0
+    for cid in ids:
+        c = candidates.get(cid)
+        if not c:
+            continue
+        try:
+            if _apply_candidate_marks(
+                c,
+                request.form.get(f'written_{cid}'),
+                request.form.get(f'viva_{cid}'),
+                request.form.get(f'total_{cid}'),
+            ):
+                updated += 1
+        except ValueError:
+            errors += 1
+    db.session.commit()
+    if updated:
+        flash(f'Saved marks for {updated} candidate(s).', 'success')
+    elif not errors:
+        flash('No mark changes to save.', 'info')
+    if errors:
+        flash(f'{errors} row(s) had invalid numbers and were skipped.', 'danger')
+    return redirect(url_for(
+        'admission_exam.candidates_list', cycle_id=cycle.id,
+        payment=request.form.get('payment') or None,
+        status=request.form.get('status') or None,
+        search=request.form.get('search') or None,
+    ))
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/candidates/assign-by-marks', methods=['POST'])
+@login_required
+@cycle_access_required
+def candidates_assign_by_marks(cycle):
+    """One-click: put candidates in a mark range onto a merit/waiting list (sorted by marks)."""
+    try:
+        list_id = int(request.form.get('waiting_list_id') or 0)
+    except (TypeError, ValueError):
+        list_id = 0
+    waiting_list = (
+        AdmissionWaitingList.query.filter_by(id=list_id, cycle_id=cycle.id).first()
+        if list_id else None
+    )
+    if not waiting_list:
+        flash('Choose a viva / final / waiting list.', 'danger')
+        return redirect(url_for('admission_exam.candidates_list', cycle_id=cycle.id))
+
+    field = (request.form.get('mark_field') or 'total').strip().lower()
+    if field not in ('written', 'viva', 'total'):
+        field = 'total'
+    try:
+        min_raw = (request.form.get('min_mark') or '').strip()
+        max_raw = (request.form.get('max_mark') or '').strip()
+        min_mark = float(min_raw) if min_raw else None
+        max_mark = float(max_raw) if max_raw else None
+    except ValueError:
+        flash('Enter valid min/max mark numbers.', 'danger')
+        return redirect(url_for('admission_exam.candidates_list', cycle_id=cycle.id))
+    if min_mark is None and max_mark is None:
+        flash('Enter at least a minimum or maximum mark.', 'danger')
+        return redirect(url_for('admission_exam.candidates_list', cycle_id=cycle.id))
+    if min_mark is not None and max_mark is not None and min_mark > max_mark:
+        flash('Minimum mark cannot be greater than maximum mark.', 'danger')
+        return redirect(url_for('admission_exam.candidates_list', cycle_id=cycle.id))
+
+    scope = (request.form.get('scope') or 'filtered').strip().lower()
+    if scope == 'all':
+        pool = cycle.candidates.order_by(AdmissionCandidate.application_id).all()
+    else:
+        pool, _, _, _ = _filter_cycle_candidates(cycle)
+
+    matched = _candidates_in_mark_range(
+        pool, field=field, min_mark=min_mark, max_mark=max_mark,
+    )
+    replace = (request.form.get('replace_list') or '') in ('1', 'on', 'true', 'yes')
+    if replace:
+        count = _replace_waiting_list_members(waiting_list, matched)
+        db.session.commit()
+        flash(
+            f'Replaced “{waiting_list.name}” with {count} candidate(s) '
+            f'(sorted by {field} marks, highest first).',
+            'success' if count else 'warning',
+        )
+    else:
+        added = _add_candidates_to_waiting_list(waiting_list, matched)
+        db.session.commit()
+        flash(
+            f'Added {added} candidate(s) to “{waiting_list.name}” '
+            f'from the mark range ({len(matched) - added} already on the list).',
+            'success' if added else 'info',
+        )
+    return redirect(url_for(
+        'admission_exam.waiting_list_detail', cycle_id=cycle.id, list_id=waiting_list.id
+    ))
 
 
 @admission_exam_bp.route('/candidate/<int:candidate_id>')
@@ -5857,12 +6059,25 @@ def candidate_delete(candidate):
 
 # --- Export ----------------------------------------------------------------
 
+def _format_mark_cell(value):
+    if value is None:
+        return ''
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return ''
+    if num == int(num):
+        return int(num)
+    return round(num, 2)
+
+
 @admission_exam_bp.route('/cycle/<int:cycle_id>/export.xlsx')
 @login_required
 @cycle_access_required
 def export_candidates(cycle):
     from openpyxl import Workbook
 
+    candidates, payment, status, search = _filter_cycle_candidates(cycle)
     wb = Workbook()
     ws = wb.active
     ws.title = 'Candidates'
@@ -5871,11 +6086,13 @@ def export_candidates(cycle):
         'Application ID', 'Roll No', 'Full Name', 'Phone', 'Email',
         'Payment Method', 'MFS TxnID', 'MFS Sender Account',
         'Bank Slip / Txn No', 'Bank Slip Uploaded',
-        'Payment Status', 'Payment Note', 'Application Status', 'Applied At',
+        'Payment Status', 'Payment Note', 'Application Status',
+        'Written Marks', 'Viva Marks', 'Total Marks',
+        'Applied At',
     ]
     headers += [label for _key, label in extras]
     ws.append(headers)
-    for c in cycle.candidates.order_by(AdmissionCandidate.application_id).all():
+    for c in candidates:
         extra = _parse_extra_fields(c)
         method = (getattr(c, 'payment_method', None) or DEFAULT_PAYMENT_METHOD).strip().lower()
         row = [
@@ -5885,6 +6102,9 @@ def export_candidates(cycle):
             getattr(c, 'bank_slip_txn_no', None) or '',
             'Yes' if getattr(c, 'bank_slip_path', None) else '',
             c.payment_status, c.payment_note or '', c.application_status,
+            _format_mark_cell(c.written_marks),
+            _format_mark_cell(c.viva_marks),
+            _format_mark_cell(c.total_marks),
             format_bd(c.created_at, '%Y-%m-%d %H:%M', default=''),
         ]
         row += [extra.get(key, '') for key, _label in extras]
@@ -5894,9 +6114,97 @@ def export_candidates(cycle):
     wb.save(buffer)
     buffer.seek(0)
     safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', cycle.name).strip('_') or 'cycle'
+    suffix_bits = [b for b in (payment, status) if b]
+    suffix = ('_' + '_'.join(suffix_bits)) if suffix_bits else ''
     return send_file(buffer,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                     as_attachment=True, download_name=f'candidates_{safe_name}.xlsx')
+                     as_attachment=True, download_name=f'candidates_{safe_name}{suffix}.xlsx')
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/marks.xlsx')
+@login_required
+@cycle_access_required
+def export_candidates_marks_xlsx(cycle):
+    """Excel of marks for the current candidates filter (or all)."""
+    from openpyxl import Workbook
+
+    candidates, payment, status, search = _filter_cycle_candidates(cycle)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Marks'
+    ws.append([cycle.name, 'Candidate Marks'])
+    filter_bits = []
+    if payment:
+        filter_bits.append(f'Payment={payment}')
+    if status:
+        filter_bits.append(f'Status={status}')
+    if search:
+        filter_bits.append(f'Search={search}')
+    ws.append(['Filter', ', '.join(filter_bits) if filter_bits else 'All candidates'])
+    ws.append([])
+    ws.append([
+        'SL', 'Application ID', 'Roll No', 'Name', 'Phone',
+        'Payment', 'Status', 'Written', 'Viva', 'Total',
+    ])
+    for i, c in enumerate(candidates, start=1):
+        ws.append([
+            i,
+            c.application_id,
+            c.roll_no or '',
+            c.full_name,
+            c.phone or '',
+            c.payment_status or '',
+            c.application_status or '',
+            _format_mark_cell(c.written_marks),
+            _format_mark_cell(c.viva_marks),
+            _format_mark_cell(c.total_marks),
+        ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', cycle.name).strip('_') or 'cycle'
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'marks_{safe_name}.xlsx',
+    )
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/marks.pdf')
+@login_required
+@cycle_access_required
+def export_candidates_marks_pdf(cycle):
+    """PDF of marks for the current candidates filter (or all)."""
+    from utils.timezone import format_bd as _fmt
+
+    candidates, payment, status, search = _filter_cycle_candidates(cycle)
+    filter_bits = []
+    if payment:
+        filter_bits.append(f'Payment: {payment}')
+    if status:
+        filter_bits.append(f'Status: {status}')
+    if search:
+        filter_bits.append(f'Search: {search}')
+    html = render_template(
+        'admission_exam/candidates_marks_pdf.html',
+        cycle=cycle,
+        candidates=candidates,
+        tenant=current_tenant(),
+        filter_label=', '.join(filter_bits) if filter_bits else 'All candidates',
+        generated_at=_fmt(datetime.utcnow(), '%d %B %Y, %I:%M %p'),
+        logo_data_uri=_ku_logo_data_uri_for_list_pdf(),
+        chairman_name=_exam_committee_chairman_for_pdf(cycle)['name'],
+        chairman_designation=_admission_exam_committee_title(cycle),
+    )
+    pdf_bytes = _write_pdf(html)
+    safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', cycle.name).strip('_') or 'cycle'
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=f'marks_{safe_name}.pdf',
+    )
 
 
 @admission_exam_bp.route('/cycle/<int:cycle_id>/application-forms.pdf')

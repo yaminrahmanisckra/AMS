@@ -210,6 +210,23 @@ def _is_retake_remark(remark_value):
     return remark_normalized in {'retake', 're-retake', 're retake', 'reretake'}
 
 
+# Sentinel: retake with no historical relevant course — bind to current exam committee.
+NO_RELEVANT_SPECIAL_SENTINEL = '__no_relevant_special__'
+
+
+def _is_no_relevant_special(payload):
+    """True when retake should use the student's current year/term exam committee only."""
+    if not isinstance(payload, dict):
+        return False
+    if payload.get('no_relevant_special') in (True, 1, '1', 'true', 'True', 'yes', 'on'):
+        return True
+    for key in ('relevant_course_id', 'relevant_course_code'):
+        raw = str(payload.get(key) or '').strip()
+        if raw == NO_RELEVANT_SPECIAL_SENTINEL:
+            return True
+    return False
+
+
 def _course_code_lookup_key(course_code):
     return str(course_code or '').strip().replace(' ', '').lower()
 
@@ -4101,15 +4118,42 @@ def coordinator_save_student_registration():
                     'success': False,
                     'message': 'Retake/Re-retake registration requires running Session, Year, and Term.'
                 }), 400
+            row_is_special = _is_no_relevant_special(student_info if isinstance(student_info, dict) else {})
+            if not row_is_special and isinstance(data, dict):
+                row_is_special = _is_no_relevant_special({
+                    'no_relevant_special': data.get('no_relevant_special'),
+                    'relevant_course_id': relevant_course_id,
+                    'relevant_course_code': relevant_course_code,
+                })
+
             effective_relevant_mapping = row_relevant_mapping
-            if not effective_relevant_mapping['relevant_course_code']:
+            if not effective_relevant_mapping['relevant_course_code'] and not row_is_special:
                 effective_relevant_mapping = base_relevant_mapping
-            if is_retake and not effective_relevant_mapping['relevant_course_code']:
+
+            if is_retake and row_is_special:
+                # Bind subject to the student's current (running) exam committee.
+                if not session_name or not year or not term:
+                    return jsonify({
+                        'success': False,
+                        'message': (
+                            'No Relevant, Special case requires the student\'s current '
+                            'Session, Year, and Term.'
+                        ),
+                    }), 400
+                effective_relevant_mapping = {
+                    'relevant_course_id': None,
+                    'relevant_course_code': None,
+                    'relevant_academic_session': session_name,
+                    'relevant_year': year,
+                    'relevant_term': term,
+                }
+                row_use_relevant_for_committee = False
+            elif is_retake and not effective_relevant_mapping['relevant_course_code']:
                 return jsonify({
                     'success': False,
                     'message': f'Relevant course is required for retake/re-retake (Student ID: {student_id}).'
                 }), 400
-            if is_retake and (
+            elif is_retake and (
                 not effective_relevant_mapping['relevant_academic_session']
                 or not effective_relevant_mapping['relevant_year']
                 or not effective_relevant_mapping['relevant_term']
@@ -4130,11 +4174,14 @@ def coordinator_save_student_registration():
                     year=year,
                     term=term,
                 ).first()
-            effective_use_relevant_for_committee = _resolve_use_relevant_for_committee(
-                row_use_relevant_for_committee,
-                is_retake,
-                existing_value=(existing_row.use_relevant_for_committee if existing_row else None)
-            )
+            if is_retake and row_is_special:
+                effective_use_relevant_for_committee = False
+            else:
+                effective_use_relevant_for_committee = _resolve_use_relevant_for_committee(
+                    row_use_relevant_for_committee,
+                    is_retake,
+                    existing_value=(existing_row.use_relevant_for_committee if existing_row else None)
+                )
             if is_retake:
                 current_app.logger.info(
                     '[retake_context] coordinator_save_student_registration '

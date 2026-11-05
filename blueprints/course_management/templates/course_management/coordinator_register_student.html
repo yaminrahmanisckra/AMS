@@ -186,6 +186,48 @@ let currentSourceYear = '';
 let currentSourceTerm = '';
 let currentCourse = null;
 let currentRelevantCourse = null;
+const NO_RELEVANT_SPECIAL = '__no_relevant_special__';
+
+function appendNoRelevantSpecialOption(relevantSel) {
+    if (!relevantSel) return;
+    const exists = Array.from(relevantSel.options).some(o => o.value === NO_RELEVANT_SPECIAL);
+    if (exists) return;
+    const opt = new Option('No Relevant, Special case', NO_RELEVANT_SPECIAL);
+    opt.dataset.special = '1';
+    opt.dataset.code = '';
+    opt.dataset.name = 'No Relevant, Special case';
+    // Insert after the placeholder (index 0) when present.
+    if (relevantSel.options.length > 0) {
+        relevantSel.add(opt, 1);
+    } else {
+        relevantSel.appendChild(opt);
+    }
+}
+
+function runningContextReady() {
+    return !!(document.getElementById('runningSession').value
+        && document.getElementById('runningYear').value
+        && document.getElementById('runningTerm').value);
+}
+
+function seedRelevantCourseSelectForSpecial() {
+    const relevantSel = document.getElementById('relevantCourseSelect');
+    if (!relevantSel) return;
+    if (!runningContextReady()) {
+        resetRelevantCourse();
+        return;
+    }
+    // Allow picking special case even before loading historical relevant courses.
+    if (relevantSel.disabled || !relevantSel.options.length
+        || (relevantSel.options.length === 1 && !relevantSel.options[0].value)) {
+        relevantSel.innerHTML = '<option value="">Select relevant course (for retake/re-retake)</option>';
+        appendNoRelevantSpecialOption(relevantSel);
+        relevantSel.disabled = false;
+    } else {
+        appendNoRelevantSpecialOption(relevantSel);
+        relevantSel.disabled = false;
+    }
+}
 let registrationBlocks = []; // [{ running:{session,year,term}, source:{year,term}, course:{...}, relevant:{...}, students:[...] }, ...]
 
 const statusBox = document.getElementById('registrationStatus');
@@ -231,9 +273,15 @@ function resetCourseAndCurriculum() {
 
 function resetRelevantCourse() {
     const relevantSel = document.getElementById('relevantCourseSelect');
-    relevantSel.innerHTML = '<option value="">Select relevant session/year/term first</option>';
-    relevantSel.disabled = true;
     currentRelevantCourse = null;
+    if (runningContextReady()) {
+        relevantSel.innerHTML = '<option value="">Select relevant course (for retake/re-retake)</option>';
+        appendNoRelevantSpecialOption(relevantSel);
+        relevantSel.disabled = false;
+    } else {
+        relevantSel.innerHTML = '<option value="">Select student current session/year/term first</option>';
+        relevantSel.disabled = true;
+    }
 }
 
 function resetRelevantYearTermOptions() {
@@ -403,6 +451,18 @@ document.getElementById('runningSession').addEventListener('change', function() 
                 });
             }
         });
+    seedRelevantCourseSelectForSpecial();
+});
+
+['runningYear', 'runningTerm'].forEach(function(id) {
+    document.getElementById(id).addEventListener('change', function() {
+        seedRelevantCourseSelectForSpecial();
+        if (currentRelevantCourse && currentRelevantCourse.special) {
+            currentRelevantCourse.relevant_academic_session = document.getElementById('runningSession').value;
+            currentRelevantCourse.relevant_year = document.getElementById('runningYear').value;
+            currentRelevantCourse.relevant_term = document.getElementById('runningTerm').value;
+        }
+    });
 });
 
 function loadCourses() {
@@ -483,20 +543,22 @@ function loadRelevantCourses() {
     const relevantTerm = document.getElementById('relevantTerm').value;
     const relevantSel = document.getElementById('relevantCourseSelect');
     if (!relevantSession || !relevantYear || !relevantTerm) {
-        resetRelevantCourse();
+        seedRelevantCourseSelectForSpecial();
         return;
     }
     relevantSel.disabled = true;
     relevantSel.innerHTML = '<option value="">Loading relevant courses…</option>';
+    appendNoRelevantSpecialOption(relevantSel);
 
     const url = '/course-management/coordinator/register-student/api/relevant-courses?session=' + encodeURIComponent(relevantSession) +
         '&year=' + encodeURIComponent(relevantYear) + '&term=' + encodeURIComponent(relevantTerm);
     fetch(url)
         .then(r => r.json())
         .then(data => {
+            relevantSel.innerHTML = '<option value="">Select relevant course (for retake/re-retake)</option>';
+            appendNoRelevantSpecialOption(relevantSel);
             if (data.success && data.courses && data.courses.length) {
                 const sortedRelevantCourses = sortCoursesByCode(data.courses);
-                relevantSel.innerHTML = '<option value="">Select relevant course (for retake/re-retake)</option>';
                 sortedRelevantCourses.forEach(c => {
                     const title = c.course_code + ' – ' + c.course_name + ' [' + (c.relevant_academic_session || '-') + ']';
                     const opt = new Option(title, c.id);
@@ -507,14 +569,12 @@ function loadRelevantCourses() {
                     opt.dataset.term = c.relevant_term || '';
                     relevantSel.appendChild(opt);
                 });
-                relevantSel.disabled = false;
-            } else {
-                relevantSel.innerHTML = '<option value="">No relevant courses found</option>';
-                relevantSel.disabled = false;
             }
+            relevantSel.disabled = false;
         })
         .catch(() => {
             relevantSel.innerHTML = '<option value="">Failed to load relevant courses</option>';
+            appendNoRelevantSpecialOption(relevantSel);
             relevantSel.disabled = false;
         });
 }
@@ -662,10 +722,29 @@ document.getElementById('relevantCourseSelect').addEventListener('change', funct
         currentRelevantCourse = null;
         return;
     }
+    if (opt.value === NO_RELEVANT_SPECIAL) {
+        if (!runningContextReady()) {
+            alert('Set the student’s current Session, Year, and Term first (top card).');
+            this.value = '';
+            currentRelevantCourse = null;
+            return;
+        }
+        currentRelevantCourse = {
+            id: NO_RELEVANT_SPECIAL,
+            code: '',
+            name: 'No Relevant, Special case',
+            special: true,
+            relevant_academic_session: document.getElementById('runningSession').value,
+            relevant_year: document.getElementById('runningYear').value,
+            relevant_term: document.getElementById('runningTerm').value
+        };
+        return;
+    }
     currentRelevantCourse = {
         id: opt.value,
         code: opt.dataset.code || '',
         name: opt.dataset.name || '',
+        special: false,
         relevant_academic_session: opt.dataset.session || '',
         relevant_year: opt.dataset.year || '',
         relevant_term: opt.dataset.term || ''
@@ -775,14 +854,24 @@ document.getElementById('btnAddRegistration').addEventListener('click', function
     }));
     const hasRetake = students.some(s => s.remark === 'Retake' || s.remark === 'Re-retake');
     if (hasRetake && !currentRelevantCourse) {
-        alert('Select a Relevant Course for retake/re-retake students.');
+        alert('Select a Relevant Course for retake/re-retake students (or choose “No Relevant, Special case”).');
         return;
+    }
+    if (hasRetake && currentRelevantCourse && currentRelevantCourse.special && !runningContextReady()) {
+        alert('No Relevant, Special case needs the student’s current Session, Year, and Term.');
+        return;
+    }
+    const relevantForBlock = currentRelevantCourse ? Object.assign({}, currentRelevantCourse) : null;
+    if (relevantForBlock && relevantForBlock.special) {
+        relevantForBlock.relevant_academic_session = currentSession;
+        relevantForBlock.relevant_year = currentYear;
+        relevantForBlock.relevant_term = currentTerm;
     }
     registrationBlocks.push({
         running: { session: currentSession, year: currentYear, term: currentTerm },
         source: { year: currentSourceYear, term: currentSourceTerm },
         course: Object.assign({}, currentCourse),
-        relevant: currentRelevantCourse ? Object.assign({}, currentRelevantCourse) : null,
+        relevant: relevantForBlock,
         students: students
     });
     renderList();
@@ -812,7 +901,11 @@ function renderList() {
             ' <span class="badge bg-info">' + block.students.length + ' student(s)</span>' +
             ' <span class="badge bg-secondary ms-1">Running: ' + block.running.year + ' / ' + block.running.term + '</span>' +
             ' <span class="badge bg-dark ms-1">Source: ' + (block.source.year || '-') + ' / ' + (block.source.term || '-') + '</span>' +
-            (block.relevant ? ' <span class="badge bg-primary ms-1">Relevant: ' + block.relevant.code + ' [' + (block.relevant.relevant_academic_session || '-') + ']</span>' : '') +
+            (block.relevant
+                ? (block.relevant.special
+                    ? ' <span class="badge bg-warning text-dark ms-1">No Relevant, Special case → current committee</span>'
+                    : ' <span class="badge bg-primary ms-1">Relevant: ' + block.relevant.code + ' [' + (block.relevant.relevant_academic_session || '-') + ']</span>')
+                : '') +
             '</span>' +
             '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeBlock(' + idx + ')" title="Remove from list"><i class="fas fa-trash me-1"></i>Remove</button>';
         ul.appendChild(li);
@@ -836,6 +929,7 @@ document.getElementById('saveAllBtn').addEventListener('click', async function()
     for (let i = 0; i < registrationBlocks.length; i++) {
         const block = registrationBlocks[i];
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>' + (i + 1) + '/' + registrationBlocks.length + '…';
+        const isSpecialRelevant = !!(block.relevant && block.relevant.special);
         const body = {
             course_id: block.course.id,
             course_code: block.course.code,
@@ -845,23 +939,41 @@ document.getElementById('saveAllBtn').addEventListener('click', async function()
             term: block.running.term,
             source_year: block.source.year,
             source_term: block.source.term,
-            relevant_course_id: block.relevant ? block.relevant.id : null,
-            relevant_course_code: block.relevant ? block.relevant.code : '',
-            relevant_academic_session: block.relevant ? block.relevant.relevant_academic_session : '',
-            relevant_year: block.relevant ? block.relevant.relevant_year : '',
-            relevant_term: block.relevant ? block.relevant.relevant_term : '',
+            no_relevant_special: isSpecialRelevant,
+            relevant_course_id: isSpecialRelevant ? null : (block.relevant ? block.relevant.id : null),
+            relevant_course_code: isSpecialRelevant ? '' : (block.relevant ? block.relevant.code : ''),
+            relevant_academic_session: isSpecialRelevant
+                ? block.running.session
+                : (block.relevant ? block.relevant.relevant_academic_session : ''),
+            relevant_year: isSpecialRelevant
+                ? block.running.year
+                : (block.relevant ? block.relevant.relevant_year : ''),
+            relevant_term: isSpecialRelevant
+                ? block.running.term
+                : (block.relevant ? block.relevant.relevant_term : ''),
             students: block.students.map(s => {
                 const isRetake = s.remark === 'Retake' || s.remark === 'Re-retake';
+                const useSpecial = isRetake && isSpecialRelevant;
                 return {
                     student_id: s.id,
                     remark: s.remark,
                     carry_on: s.carryOn || false,
-                    use_relevant_for_committee: isRetake ? (s.useRelevantForCommittee !== false) : false,
-                    relevant_course_id: isRetake && block.relevant ? block.relevant.id : null,
-                    relevant_course_code: isRetake && block.relevant ? block.relevant.code : '',
-                    relevant_academic_session: isRetake && block.relevant ? block.relevant.relevant_academic_session : '',
-                    relevant_year: isRetake && block.relevant ? block.relevant.relevant_year : '',
-                    relevant_term: isRetake && block.relevant ? block.relevant.relevant_term : ''
+                    no_relevant_special: useSpecial,
+                    // Special case always uses current committee (merge OFF).
+                    use_relevant_for_committee: useSpecial
+                        ? false
+                        : (isRetake ? (s.useRelevantForCommittee !== false) : false),
+                    relevant_course_id: useSpecial ? null : (isRetake && block.relevant ? block.relevant.id : null),
+                    relevant_course_code: useSpecial ? '' : (isRetake && block.relevant ? block.relevant.code : ''),
+                    relevant_academic_session: useSpecial
+                        ? block.running.session
+                        : (isRetake && block.relevant ? block.relevant.relevant_academic_session : ''),
+                    relevant_year: useSpecial
+                        ? block.running.year
+                        : (isRetake && block.relevant ? block.relevant.relevant_year : ''),
+                    relevant_term: useSpecial
+                        ? block.running.term
+                        : (isRetake && block.relevant ? block.relevant.relevant_term : '')
                 };
             })
         };

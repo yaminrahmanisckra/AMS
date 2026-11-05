@@ -179,6 +179,19 @@
         overflow: hidden;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
+    /* Keep Add User modal body scrollable when Teacher fields expand */
+    #addUserModal .modal-dialog-scrollable {
+        height: calc(100% - 1rem);
+        max-height: calc(100vh - 1rem);
+    }
+    #addUserModal .modal-dialog-scrollable .modal-content {
+        max-height: 100%;
+        overflow: hidden;
+    }
+    #addUserModal .modal-dialog-scrollable .modal-body {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
     .admin-dash .panel-toolbar {
         display: flex;
         flex-wrap: wrap;
@@ -693,14 +706,14 @@
 <!-- Add New User Modal -->
 <div class="modal fade" id="addUserModal" tabindex="-1" aria-labelledby="addUserModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
+        {# form is modal-content so Bootstrap scrollable flex stays intact when teacher fields expand #}
+        <form class="modal-content" id="addUserForm" method="POST" action="{{ url_for('admin_create_user') }}">
             <div class="modal-header py-2">
                 <h5 class="modal-title fs-6" id="addUserModalLabel">
                     <i class="fas fa-user-plus me-2"></i>Add New User
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form id="addUserForm" method="POST" action="{{ url_for('admin_create_user') }}">
                 <div class="modal-body py-3">
                     <div class="row g-2">
                         <div class="col-md-6">
@@ -778,14 +791,13 @@
                         </div>
                     </div>
                 </div>
-                <div class="modal-footer py-2">
-                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-sm btn-primary">
-                        <i class="fas fa-save me-1"></i>Create User
-                    </button>
-                </div>
-            </form>
-        </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-sm btn-primary">
+                    <i class="fas fa-save me-1"></i>Create User
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 

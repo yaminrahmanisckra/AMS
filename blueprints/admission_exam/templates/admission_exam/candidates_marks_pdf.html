@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Marks – {{ cycle.name }}</title>
+<style>
+@page { size: A4; margin: 16mm 12mm 16mm 12mm; }
+body {
+    font-family: "Noto Sans Bengali", "Kalpurush", "Noto Sans", DejaVu Sans, sans-serif;
+    font-size: 10pt;
+    color: #111;
+    line-height: 1.3;
+}
+.header { text-align: center; margin-bottom: 8pt; }
+.logo { display: block; width: 18mm; height: auto; margin: 0 auto 1.5pt; }
+.uni { font-size: 13pt; font-weight: 700; margin: 0; }
+.disc { font-size: 11pt; margin: 1pt 0 0; }
+.cycle { font-size: 12pt; font-weight: 700; margin: 5pt 0 1pt; }
+.sub { font-size: 10pt; color: #444; margin: 0; }
+.meta { font-size: 9pt; color: #666; margin-top: 3pt; }
+table { width: 100%; border-collapse: collapse; margin-top: 8pt; }
+th, td { border: 1px solid #333; padding: 4pt 5pt; text-align: left; vertical-align: top; }
+th { background: #f0f0f0; font-size: 9pt; font-weight: 700; }
+td { font-size: 9.5pt; }
+.sl, .num { text-align: center; width: 9%; }
+.roll { width: 12%; }
+.appid { width: 16%; }
+.sign-block { margin-top: 24pt; width: 100%; }
+.sign-block td { border: none; padding: 0; vertical-align: bottom; }
+.sign-spacer { width: 52%; }
+.sign-box { width: 48%; text-align: center; }
+.sign-space { height: 20mm; }
+.sign-line {
+    border-top: 0.7pt solid #222; width: 70%; margin: 0 auto 6pt;
+    padding-top: 4pt; font-size: 9pt; color: #555;
+}
+.sign-name { font-size: 10.5pt; font-weight: 700; margin: 0; min-height: 14pt; }
+.sign-role { font-size: 9.5pt; font-weight: 700; margin: 2pt 0 0; }
+.footer { margin-top: 14pt; font-size: 8.5pt; color: #555; text-align: center; }
+</style>
+</head>
+<body>
+<div class="header">
+    {% if logo_data_uri %}
+    <img class="logo" src="{{ logo_data_uri }}" alt="Khulna University">
+    {% endif %}
+    <p class="uni">{{ tenant.university_name }}</p>
+    <p class="disc">{{ tenant.name }}</p>
+    <p class="cycle">{{ cycle.name }}</p>
+    <p class="sub"><strong>Candidate Marks</strong></p>
+    <p class="sub">{{ filter_label }}</p>
+    <p class="meta">Total: {{ candidates|length }} · Generated: {{ generated_at }}</p>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th class="sl">SL</th>
+            <th class="roll">Roll No.</th>
+            <th class="appid">Application ID</th>
+            <th>Name</th>
+            <th class="num">Written</th>
+            <th class="num">Viva</th>
+            <th class="num">Total</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for c in candidates %}
+        <tr>
+            <td class="sl">{{ loop.index }}</td>
+            <td class="roll">{{ c.roll_no or '—' }}</td>
+            <td class="appid">{{ c.application_id }}</td>
+            <td>{{ c.full_name }}</td>
+            <td class="num">{% if c.written_marks is not none %}{{ c.written_marks }}{% else %}—{% endif %}</td>
+            <td class="num">{% if c.viva_marks is not none %}{{ c.viva_marks }}{% else %}—{% endif %}</td>
+            <td class="num">{% if c.total_marks is not none %}{{ c.total_marks }}{% else %}—{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align:center; padding: 14pt;">No candidates in this filter.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<table class="sign-block">
+    <tr>
+        <td class="sign-spacer"></td>
+        <td class="sign-box">
+            <div class="sign-space"></div>
+            <div class="sign-line">Signature</div>
+            {% if chairman_name %}
+            <p class="sign-name">{{ chairman_name }}</p>
+            {% else %}
+            <p class="sign-name" style="border-bottom: 0.6pt solid #999; width: 70%; margin: 0 auto 4pt; min-height: 14pt;"></p>
+            {% endif %}
+            <p class="sign-role">{{ chairman_designation }}</p>
+        </td>
+    </tr>
+</table>
+
+<p class="footer">Published by the Examination Committee · {{ tenant.display_with_university }}</p>
+</body>
+</html>

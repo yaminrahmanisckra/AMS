@@ -245,6 +245,11 @@ class AdmissionCandidate(db.Model):
     application_status = db.Column(db.String(20), nullable=False, default='submitted')
     roll_no = db.Column(db.String(30), nullable=True)
 
+    # Admission exam marks (committee entry)
+    written_marks = db.Column(db.Float, nullable=True)
+    viva_marks = db.Column(db.Float, nullable=True)
+    total_marks = db.Column(db.Float, nullable=True)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

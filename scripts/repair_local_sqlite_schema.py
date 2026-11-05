@@ -110,6 +110,11 @@ PATCHES = {
     'admission_waiting_list': [
         ('list_kind', "list_kind VARCHAR(20) NOT NULL DEFAULT 'waiting'"),
     ],
+    'admission_candidate': [
+        ('written_marks', 'written_marks REAL'),
+        ('viva_marks', 'viva_marks REAL'),
+        ('total_marks', 'total_marks REAL'),
+    ],
 }
 
 WINDOW_BACKFILL_TABLES = [
