@@ -469,6 +469,120 @@ def _payment_accounts_map(cycle):
     }
 
 
+def _rupantor_client_host():
+    return (request.host or '').split(':')[0].strip()
+
+
+def _cycle_fee_amount(cycle):
+    from .rupantorpay import parse_fee_amount
+    return parse_fee_amount(getattr(cycle, 'fee_amount', None))
+
+
+def _apply_rupantor_verified_payment(candidate, cycle, verified):
+    """
+    Mark candidate paid from a verified RupantorPay payload.
+    Returns (ok: bool, message: str).
+    """
+    from .rupantorpay import amounts_match
+
+    if candidate.payment_status == 'verified':
+        return True, 'Payment already verified.'
+
+    expected = _cycle_fee_amount(cycle)
+    if expected is None:
+        return False, 'Application fee is not configured for this cycle.'
+    if not amounts_match(expected, verified.get('amount')):
+        return False, 'Paid amount does not match the application fee.'
+
+    meta = verified.get('metadata') or {}
+    meta_app = str(meta.get('application_id') or '').strip()
+    if meta_app and meta_app != candidate.application_id:
+        return False, 'Payment does not belong to this application.'
+    meta_cid = meta.get('candidate_id')
+    try:
+        meta_cid_int = int(meta_cid) if meta_cid is not None and str(meta_cid).strip() != '' else None
+    except (TypeError, ValueError):
+        meta_cid_int = None
+    if meta_cid_int is not None and meta_cid_int != candidate.id:
+        return False, 'Payment does not belong to this application.'
+
+    method = (verified.get('payment_method') or '').strip().lower()
+    if method in MFS_PAYMENT_METHODS:
+        candidate.payment_method = method
+    elif not is_mfs_payment_method(candidate.payment_method):
+        candidate.payment_method = 'bkash'
+
+    trx = (verified.get('trx_id') or verified.get('transaction_id') or '').strip()
+    candidate.rocket_txn_id = trx or candidate.rocket_txn_id
+    if not candidate.rocket_sender_phone:
+        candidate.rocket_sender_phone = (candidate.phone or '').strip() or None
+    candidate.bank_slip_txn_no = None
+    candidate.bank_slip_path = None
+    candidate.payment_status = 'verified'
+    candidate.payment_note = 'RupantorPay auto'
+    candidate.verified_by = None
+    candidate.verified_at = datetime.utcnow()
+    return True, 'Payment verified successfully.'
+
+
+def _verify_and_apply_rupantor_payment(cycle, candidate, transaction_id):
+    from .rupantorpay import RupantorPayError, verify_payment
+
+    try:
+        verified = verify_payment(transaction_id, client_host=_rupantor_client_host())
+    except RupantorPayError as exc:
+        current_app.logger.warning('RupantorPay verify failed: %s', exc)
+        return False, str(exc) or 'Payment verification failed.'
+
+    status = (verified.get('status') or '').upper()
+    if status != 'COMPLETED':
+        return False, f'Payment status is {status or "unknown"}; not marked verified yet.'
+
+    ok, message = _apply_rupantor_verified_payment(candidate, cycle, verified)
+    if ok:
+        db.session.commit()
+    return ok, message
+
+
+def _find_candidate_for_rupantor_verify(cycle, verified):
+    meta = verified.get('metadata') or {}
+    cid = meta.get('candidate_id')
+    app_id = str(meta.get('application_id') or '').strip()
+    candidate = None
+    if cid is not None and str(cid).strip() != '':
+        try:
+            candidate = AdmissionCandidate.query.filter_by(
+                id=int(cid), cycle_id=cycle.id
+            ).first()
+        except (TypeError, ValueError):
+            candidate = None
+    if not candidate and app_id:
+        candidate = AdmissionCandidate.query.filter_by(
+            cycle_id=cycle.id, application_id=app_id
+        ).first()
+    return candidate
+
+
+def _extract_rupantor_transaction_id():
+    txn = (
+        request.args.get('transactionId')
+        or request.args.get('transaction_id')
+        or request.form.get('transactionId')
+        or request.form.get('transaction_id')
+        or ''
+    ).strip()
+    if txn:
+        return txn
+    payload = request.get_json(silent=True) or {}
+    if isinstance(payload, dict):
+        return str(
+            payload.get('transactionId')
+            or payload.get('transaction_id')
+            or ''
+        ).strip()
+    return ''
+
+
 def _bank_slip_abs_path(candidate):
     return _resolve_upload_path(getattr(candidate, 'bank_slip_path', None))
 
@@ -3935,9 +4049,6 @@ def apply_form(token):
         phone = (request.form.get('phone') or '').strip()
         email = (request.form.get('email') or '').strip()
         payment_method = _normalize_payment_method(request.form.get('payment_method'), cycle)
-        mfs_labels = mfs_field_labels(payment_method)
-        rocket_txn_id = (request.form.get('rocket_txn_id') or '').strip()
-        rocket_sender_phone = (request.form.get('rocket_sender_phone') or '').strip()
         bank_slip_txn_no = (request.form.get('bank_slip_txn_no') or '').strip()
         photo = request.files.get('photo')
         bank_slip = request.files.get('bank_slip')
@@ -3958,10 +4069,9 @@ def apply_form(token):
         if signature_required and (not candidate_signature or not candidate_signature.filename):
             errors.append('Signature of the applicant is required.')
         if is_mfs_payment_method(payment_method):
-            if not rocket_txn_id:
-                errors.append(f'{mfs_labels["txn"]} is required.')
-            if not rocket_sender_phone:
-                errors.append(f'{mfs_labels["sender"]} is required.')
+            # Online via RupantorPay after submit — no manual TxnID at apply time.
+            if _cycle_fee_amount(cycle) is None:
+                errors.append('Online payment is unavailable because the application fee is not set.')
         elif payment_method == 'agrani_bank':
             if not bank_slip_txn_no:
                 errors.append('Bank slip / transaction number is required.')
@@ -4023,7 +4133,6 @@ def apply_form(token):
                 )
                 return _render_apply(request.form)
 
-        use_mfs = is_mfs_payment_method(payment_method)
         pin = _generate_pin()
         candidate = AdmissionCandidate(
             cycle_id=cycle.id,
@@ -4037,8 +4146,8 @@ def apply_form(token):
                 _collect_extra_fields(request.form, cycle=cycle), ensure_ascii=False
             ),
             payment_method=payment_method,
-            rocket_txn_id=rocket_txn_id or None if use_mfs else None,
-            rocket_sender_phone=rocket_sender_phone or None if use_mfs else None,
+            rocket_txn_id=None,
+            rocket_sender_phone=None,
             bank_slip_txn_no=bank_slip_txn_no or None if payment_method == 'agrani_bank' else None,
             bank_slip_path=bank_slip_path if payment_method == 'agrani_bank' else None,
             payment_status='pending',
@@ -4059,9 +4168,16 @@ def apply_form(token):
 
         session.permanent = True
         session[CANDIDATE_SESSION_KEY] = candidate.id
-        return render_template('admission_exam/confirmation.html', cycle=cycle,
-                               candidate=candidate, pin=pin,
-                               payment_method_labels=PAYMENT_METHOD_LABELS)
+        return render_template(
+            'admission_exam/confirmation.html',
+            cycle=cycle,
+            candidate=candidate,
+            pin=pin,
+            payment_method_labels=PAYMENT_METHOD_LABELS,
+            mfs_payment_methods=sorted(MFS_PAYMENT_METHODS),
+            online_pay_available=bool(_cycle_fee_amount(cycle)),
+            fee_amount_display=cycle.fee_amount,
+        )
 
     return _render_apply({})
 
@@ -4141,6 +4257,8 @@ def candidate_dashboard(cycle, candidate):
         payment_accounts=_payment_accounts_map(cycle),
         mfs_labels=mfs_field_labels(candidate.payment_method),
         bank_slip_max_label=BANK_SLIP_MAX_SIZE_LABEL,
+        fee_amount_display=cycle.fee_amount,
+        online_pay_available=bool(_cycle_fee_amount(cycle)),
         published_merit_lists=[
             {'list': wl, 'count': wl.members.count(), 'kind_label': wl.kind_label}
             for wl in published_lists
@@ -4165,17 +4283,19 @@ def candidate_update_payment(cycle, candidate):
         request.form.get('payment_method') or candidate.payment_method, cycle
     )
     if is_mfs_payment_method(payment_method):
-        labels = mfs_field_labels(payment_method)
-        rocket_txn_id = (request.form.get('rocket_txn_id') or '').strip()
-        rocket_sender_phone = (request.form.get('rocket_sender_phone') or '').strip()
-        if not rocket_txn_id or not rocket_sender_phone:
-            flash(f'Both {labels["txn"]} and {labels["sender"]} are required.', 'danger')
-            return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+        # Switch to online MFS; actual payment happens via RupantorPay checkout.
         candidate.payment_method = payment_method
-        candidate.rocket_txn_id = rocket_txn_id
-        candidate.rocket_sender_phone = rocket_sender_phone
+        candidate.rocket_txn_id = None
+        candidate.rocket_sender_phone = None
         candidate.bank_slip_txn_no = None
         candidate.bank_slip_path = None
+        candidate.payment_status = 'pending'
+        candidate.payment_note = None
+        candidate.verified_by = None
+        candidate.verified_at = None
+        db.session.commit()
+        flash('Payment method updated. Use Pay Online to complete bKash / Nagad / Rocket payment.', 'success')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
     else:
         bank_slip_txn_no = (request.form.get('bank_slip_txn_no') or '').strip()
         bank_slip = request.files.get('bank_slip')
@@ -4203,6 +4323,123 @@ def candidate_update_payment(cycle, candidate):
     db.session.commit()
     flash('Payment information updated. It will be verified by the committee.', 'success')
     return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+
+
+@admission_exam_bp.route('/apply/<token>/pay/online', methods=['POST'])
+@candidate_required
+def candidate_pay_online(cycle, candidate):
+    """Start RupantorPay checkout for MFS (bKash / Nagad / Rocket)."""
+    from .rupantorpay import RupantorPayError, create_checkout, is_configured
+
+    if candidate.payment_status == 'verified':
+        flash('Payment is already verified.', 'info')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+
+    method = _normalize_payment_method(
+        request.form.get('payment_method') or candidate.payment_method, cycle
+    )
+    if not is_mfs_payment_method(method):
+        flash('Online payment is only for bKash, Nagad, or Rocket.', 'danger')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+
+    fee = _cycle_fee_amount(cycle)
+    if fee is None:
+        flash('Application fee is not configured. Contact the admission office.', 'danger')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+    if not is_configured():
+        flash('Online payment is temporarily unavailable. Please try again later.', 'danger')
+        current_app.logger.error('RUPANTORPAY_API_KEY is not set')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+
+    candidate.payment_method = method
+    candidate.payment_status = 'pending'
+    candidate.payment_note = None
+    candidate.verified_by = None
+    candidate.verified_at = None
+    db.session.commit()
+
+    token = cycle.public_token
+    success_url = url_for('admission_exam.candidate_pay_success', token=token, _external=True)
+    cancel_url = url_for('admission_exam.candidate_pay_cancel', token=token, _external=True)
+    webhook_url = url_for('admission_exam.candidate_pay_webhook', token=token, _external=True)
+    metadata = {
+        'application_id': candidate.application_id,
+        'candidate_id': candidate.id,
+        'cycle_id': cycle.id,
+        'preferred_method': method,
+    }
+    try:
+        payment_url = create_checkout(
+            fullname=candidate.full_name,
+            email=candidate.email or f'{candidate.application_id}@admission.local',
+            amount=fee,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            webhook_url=webhook_url,
+            metadata=metadata,
+            client_host=_rupantor_client_host(),
+        )
+    except RupantorPayError as exc:
+        current_app.logger.warning('RupantorPay checkout failed: %s', exc)
+        flash('Could not start online payment. Please try again.', 'danger')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=token))
+
+    return redirect(payment_url)
+
+
+@admission_exam_bp.route('/apply/<token>/pay/success', methods=['GET'])
+@candidate_required
+def candidate_pay_success(cycle, candidate):
+    txn = _extract_rupantor_transaction_id()
+    if not txn:
+        flash('Missing payment transaction ID. If you paid, wait a moment or contact the office.', 'warning')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+
+    ok, message = _verify_and_apply_rupantor_payment(cycle, candidate, txn)
+    flash(message, 'success' if ok else 'warning')
+    return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+
+
+@admission_exam_bp.route('/apply/<token>/pay/cancel', methods=['GET'])
+@candidate_required
+def candidate_pay_cancel(cycle, candidate):
+    flash('Online payment was cancelled. You can try again when ready.', 'info')
+    return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+
+
+@admission_exam_bp.route('/apply/<token>/pay/webhook', methods=['POST', 'GET'])
+def candidate_pay_webhook(token):
+    """Server-to-server notification from RupantorPay (CSRF-exempt via app init)."""
+    from .rupantorpay import RupantorPayError, verify_payment
+
+    cycle, disabled = _public_cycle_by_token(token)
+    if disabled:
+        return jsonify(ok=False, error='cycle_disabled'), 403
+
+    txn = _extract_rupantor_transaction_id()
+    if not txn:
+        return jsonify(ok=False, error='missing_transaction_id'), 400
+
+    try:
+        verified = verify_payment(txn, client_host=_rupantor_client_host())
+    except RupantorPayError as exc:
+        current_app.logger.warning('RupantorPay webhook verify failed: %s', exc)
+        return jsonify(ok=False, error='verify_failed'), 400
+
+    if (verified.get('status') or '').upper() != 'COMPLETED':
+        return jsonify(ok=True, status=verified.get('status')), 200
+
+    candidate = _find_candidate_for_rupantor_verify(cycle, verified)
+    if not candidate:
+        current_app.logger.warning(
+            'RupantorPay webhook: no candidate for txn=%s cycle=%s', txn, cycle.id
+        )
+        return jsonify(ok=False, error='candidate_not_found'), 404
+
+    ok, message = _apply_rupantor_verified_payment(candidate, cycle, verified)
+    if ok:
+        db.session.commit()
+    return jsonify(ok=ok, message=message), (200 if ok else 400)
 
 
 @admission_exam_bp.route('/apply/<token>/photo')

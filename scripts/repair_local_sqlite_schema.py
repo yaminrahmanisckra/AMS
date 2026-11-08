@@ -115,6 +115,9 @@ PATCHES = {
         ('viva_marks', 'viva_marks REAL'),
         ('total_marks', 'total_marks REAL'),
     ],
+    'users': [
+        ('dashboard_card_order', 'dashboard_card_order TEXT'),
+    ],
 }
 
 WINDOW_BACKFILL_TABLES = [

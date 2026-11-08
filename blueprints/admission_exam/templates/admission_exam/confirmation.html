@@ -43,14 +43,27 @@
                     <tr><th>Slip / Transaction No.</th><td>{{ candidate.bank_slip_txn_no or '—' }}</td></tr>
                     <tr><th>Deposit Slip</th><td>{% if candidate.bank_slip_path %}Uploaded{% else %}—{% endif %}</td></tr>
                     {% else %}
-                    <tr><th>Transaction ID</th><td>{{ candidate.rocket_txn_id or '—' }}</td></tr>
-                    <tr><th>Sender Account</th><td>{{ candidate.rocket_sender_phone or '—' }}</td></tr>
+                    <tr><th>Online Payment</th><td>Pay from My Application after saving this slip</td></tr>
                     {% endif %}
                     <tr><th>Payment Status</th><td><span class="badge bg-warning text-dark">Pending verification</span></td></tr>
                     <tr><th>Submitted At</th><td>{{ candidate.created_at|bd('%d %B %Y, %I:%M %p') }}</td></tr>
                 </table>
             </div>
         </div>
+
+        {% set is_mfs = candidate.payment_method in (mfs_payment_methods or []) %}
+        {% if is_mfs and online_pay_available and candidate.payment_status != 'verified' %}
+        <div class="adm-cta-row mt-3 d-print-none adm-rise adm-rise-delay-1">
+            <form method="POST" action="{{ url_for('admission_exam.candidate_pay_online', token=cycle.public_token) }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="payment_method" value="{{ candidate.payment_method }}">
+                <button type="submit" class="adm-btn adm-btn-primary">
+                    <i class="fas fa-credit-card"></i>
+                    Pay{% if fee_amount_display %} Tk. {{ fee_amount_display }}{% endif %} Online Now
+                </button>
+            </form>
+        </div>
+        {% endif %}
 
         <div class="adm-cta-row mt-3 d-print-none adm-rise adm-rise-delay-1">
             <a href="{{ url_for('admission_exam.candidate_application_form', token=cycle.public_token) }}"

@@ -215,6 +215,24 @@ if platform.system() == 'Darwin':  # macOS
 # xhtml2pdf helper function removed - conflicts with reportlab 4.0.7
 # PDF export routes now redirect to DOCX export or show error message
 
+def _parse_dashboard_card_order(raw):
+    """Saved main-dashboard card keys, oldest preference first."""
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    order = []
+    for item in data:
+        key = str(item or '').strip()
+        if key and key not in order and len(key) <= 40:
+            order.append(key)
+    return order[:40]
+
+
 def create_app():
     app = Flask(__name__)
     apply_proxy_fix(app)
@@ -574,6 +592,10 @@ def create_app():
     try:
         from blueprints.admission_exam import admission_exam_bp
         app.register_blueprint(admission_exam_bp, url_prefix='/admission-exam')
+        # RupantorPay server-to-server webhook cannot include Flask CSRF tokens.
+        pay_webhook = app.view_functions.get('admission_exam.candidate_pay_webhook')
+        if pay_webhook is not None:
+            csrf.exempt(pay_webhook)
     except Exception as e:
         import logging
         import traceback
@@ -957,6 +979,12 @@ def create_app():
             except Exception:
                 db.session.rollback()
 
+        can_arrange_cards = 'teacher' in roles
+        dashboard_card_order = (
+            _parse_dashboard_card_order(getattr(current_user, 'dashboard_card_order', None))
+            if can_arrange_cards else []
+        )
+
         response = make_response(render_template(
             'dashboard.html',
             show_course_registration_review=show_course_registration_review,
@@ -966,12 +994,41 @@ def create_app():
             show_noticeboard=show_noticeboard,
             officer_cards=officer_cards,
             teacher_cards=teacher_cards,
+            can_arrange_cards=can_arrange_cards,
+            dashboard_card_order=dashboard_card_order,
         ))
         # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         return response
+
+    @app.route('/dashboard/card-order', methods=['POST'])
+    @login_required
+    def save_dashboard_card_order():
+        """Persist this teacher's main-dashboard card order."""
+        if 'teacher' not in get_effective_roles(current_user):
+            abort(403)
+        payload = request.get_json(silent=True) or {}
+        raw_order = payload.get('order')
+        if not isinstance(raw_order, list):
+            return jsonify(ok=False, error='Invalid order'), 400
+        clean = []
+        for item in raw_order:
+            key = str(item or '').strip()
+            if not key or key in clean or len(key) > 40:
+                continue
+            if not key.replace('_', '').isalnum():
+                continue
+            clean.append(key)
+            if len(clean) >= 40:
+                break
+        user = db.session.get(User, current_user.id)
+        if not user:
+            abort(404)
+        user.dashboard_card_order = json.dumps(clean)
+        db.session.commit()
+        return jsonify(ok=True, order=clean)
 
     def _generate_teacher_short_name(base: str) -> str:
         base = (base or 'teacher').split(' ')[0]
@@ -3186,9 +3243,6 @@ def create_app():
             flash('You do not have permission to access this page.', 'danger')
             return redirect(url_for('index'))
         search = request.args.get('search', '').strip()
-        teacher_filter = request.args.get('teacher_filter', 'all').strip().lower()  # all | internal | external
-        if teacher_filter not in ('all', 'internal', 'external'):
-            teacher_filter = 'all'
         per_page_options = (10, 20, 30, 50, 100, 200)
         try:
             per_page = int(request.args.get('per_page', 20))
@@ -3196,9 +3250,23 @@ def create_app():
             per_page = 20
         if per_page not in per_page_options:
             per_page = 20
-        active_tab = (request.args.get('tab') or 'staff').strip().lower()
-        if active_tab not in ('staff', 'students'):
-            active_tab = 'staff'
+        tab_defs = (
+            ('internal', 'Internal Teacher'),
+            ('external', 'External Teacher'),
+            ('officer', 'Officer'),
+            ('admin', 'Administrator'),
+            ('head', 'Head of Discipline'),
+            ('dean', 'Dean'),
+            ('teaching_assistant', 'Teaching Assistant'),
+            ('students', 'Students'),
+            ('other', 'Other'),
+        )
+        tab_keys = {key for key, _label in tab_defs}
+        active_tab = (request.args.get('tab') or 'internal').strip().lower()
+        if active_tab == 'staff':
+            active_tab = 'internal'
+        if active_tab not in tab_keys:
+            active_tab = 'internal'
 
         def _safe_page(name):
             try:
@@ -3250,35 +3318,55 @@ def create_app():
                 (User.email.ilike(like))
             )
         users = query.order_by(User.id.asc()).all()
-        student_users = [u for u in users if 'student' in parse_roles(u.role)]
-        other_users = [u for u in users if 'student' not in parse_roles(u.role)]
 
         user_teachers = {}
-        teacher_users = [u for u in other_users if 'teacher' in parse_roles(u.role)]
-        if teacher_users:
-            for user in teacher_users:
-                teacher = None
-                if getattr(user, 'teacher_id', None):
-                    teacher = Teacher.query.get(user.teacher_id)
-                if teacher:
-                    user_teachers[user.id] = teacher
+        for user in users:
+            if 'teacher' not in parse_roles(user.role):
+                continue
+            teacher = Teacher.query.get(user.teacher_id) if getattr(user, 'teacher_id', None) else None
+            if teacher:
+                user_teachers[user.id] = teacher
 
-        if teacher_filter == 'external':
-            other_users = [u for u in other_users if user_teachers.get(u.id) and getattr(user_teachers[u.id], 'is_external', False)]
-        elif teacher_filter == 'internal':
-            other_users = [u for u in other_users if u.id not in user_teachers or not getattr(user_teachers.get(u.id), 'is_external', False)]
+        def _user_tab_key(user):
+            roles = set(parse_roles(user.role))
+            if 'admin' in roles:
+                return 'admin'
+            if 'officer' in roles:
+                return 'officer'
+            if 'dean' in roles:
+                return 'dean'
+            if 'head' in roles:
+                return 'head'
+            if 'teacher' in roles:
+                teacher = user_teachers.get(user.id)
+                if teacher and getattr(teacher, 'is_external', False):
+                    return 'external'
+                return 'internal'
+            if 'teaching_assistant' in roles:
+                return 'teaching_assistant'
+            if 'student' in roles:
+                return 'students'
+            return 'other'
 
-        staff_pg = _paginate(other_users, _safe_page('staff_page'), per_page)
-        student_pg = _paginate(student_users, _safe_page('student_page'), per_page)
+        grouped = {key: [] for key, _label in tab_defs}
+        for user in users:
+            grouped[_user_tab_key(user)].append(user)
+
+        visible_tabs = [
+            {'key': key, 'label': label, 'count': len(grouped[key])}
+            for key, label in tab_defs
+            if grouped[key] or key == active_tab
+        ]
+        if active_tab not in {tab['key'] for tab in visible_tabs}:
+            active_tab = visible_tabs[0]['key'] if visible_tabs else 'internal'
+
+        page_pg = _paginate(grouped.get(active_tab, []), _safe_page('page'), per_page)
 
         response = make_response(render_template(
             'admin_users.html',
-            users=staff_pg['items'],
-            student_users=student_pg['items'],
-            staff_count=staff_pg['total'],
-            student_count=student_pg['total'],
-            staff_pg=staff_pg,
-            student_pg=student_pg,
+            users=page_pg['items'],
+            user_tabs=visible_tabs,
+            page_pg=page_pg,
             per_page=per_page,
             per_page_options=per_page_options,
             active_tab=active_tab,
@@ -3286,7 +3374,6 @@ def create_app():
             role_choices=NON_ADMIN_ROLE_CHOICES,
             search_query=search,
             user_teachers=user_teachers,
-            teacher_filter=teacher_filter
         ))
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
         response.headers['Pragma'] = 'no-cache'

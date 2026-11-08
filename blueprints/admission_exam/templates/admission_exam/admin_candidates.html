@@ -243,7 +243,7 @@
                             <span class="badge bg-light text-dark border">Agrani Bank</span><br>
                             <code>{{ c.bank_slip_txn_no or '—' }}</code>
                             {% elif c.payment_method == 'bkash' %}
-                            <span class="badge bg-light text-dark border">bKash</span><br>
+                            <span class="badge bg-light text-dark border">Online Payment</span><br>
                             <code>{{ c.rocket_txn_id or '—' }}</code><br>
                             <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
                             {% elif c.payment_method == 'nagad' %}

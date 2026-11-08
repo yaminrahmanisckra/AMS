@@ -225,27 +225,9 @@
 
                 <div id="mfsPaymentBlock" class="payment-method-block" data-kind="mfs"
                      {% if not selected_is_mfs %}style="display:none;"{% endif %}>
-                    <div class="border rounded p-3 small mb-3" style="background: #e8f4fc; border-color: #b6d4fe !important; color: #084298;">
-                        Send the application fee{% if cycle.fee_amount %} of <strong>Tk. {{ cycle.fee_amount }}</strong>{% endif %}
-                        to <strong id="mfsMethodName">{{ payment_method_labels.get(selected_pay, selected_pay) }}</strong>
-                        account <strong id="mfsAccountNumber">{{ payment_accounts.get(selected_pay) or '(see instructions)' }}</strong>,
-                        then enter the Transaction ID and the account number you sent from.
-                        Your admit card will be issued after the committee verifies the payment.
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label"><span id="mfsTxnLabel">Transaction ID</span> <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="rocket_txn_id"
-                                   value="{{ form.get('rocket_txn_id', '') }}"
-                                   {% if selected_is_mfs %}required{% endif %}>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label"><span id="mfsSenderLabel">Sender Account Number</span> <span class="text-danger">*</span></label>
-                            <input type="tel" class="form-control" name="rocket_sender_phone"
-                                   placeholder="01XXXXXXXXX"
-                                   value="{{ form.get('rocket_sender_phone', '') }}"
-                                   {% if selected_is_mfs %}required{% endif %}>
-                        </div>
+                    <div class="border rounded p-3 small mb-0" style="background: #e8f4fc; border-color: #b6d4fe !important; color: #084298;">
+                        After you submit this application, pay the fee{% if cycle.fee_amount %} of <strong>Tk. {{ cycle.fee_amount }}</strong>{% endif %}
+                        online through the secure payment page.
                     </div>
                 </div>
 
@@ -346,7 +328,6 @@
 
     const MFS = new Set({{ mfs_payment_methods|tojson }});
     const LABELS = {{ payment_method_labels|tojson }};
-    const ACCOUNTS = {{ payment_accounts|tojson }};
 
     function syncPaymentMethodUI() {
         const selected = document.querySelector('input[name="payment_method"]:checked');
@@ -354,15 +335,8 @@
         const isMfs = method && MFS.has(method);
         if (isMfs) {
             const name = LABELS[method] || method;
-            const acct = ACCOUNTS[method] || '(see instructions)';
             const methodEl = document.getElementById('mfsMethodName');
-            const acctEl = document.getElementById('mfsAccountNumber');
-            const txnLabel = document.getElementById('mfsTxnLabel');
-            const senderLabel = document.getElementById('mfsSenderLabel');
             if (methodEl) methodEl.textContent = name;
-            if (acctEl) acctEl.textContent = acct;
-            if (txnLabel) txnLabel.textContent = name + ' Transaction ID';
-            if (senderLabel) senderLabel.textContent = 'Sender ' + name + ' Account Number';
         }
         document.querySelectorAll('.payment-method-block').forEach(function (block) {
             const kind = block.getAttribute('data-kind');
@@ -370,6 +344,8 @@
                 ? isMfs
                 : (block.getAttribute('data-method') === method);
             block.style.display = active ? '' : 'none';
+            // Online MFS has no inputs; only Agrani fields become required when active.
+            if (kind === 'mfs') return;
             block.querySelectorAll('input, select, textarea').forEach(function (el) {
                 if (el.type === 'file' || el.type === 'text' || el.type === 'tel') {
                     if (active) {

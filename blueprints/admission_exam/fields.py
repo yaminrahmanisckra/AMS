@@ -27,7 +27,7 @@ RESERVED_KEYS = CORE_KEYS | SYSTEM_KEYS | frozenset({
 
 PAYMENT_METHOD_LABELS = {
     'agrani_bank': 'Agrani Bank',
-    'bkash': 'bKash',
+    'bkash': 'Online Payment',  # RupantorPay checkout (bKash / Nagad / Rocket / etc.)
     'nagad': 'Nagad',
     'rocket': 'Rocket',
 }

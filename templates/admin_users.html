@@ -205,6 +205,8 @@
     .admin-dash .nav-tabs-compact {
         border: none;
         gap: 0.25rem;
+        flex-wrap: wrap;
+        flex: 1 1 18rem;
     }
     .admin-dash .nav-tabs-compact .nav-link {
         border: 1px solid transparent;
@@ -415,21 +417,21 @@
 {% endblock %}
 
 {% block content %}
-{% macro admin_users_url(tab, staff_page, student_page, size, search, teacher_filter) -%}
-{{ url_for('admin_users', search=search, teacher_filter=teacher_filter, per_page=size, staff_page=staff_page, student_page=student_page, tab=tab) }}
+{% macro admin_users_url(tab, page, size, search) -%}
+{{ url_for('admin_users', search=search, per_page=size, page=page, tab=tab) }}
 {%- endmacro %}
-{% macro user_pager(pg, tab, staff_keep, student_keep, search, teacher_filter, size) %}
+{% macro user_pager(pg, tab, search, size) %}
 {% if pg.total %}
 <div class="panel-pager">
     <div class="pager-info">
         Showing {{ pg.start_index }}–{{ pg.end_index }} of {{ pg.total }}
     </div>
     {% if pg.pages > 1 %}
-    <nav aria-label="{{ tab|title }} user pages">
+    <nav aria-label="{{ tab }} user pages">
         <ul class="pagination pagination-sm">
             <li class="page-item {% if not pg.has_prev %}disabled{% endif %}">
                 {% if pg.has_prev %}
-                <a class="page-link" href="{{ admin_users_url(tab, pg.prev_num if tab == 'staff' else staff_keep, pg.prev_num if tab == 'students' else student_keep, size, search, teacher_filter) }}" aria-label="Previous">Prev</a>
+                <a class="page-link" href="{{ admin_users_url(tab, pg.prev_num, size, search) }}" aria-label="Previous">Prev</a>
                 {% else %}
                 <span class="page-link">Prev</span>
                 {% endif %}
@@ -441,13 +443,13 @@
                 <li class="page-item active" aria-current="page"><span class="page-link">{{ n }}</span></li>
                 {% else %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ admin_users_url(tab, n if tab == 'staff' else staff_keep, n if tab == 'students' else student_keep, size, search, teacher_filter) }}">{{ n }}</a>
+                    <a class="page-link" href="{{ admin_users_url(tab, n, size, search) }}">{{ n }}</a>
                 </li>
                 {% endif %}
             {% endfor %}
             <li class="page-item {% if not pg.has_next %}disabled{% endif %}">
                 {% if pg.has_next %}
-                <a class="page-link" href="{{ admin_users_url(tab, pg.next_num if tab == 'staff' else staff_keep, pg.next_num if tab == 'students' else student_keep, size, search, teacher_filter) }}" aria-label="Next">Next</a>
+                <a class="page-link" href="{{ admin_users_url(tab, pg.next_num, size, search) }}" aria-label="Next">Next</a>
                 {% else %}
                 <span class="page-link">Next</span>
                 {% endif %}
@@ -465,10 +467,6 @@
             <p class="sub">{{ tenant.name }} — Staff, faculty and student accounts</p>
         </div>
         <div class="d-flex flex-wrap align-items-center gap-2">
-            <div class="stat-pills">
-                <span class="stat-pill"><i class="fas fa-users text-primary"></i> Staff <span class="n">{{ staff_count }}</span></span>
-                <span class="stat-pill"><i class="fas fa-user-graduate text-success"></i> Students <span class="n">{{ student_count }}</span></span>
-            </div>
             <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-arrow-left me-1"></i>Admin Dashboard
             </a>
@@ -478,34 +476,25 @@
     <div class="panel">
         <div class="panel-toolbar">
             <ul class="nav nav-tabs-compact" id="adminUserTabs" role="tablist">
+                {% for tab in user_tabs %}
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link {% if active_tab != 'students' %}active{% endif %}" id="staff-tab" data-bs-toggle="tab" data-bs-target="#staffPane" type="button" role="tab" aria-controls="staffPane" aria-selected="{{ 'true' if active_tab != 'students' else 'false' }}">
-                        Staff / Faculty
-                        <span class="count">{{ staff_count }}</span>
-                    </button>
+                    <a class="nav-link {% if active_tab == tab.key %}active{% endif %}" id="tab-{{ tab.key }}" href="{{ admin_users_url(tab.key, 1, per_page, search_query) }}" role="tab" aria-selected="{{ 'true' if active_tab == tab.key else 'false' }}">
+                        {{ tab.label }}
+                        <span class="count">{{ tab.count }}</span>
+                    </a>
                 </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link {% if active_tab == 'students' %}active{% endif %}" id="students-tab" data-bs-toggle="tab" data-bs-target="#studentsPane" type="button" role="tab" aria-controls="studentsPane" aria-selected="{{ 'true' if active_tab == 'students' else 'false' }}">
-                        Students
-                        <span class="count">{{ student_count }}</span>
-                    </button>
-                </li>
+                {% endfor %}
             </ul>
             <div class="toolbar-actions">
                 <button type="button" class="btn btn-success btn-compact" data-bs-toggle="modal" data-bs-target="#addUserModal">
                     <i class="fas fa-user-plus me-1"></i>Add User
                 </button>
                 <form class="d-flex flex-wrap align-items-center gap-1" method="get">
-                    <input type="hidden" name="tab" id="activeTabInput" value="{{ active_tab }}">
+                    <input type="hidden" name="tab" value="{{ active_tab }}">
                     <select name="per_page" class="form-select form-select-sm" style="width: auto;" title="Users per page" onchange="this.form.submit()">
                         {% for n in per_page_options %}
                         <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }} / page</option>
                         {% endfor %}
-                    </select>
-                    <select name="teacher_filter" class="form-select form-select-sm" style="width: auto; max-width: 9.5rem;" title="Teacher filter" onchange="this.form.submit()">
-                        <option value="all" {% if teacher_filter == 'all' %}selected{% endif %}>All users</option>
-                        <option value="internal" {% if teacher_filter == 'internal' %}selected{% endif %}>Internal</option>
-                        <option value="external" {% if teacher_filter == 'external' %}selected{% endif %}>External</option>
                     </select>
                     <div class="input-group input-group-sm" style="width: auto;">
                         <input type="text" name="search" value="{{ search_query }}" class="form-control" placeholder="Search…" style="min-width: 9rem; max-width: 12rem;">
@@ -526,7 +515,8 @@
         {% endwith %}
 
         <div class="tab-content">
-            <div class="tab-pane fade {% if active_tab != 'students' %}show active{% endif %}" id="staffPane" role="tabpanel" aria-labelledby="staff-tab" tabindex="0">
+            {% if active_tab != 'students' %}
+            <div class="tab-pane fade show active" id="staffPane" role="tabpanel" tabindex="0">
                 <div class="table-responsive table-wrap">
                     <table class="table table-admin table-hover align-middle mb-0">
                         <thead>
@@ -630,16 +620,16 @@
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="6" class="empty-state">No staff users found.</td>
+                                <td colspan="6" class="empty-state">No users in this tab.</td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
-                {{ user_pager(staff_pg, 'staff', staff_pg.page, student_pg.page, search_query, teacher_filter, per_page) }}
+                {{ user_pager(page_pg, active_tab, search_query, per_page) }}
             </div>
-
-            <div class="tab-pane fade {% if active_tab == 'students' %}show active{% endif %}" id="studentsPane" role="tabpanel" aria-labelledby="students-tab" tabindex="0">
+            {% else %}
+            <div class="tab-pane fade show active" id="studentsPane" role="tabpanel" tabindex="0">
                 <div class="table-responsive table-wrap">
                     <table class="table table-admin table-hover align-middle mb-0">
                         <thead>
@@ -651,7 +641,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for user in student_users %}
+                            {% for user in users %}
                             {% set student_record = user.student_profile if user else None %}
                             <tr>
                                 <td class="id-col">{{ user.id }}</td>
@@ -697,8 +687,9 @@
                         </tbody>
                     </table>
                 </div>
-                {{ user_pager(student_pg, 'students', staff_pg.page, student_pg.page, search_query, teacher_filter, per_page) }}
+                {{ user_pager(page_pg, active_tab, search_query, per_page) }}
             </div>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -889,26 +880,6 @@ document.addEventListener('DOMContentLoaded', function() {
             return false;
         }
     });
-
-    // Keep the active tab in the filter form and restore it from the URL
-    const tabInput = document.getElementById('activeTabInput');
-    const staffTab = document.getElementById('staff-tab');
-    const studentsTab = document.getElementById('students-tab');
-    const openStudents = window.location.hash === '#students' || {{ 'true' if active_tab == 'students' else 'false' }};
-    if (openStudents && studentsTab) {
-        bootstrap.Tab.getOrCreateInstance(studentsTab).show();
-        if (tabInput) tabInput.value = 'students';
-    }
-    if (staffTab) {
-        staffTab.addEventListener('shown.bs.tab', function() {
-            if (tabInput) tabInput.value = 'staff';
-        });
-    }
-    if (studentsTab) {
-        studentsTab.addEventListener('shown.bs.tab', function() {
-            if (tabInput) tabInput.value = 'students';
-        });
-    }
 
     const accountForm = document.getElementById('adminAccountForm');
     const accountNewPassword = document.getElementById('account_new_password');
