@@ -40,7 +40,7 @@
                             
                             <div class="mb-2">
                                 <i class="fas fa-calendar me-2 text-muted"></i>
-                                <strong>Date:</strong> {{ event.event_date.strftime('%d %B %Y') }}
+                                <strong>Date:</strong> {{ event.event_date.strftime('%d-%m-%Y') }}
                                 {% if event.event_time %}
                                 <br><i class="fas fa-clock me-2 text-muted"></i>
                                 <strong>Time:</strong> {{ event.event_time.strftime('%I:%M %p') }}
@@ -95,7 +95,7 @@
                             
                             <div class="mb-2 text-muted">
                                 <i class="fas fa-calendar me-2"></i>
-                                <strong>Date:</strong> {{ event.event_date.strftime('%d %B %Y') }}
+                                <strong>Date:</strong> {{ event.event_date.strftime('%d-%m-%Y') }}
                                 {% if event.event_time %}
                                 <br><i class="fas fa-clock me-2"></i>
                                 <strong>Time:</strong> {{ event.event_time.strftime('%I:%M %p') }}

@@ -231,7 +231,7 @@ def _row_for(student_id, student_name, part, group_name=None, evaluation=None):
         'part_id': part.id if part else None,
         'teacher_mark': part.teacher_mark if part else None,
         'teacher_comment': part.teacher_comment if part else '',
-        'updated_label': part.updated_at.strftime('%d %b %H:%M') if part and part.updated_at else '',
+        'updated_label': part.updated_at.strftime('%d-%m-%Y %H:%M') if part and part.updated_at else '',
         'evaluation': evaluation,
         'integrity': integrity,
     }
@@ -480,7 +480,7 @@ def _post_payload(row, actor_key=None, vote_map=None, file_map=None):
         'my_vote': my_vote,
         'files': files,
         'created_at': _iso(row.created_at),
-        'created_label': row.created_at.strftime('%d %b %H:%M') if row.created_at else '',
+        'created_label': row.created_at.strftime('%d-%m-%Y %H:%M') if row.created_at else '',
     }
 
 

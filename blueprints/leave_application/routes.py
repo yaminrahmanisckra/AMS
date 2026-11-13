@@ -250,14 +250,14 @@ def _parse_date(s):
 
 
 def _format_date_for_pdf(s):
-    """Format date string for PDF display as DD/MM/YYYY. Accepts YYYY-MM-DD or DD/MM/YYYY."""
+    """Format date string for PDF display as DD-MM-YYYY. Accepts YYYY-MM-DD or DD/MM/YYYY."""
     if not s:
         return ''
     s = s.strip()
     d = _parse_date(s)
     if d is None:
         return s
-    return d.strftime('%d/%m/%Y')
+    return d.strftime('%d-%m-%Y')
 
 
 @leave_application_bp.route('/casual-station', methods=['GET', 'POST'])

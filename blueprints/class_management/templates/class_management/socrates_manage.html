@@ -19,7 +19,7 @@
         <span class="text-muted">টপিক:</span>
         <strong>{{ assignment.topic }}</strong>
         {% if assignment.deadline %}
-          <span class="text-muted ms-2">· ডেডলাইন {{ assignment.deadline.strftime('%d %b %Y') }}</span>
+          <span class="text-muted ms-2">· ডেডলাইন {{ assignment.deadline.strftime('%d-%m-%Y') }}</span>
         {% endif %}
         <span class="badge ms-2 bg-{{ 'success' if assignment.is_active else 'secondary' }}">
           {{ 'Active' if assignment.is_active else 'Paused' }}
@@ -175,7 +175,7 @@
                       <button type="submit" class="btn btn-sm btn-outline-secondary px-1" title="ডেডলাইন সেভ">✓</button>
                     </form>
                     {% if not convo.deadline_override and assignment.deadline %}
-                      <div class="small text-muted">ডিফল্ট {{ assignment.deadline.strftime('%d %b') }}</div>
+                      <div class="small text-muted">ডিফল্ট {{ assignment.deadline.strftime('%d-%m-%Y') }}</div>
                     {% endif %}
                   </td>
                   <td class="text-center">

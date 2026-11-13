@@ -94,7 +94,7 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        min-width: 2.35rem;
+        min-width: 3.35rem;
         padding: 0.18rem 0.28rem;
         border-radius: 6px;
         border: 1px solid #e2e8f0;
@@ -102,9 +102,10 @@
         line-height: 1.15;
     }
     .att-day-chip .att-day-label {
-        font-size: 0.58rem;
+        font-size: 0.52rem;
         color: #64748b;
         font-weight: 600;
+        white-space: nowrap;
     }
     .att-day-chip .status { font-size: 0.78rem; }
     body.att-edit-on .att-day-chip.editable { cursor: pointer; box-shadow: inset 0 0 0 1px #3b82f6; }
@@ -268,13 +269,15 @@
         <div class="att-card-days">
             {% for cell in data.attendance_row %}
             {% set st = (cell.status or '-')|upper %}
+            {% set _dparts = (cell.date or '').split('-') %}
+            {% set _ddmmyyyy = ((_dparts[2] ~ '-' ~ _dparts[1] ~ '-' ~ _dparts[0]) if _dparts|length == 3 else (cell.date or '')) %}
             <div class="att-day-chip attendance-cell {% if cell.record_id %}has-record{% endif %}"
                  data-student-id="{{ data.info.id }}"
                  data-record-id="{{ cell.record_id or '' }}"
                  data-date="{{ cell.date }}"
                  data-slot="{{ cell.slot }}"
-                 title="{{ cell.date }} · {{ st }}">
-                <span class="att-day-label">{{ cell.date[5:] if cell.date else '' }}</span>
+                 title="{{ _ddmmyyyy }} · {{ st }}">
+                <span class="att-day-label">{{ _ddmmyyyy }}</span>
                 {% if st == 'P' %}
                     <span class="status text-success fw-bold">P</span>
                 {% elif st == 'A' %}
@@ -978,8 +981,8 @@ document.addEventListener('DOMContentLoaded', function() {
           {% if unique_dates %}
             {% for date in unique_dates %}
               <div class="list-group-item d-flex justify-content-between align-items-center">
-                {{ date.strftime('%B %d, %Y') }}
-                <form action="{{ url_for('class_management.delete_attendance_by_date', session_id=session.id, date_str=date.strftime('%Y-%m-%d')) }}" method="POST" onsubmit="return confirm('Delete all records for {{ date.strftime('%B %d, %Y') }}?');">
+                {{ date.strftime('%d-%m-%Y') }}
+                <form action="{{ url_for('class_management.delete_attendance_by_date', session_id=session.id, date_str=date.strftime('%Y-%m-%d')) }}" method="POST" onsubmit="return confirm('Delete all records for {{ date.strftime('%d-%m-%Y') }}?');">
                     <button type="submit" class="btn btn-danger btn-sm" title="Delete this date's attendance">
                         <i class="fas fa-trash-alt"></i>
                     </button>

@@ -36,7 +36,7 @@
                         <div class="flex-grow-1 overflow-hidden">
                             <div class="sn-item-title">{{ n.title }}</div>
                             <div class="sn-item-time">
-                                {{ n.created_at|bd('%d %b %Y, %I:%M %p') if n.created_at else '' }}
+                                {{ n.created_at|bd('%d-%m-%Y, %I:%M %p') if n.created_at else '' }}
                                 {% if not n.read_at %}<span class="badge bg-primary ms-1">New</span>{% endif %}
                             </div>
                         </div>

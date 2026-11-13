@@ -43,7 +43,7 @@
                   <td>
                     <strong>{{ assignment.topic }}</strong>
                     <div class="small text-muted">Prompt limit: {{ assignment.prompt_limit }}
-                      {% if assignment.deadline %} · {{ assignment.deadline.strftime('%d %b %Y') }}{% endif %}
+                      {% if assignment.deadline %} · {{ assignment.deadline.strftime('%d-%m-%Y') }}{% endif %}
                     </div>
                   </td>
                   <td class="text-center small">{{ assignment.mode }}</td>

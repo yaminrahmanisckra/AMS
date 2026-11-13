@@ -75,7 +75,7 @@
                   <i class="fas fa-user me-1"></i>{{ msg.sender_student_name or msg.sender_student_id or 'Student' }}
                   {% if conversation.group_id %}({{ msg.sender_student_id }}){% endif %}
                 {% endif %}
-                · {{ msg.created_at|bd('%Y-%m-%d %H:%M') }}
+                · {{ msg.created_at|bd('%d-%m-%Y %H:%M') }}
                 {% set signal = msg.input_signal() %}
                 {% if signal %}
                   {% if signal.label %}

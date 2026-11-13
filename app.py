@@ -3411,7 +3411,7 @@ def create_app():
             for row in pagination.items:
                 entries.append({
                     'id': row.id,
-                    'when': format_bd(row.created_at, '%d %b %Y, %I:%M %p', default='') if row.created_at else '',
+                    'when': format_bd(row.created_at, '%d-%m-%Y, %I:%M %p', default='') if row.created_at else '',
                     'actor': row.actor_username or '—',
                     'role': row.actor_role or '',
                     'action': row.action,
@@ -13334,7 +13334,7 @@ def create_app():
             committees=committees,
             tenant=tenant,
             window_label=_officer_current_window_label(),
-            generated_at=format_bd(bd_now(), '%d %b %Y'),
+            generated_at=format_bd(bd_now(), '%d-%m-%Y'),
             single_committee=bool(session_name and year and term),
         )
         html_content, base_url = inject_weasyprint_fonts(html_content)
@@ -13414,7 +13414,7 @@ def create_app():
         meta = document.add_paragraph()
         meta.paragraph_format.space_after = Pt(10)
         window_label = _officer_current_window_label()
-        meta_bits = [f'Generated: {format_bd(bd_now(), "%d %b %Y")}']
+        meta_bits = [f'Generated: {format_bd(bd_now(), "%d-%m-%Y")}']
         if window_label:
             meta_bits.insert(0, f'Window: {window_label}')
         _run(meta, '  ·  '.join(meta_bits), size=9, center=True)
@@ -13631,7 +13631,7 @@ def create_app():
             return redirect(url_for('officer_student_list'))
 
         tenant = current_tenant()
-        generated_at = format_bd(bd_now(), '%d %b %Y')
+        generated_at = format_bd(bd_now(), '%d-%m-%Y')
         headers = ['SL', 'Student ID', 'Name', 'Hall', 'Email', 'Phone']
         title_font = Font(bold=True, size=14)
         subtitle_font = Font(bold=True, size=12)
@@ -13743,7 +13743,7 @@ def create_app():
             'officer/student_list_weasyprint.html',
             batches=batches,
             tenant=tenant,
-            generated_at=format_bd(bd_now(), '%d %b %Y'),
+            generated_at=format_bd(bd_now(), '%d-%m-%Y'),
             single_batch=batch_filter is not None,
         )
         html_content, base_url = inject_weasyprint_fonts(html_content)
@@ -14139,8 +14139,8 @@ def create_app():
                     'status': f.status,
                     'academic_session': academic_session,
                     'total_amount': f.total_amount,
-                    'created_at': format_bd(f.created_at, '%Y-%m-%d %H:%M', default=''),
-                    'updated_at': format_bd(f.updated_at, '%Y-%m-%d %H:%M', default='')
+                    'created_at': format_bd(f.created_at, '%d-%m-%Y %H:%M', default=''),
+                    'updated_at': format_bd(f.updated_at, '%d-%m-%Y %H:%M', default='')
                 })
             
             return render_template('remuneration_list.html', forms=forms_list, status_filter=status_filter)
@@ -16623,7 +16623,7 @@ def create_app():
                     font_path_absolute = os.path.abspath(font_path)
                     break
 
-            generated_at = format_bd(datetime.utcnow(), '%d %b %Y, %I:%M %p')
+            generated_at = format_bd(datetime.utcnow(), '%d-%m-%Y, %I:%M %p')
             vat_pct = int(round(float(payload.get('vat_rate') or 0.20) * 100))
 
             html_content = render_template(

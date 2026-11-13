@@ -70,7 +70,7 @@
             {% if cycle.apply_end %}
             <div class="adm-fact">
                 <div class="adm-fact-label">Application Deadline</div>
-                <div class="adm-fact-value">{{ cycle.apply_end.strftime('%d %B %Y, %I:%M %p') }}</div>
+                <div class="adm-fact-value">{{ cycle.apply_end.strftime('%d-%m-%Y, %I:%M %p') }}</div>
             </div>
             {% endif %}
             {% if cycle.exam_date %}

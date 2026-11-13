@@ -54,7 +54,7 @@
                                         {% for event in upcoming_events %}
                                         <tr>
                                             <td>
-                                                <strong>{{ event.event_date.strftime('%d %b %Y') }}</strong>
+                                                <strong>{{ event.event_date.strftime('%d-%m-%Y') }}</strong>
                                                 <br>
                                                 <small class="text-muted">{{ event.event_date.strftime('%A') }}</small>
                                             </td>
@@ -112,7 +112,7 @@
                                     <tbody>
                                         {% for event in past_events %}
                                         <tr class="text-muted">
-                                            <td>{{ event.event_date.strftime('%d %b %Y') }}</td>
+                                            <td>{{ event.event_date.strftime('%d-%m-%Y') }}</td>
                                             <td>
                                                 {% if event.event_time %}
                                                     {{ event.event_time.strftime('%I:%M %p') }}

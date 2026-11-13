@@ -877,7 +877,7 @@ def index():
         saved_routines = []
         for row in rows:
             # Format dates for display (UTC → Bangladesh Time)
-            updated_at_display = format_bd(row[5] or row[4], '%Y-%m-%d %H:%M', default='N/A')
+            updated_at_display = format_bd(row[5] or row[4], '%d-%m-%Y %H:%M', default='N/A')
             
             sr = type('SavedRoutine', (), {
                 'id': row[0],
@@ -930,7 +930,7 @@ def public_routines():
         # Convert to objects for template compatibility
         revealed_routines = []
         for row in rows:
-            updated_at_display = format_bd(row[5] or row[4], '%Y-%m-%d %H:%M', default='N/A')
+            updated_at_display = format_bd(row[5] or row[4], '%d-%m-%Y %H:%M', default='N/A')
             
             sr = type('SavedRoutine', (), {
                 'id': row[0],

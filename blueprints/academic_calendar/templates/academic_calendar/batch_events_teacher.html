@@ -48,7 +48,7 @@
                         <tbody>
                             {% for event in session_events %}
                             <tr>
-                                <td>{{ event.event_date.strftime('%d %b %Y') }}</td>
+                                <td>{{ event.event_date.strftime('%d-%m-%Y') }}</td>
                                 <td>{% if event.event_time %}{{ event.event_time.strftime('%I:%M %p') }}{% else %}-{% endif %}</td>
                                 <td><span class="badge bg-info">Batch {{ event.batch }}</span></td>
                                 <td>

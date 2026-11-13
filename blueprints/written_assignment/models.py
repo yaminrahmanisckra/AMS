@@ -73,7 +73,7 @@ class WrittenAssignment(db.Model):
     def deadline_label(self):
         if not self.deadline:
             return None
-        return self.deadline.strftime('%d %b %Y')
+        return self.deadline.strftime('%d-%m-%Y')
 
     def days_left(self):
         """Whole days until the deadline date. Negative when past, None without a deadline."""

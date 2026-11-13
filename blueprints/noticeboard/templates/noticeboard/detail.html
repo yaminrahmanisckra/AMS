@@ -29,12 +29,12 @@
                 <div class="nb-sheet-kicker">Official Notice</div>
                 <h1 class="nb-sheet-title">{{ notice.title }}</h1>
                 <div class="nb-sheet-meta">
-                    <span>{{ notice.notice_date.strftime('%d %B %Y') }}</span>
+                    <span>{{ notice.notice_date.strftime('%d-%m-%Y') }}</span>
                     <span class="mx-2">·</span>
                     <span>{{ author_name }}</span>
                     {% if notice.created_at %}
                     <span class="mx-2">·</span>
-                    <span title="Posted (Bangladesh time)">Posted {{ notice.created_at|bd('%d %b %Y, %I:%M %p') }}</span>
+                    <span title="Posted (Bangladesh time)">Posted {{ notice.created_at|bd('%d-%m-%Y, %I:%M %p') }}</span>
                     {% endif %}
                 </div>
                 {% if is_composer %}

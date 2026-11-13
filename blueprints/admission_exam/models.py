@@ -184,12 +184,12 @@ class AdmissionCycle(db.Model):
         if start and now < start:
             return (
                 'Applications have not started yet'
-                f' (opens {format_bd(start, "%d %B %Y, %I:%M %p", assume_utc=False)}).'
+                f' (opens {format_bd(start, "%d-%m-%Y, %I:%M %p", assume_utc=False)}).'
             )
         if end and now > end:
             return (
                 'The application deadline has passed'
-                f' ({format_bd(end, "%d %B %Y, %I:%M %p", assume_utc=False)}).'
+                f' ({format_bd(end, "%d-%m-%Y, %I:%M %p", assume_utc=False)}).'
             )
         return None
 

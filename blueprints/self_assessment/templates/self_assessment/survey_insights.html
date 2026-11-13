@@ -19,7 +19,7 @@
     <p class="text-muted">রেটিং টেবিল মডেলে যায় না। নিচে শুধু গড় নম্বর (Python) এবং ওপেন মন্তব্যের থিম।</p>
 
     {% if snapshot %}
-    <p class="small text-muted">Last generated: {{ snapshot.generated_at|bd('%Y-%m-%d %H:%M') if snapshot.generated_at else '—' }}</p>
+    <p class="small text-muted">Last generated: {{ snapshot.generated_at|bd('%d-%m-%Y %H:%M') if snapshot.generated_at else '—' }}</p>
     {% endif %}
 
     {% if summary and summary.rating_means %}

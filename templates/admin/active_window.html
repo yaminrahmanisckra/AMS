@@ -170,7 +170,7 @@
                                 {% endif %}
                             </td>
                             <td>{{ w.status }}</td>
-                            <td>{{ w.created_at|bd('%Y-%m-%d') if w.created_at else '—' }}</td>
+                            <td>{{ w.created_at|bd('%d-%m-%Y') if w.created_at else '—' }}</td>
                             <td class="text-nowrap">
                                 <button type="button" class="btn btn-sm btn-outline-primary edit-window-btn"
                                         data-id="{{ w.id }}"

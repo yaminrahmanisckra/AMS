@@ -46,7 +46,7 @@
                     <tr><th>Online Payment</th><td>Pay from My Application after saving this slip</td></tr>
                     {% endif %}
                     <tr><th>Payment Status</th><td><span class="badge bg-warning text-dark">Pending verification</span></td></tr>
-                    <tr><th>Submitted At</th><td>{{ candidate.created_at|bd('%d %B %Y, %I:%M %p') }}</td></tr>
+                    <tr><th>Submitted At</th><td>{{ candidate.created_at|bd('%d-%m-%Y, %I:%M %p') }}</td></tr>
                 </table>
             </div>
         </div>

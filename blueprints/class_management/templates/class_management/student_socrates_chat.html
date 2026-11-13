@@ -564,7 +564,7 @@ body:has(.socrates-chat-app) .ams-offline-dock {
           <span class="soc-chip"><i class="fas fa-users me-1"></i>{{ group.name }}</span>
         {% endif %}
         {% if assignment.deadline %}
-          <span class="soc-chip"><i class="fas fa-clock me-1"></i>{{ assignment.deadline.strftime('%d %b %Y') }}</span>
+          <span class="soc-chip"><i class="fas fa-clock me-1"></i>{{ assignment.deadline.strftime('%d-%m-%Y') }}</span>
         {% endif %}
         {% if can_chat %}
           <span class="soc-chip">লাইভ চ্যাট</span>

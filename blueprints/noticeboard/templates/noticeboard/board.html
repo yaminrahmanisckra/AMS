@@ -53,7 +53,7 @@
                     <div class="nb-paper-inner">
                         <div class="nb-date">
                             <time datetime="{{ card.notice.notice_date.isoformat() }}">
-                                {{ card.notice.notice_date.strftime('%d %b %Y') }}
+                                {{ card.notice.notice_date.strftime('%d-%m-%Y') }}
                             </time>
                             {% if card.notice.created_at %}
                             <span class="nb-time">{{ card.notice.created_at|bd('%I:%M %p') }}</span>

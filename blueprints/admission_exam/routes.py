@@ -2358,7 +2358,7 @@ def _application_form_section_data(candidate):
         })
     identity_rows.append({
         'label': 'Applied At',
-        'value': format_bd(candidate.created_at, '%d %B %Y, %I:%M %p', default='—'),
+        'value': format_bd(candidate.created_at, '%d-%m-%Y, %I:%M %p', default='—'),
         'is_bangla': False,
     })
 
@@ -3472,7 +3472,7 @@ def _render_named_candidate_list_pdf(cycle, *, list_title, list_subtitle, candid
         list_subtitle=list_subtitle,
         candidates=candidates,
         tenant=current_tenant(),
-        generated_at=format_bd(datetime.utcnow(), '%d %B %Y, %I:%M %p'),
+        generated_at=format_bd(datetime.utcnow(), '%d-%m-%Y, %I:%M %p'),
         logo_data_uri=_ku_logo_data_uri_for_list_pdf(),
         chairman_name=chair['name'],
         chairman_designation=_admission_exam_committee_title(cycle),
@@ -6342,7 +6342,7 @@ def export_candidates(cycle):
             _format_mark_cell(c.written_marks),
             _format_mark_cell(c.viva_marks),
             _format_mark_cell(c.total_marks),
-            format_bd(c.created_at, '%Y-%m-%d %H:%M', default=''),
+            format_bd(c.created_at, '%d-%m-%Y %H:%M', default=''),
         ]
         row += [extra.get(key, '') for key, _label in extras]
         ws.append(row)
@@ -6429,7 +6429,7 @@ def export_candidates_marks_pdf(cycle):
         candidates=candidates,
         tenant=current_tenant(),
         filter_label=', '.join(filter_bits) if filter_bits else 'All candidates',
-        generated_at=_fmt(datetime.utcnow(), '%d %B %Y, %I:%M %p'),
+        generated_at=_fmt(datetime.utcnow(), '%d-%m-%Y, %I:%M %p'),
         logo_data_uri=_ku_logo_data_uri_for_list_pdf(),
         chairman_name=_exam_committee_chairman_for_pdf(cycle)['name'],
         chairman_designation=_admission_exam_committee_title(cycle),

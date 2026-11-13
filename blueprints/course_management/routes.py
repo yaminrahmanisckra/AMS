@@ -5932,7 +5932,7 @@ def get_course_assignments(course_id):
                 'batch': assignment.batch or '',
                 'academic_session': assignment.academic_session or '',
                 'session_created': assignment.session_created,
-                'created_at': format_bd(assignment.created_at, '%Y-%m-%d %H:%M', default='')
+                'created_at': format_bd(assignment.created_at, '%d-%m-%Y %H:%M', default='')
             })
 
         return jsonify({'success': True, 'assignments': data})

@@ -292,15 +292,10 @@ def group_working_dates_into_weeks(iso_dates):
 
 
 def format_week_date_range(days):
-    """Date field value: '20-24 July 2025' or '28 Jul 2025 to 1 Aug 2025'."""
+    """Date field value as DD-MM-YYYY (or range)."""
     if not days:
         return ''
     start, end = days[0], days[-1]
     if start == end:
-        return f"{start.day} {start.strftime('%B')} {start.year}"
-    if start.month == end.month and start.year == end.year:
-        return f"{start.day}-{end.day} {end.strftime('%B')} {end.year}"
-    return (
-        f"{start.day} {start.strftime('%b')} {start.year} "
-        f"to {end.day} {end.strftime('%b')} {end.year}"
-    )
+        return start.strftime('%d-%m-%Y')
+    return f"{start.strftime('%d-%m-%Y')} to {end.strftime('%d-%m-%Y')}"

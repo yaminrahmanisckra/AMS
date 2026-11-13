@@ -131,7 +131,7 @@
               <h2>{{ assignment.topic }}</h2>
               <p class="soc-meta">{{ item.session.course_name or '' }}
                 · {{ remaining }}/{{ prompt_cap }} প্রম্পট বাকি
-                {% if assignment.deadline %} · {{ assignment.deadline.strftime('%d %b') }}{% endif %}
+                {% if assignment.deadline %} · {{ assignment.deadline.strftime('%d-%m-%Y') }}{% endif %}
                 {% if item.group %} · {{ item.group.name }}{% endif %}
               </p>
               <span class="soc-cta">

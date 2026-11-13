@@ -4198,10 +4198,10 @@ def view_attendance(session_id):
             for date in sorted_dates:
                 count = daily_class_counts.get(date, 0)
                 if count == 1:
-                    headers_with_meta.append({'label': date.strftime('%b %d, %Y'), 'date': date.strftime('%Y-%m-%d'), 'slot': 1})
+                    headers_with_meta.append({'label': date.strftime('%d-%m-%Y'), 'date': date.strftime('%Y-%m-%d'), 'slot': 1})
                 else:
                     for i in range(1, count + 1):
-                        headers_with_meta.append({'label': f"{date.strftime('%b %d')} ({i})", 'date': date.strftime('%Y-%m-%d'), 'slot': i})
+                        headers_with_meta.append({'label': f"{date.strftime('%d-%m-%Y')} ({i})", 'date': date.strftime('%Y-%m-%d'), 'slot': i})
             
             student_report_data = []
             for student in sorted(students_by_public_id.values(), key=lambda s: s.student_id):
@@ -4332,12 +4332,12 @@ def view_attendance(session_id):
     for date in sorted_dates:
         count = daily_class_counts.get(date, 0)
         if count == 1:
-            headers.append(date.strftime('%b %d, %Y'))
-            headers_with_meta.append({'label': date.strftime('%b %d, %Y'), 'date': date.strftime('%Y-%m-%d'), 'slot': 1})
+            headers.append(date.strftime('%d-%m-%Y'))
+            headers_with_meta.append({'label': date.strftime('%d-%m-%Y'), 'date': date.strftime('%Y-%m-%d'), 'slot': 1})
         else:
             for i in range(1, count + 1):
-                headers.append(f"{date.strftime('%b %d')} ({i})")
-                headers_with_meta.append({'label': f"{date.strftime('%b %d')} ({i})", 'date': date.strftime('%Y-%m-%d'), 'slot': i})
+                headers.append(f"{date.strftime('%d-%m-%Y')} ({i})")
+                headers_with_meta.append({'label': f"{date.strftime('%d-%m-%Y')} ({i})", 'date': date.strftime('%Y-%m-%d'), 'slot': i})
 
     student_report_data = []
     agg_student_map = attendance_summary.get('per_student', {})
@@ -4383,10 +4383,10 @@ def view_attendance(session_id):
     for date in sorted_dates:
         count = daily_class_counts.get(date, 0)
         if count <= 1:
-            unique_headers_with_metadata.append({'label': date.strftime('%b %d, %Y'), 'date': date.strftime('%Y-%m-%d'), 'slot': 1})
+            unique_headers_with_metadata.append({'label': date.strftime('%d-%m-%Y'), 'date': date.strftime('%Y-%m-%d'), 'slot': 1})
         else:
             for i in range(1, count + 1):
-                unique_headers_with_metadata.append({'label': f"{date.strftime('%b %d')} ({i})", 'date': date.strftime('%Y-%m-%d'), 'slot': i})
+                unique_headers_with_metadata.append({'label': f"{date.strftime('%d-%m-%Y')} ({i})", 'date': date.strftime('%Y-%m-%d'), 'slot': i})
     return render_template(
         'class_management/view_attendance.html',
         session=session,
@@ -6449,7 +6449,7 @@ def generate_weekly_plan_ai(session_id):
         msg = (
             f'Generated plan{part_text}: {len(lesson_plan)} class rows across {total_weeks} weeks '
             f'({classes_per_week} classes/week; date field is each week\'s range). '
-            f'Semester: {semester_start_date.strftime("%d %b %Y")} to {semester_end_date.strftime("%d %b %Y")}'
+            f'Semester: {semester_start_date.strftime("%d-%m-%Y")} to {semester_end_date.strftime("%d-%m-%Y")}'
         )
         
         if topics_remaining > 0:
@@ -6503,7 +6503,7 @@ def _build_lesson_plan_from_topic_slots_and_dates(slot_dates_with_week, topic_sl
         else:
             topic = 'Revision / Buffer'
             clo_alignment = '1'
-        date_str = slot_date.strftime('%d-%b-%Y')
+        date_str = slot_date.strftime('%Y-%m-%d')
         lesson_plan.append({
             'week': f'Week {week_num}',
             'date': date_str,
@@ -6620,7 +6620,7 @@ def _generate_rule_based_plan(session, credit, course_contents, week_groups, hol
                         elif isinstance(clo_value, (int, float)):
                             week_clos.add(str(int(clo_value)))
             
-            date_str = f"{week_start.strftime('%d-%b-%Y')} to {week_end.strftime('%d-%b-%Y')}"
+            date_str = f"{week_start.strftime('%d-%m-%Y')} to {week_end.strftime('%Y-%m-%d')}"
             
             if week_contents:
                 topic = ', '.join(week_contents[:2])
@@ -6662,7 +6662,7 @@ def _generate_rule_based_plan(session, credit, course_contents, week_groups, hol
             else:
                 topic_text = f'Assessment {assessment_num}'
             
-            date_str = f"{week_start.strftime('%d-%b-%Y')} to {week_end.strftime('%d-%b-%Y')}"
+            date_str = f"{week_start.strftime('%d-%m-%Y')} to {week_end.strftime('%Y-%m-%d')}"
             
             # Specific Outcome and Teaching & Assessment should be empty
             lesson_plan.append({
@@ -7430,7 +7430,7 @@ def delete_attendance_by_date(session_id, date_str):
         )
         
         if records_to_delete.count() == 0:
-            flash(f'No attendance records found for {attendance_date.strftime("%b %d, %Y")}.', 'warning')
+            flash(f'No attendance records found for {attendance_date.strftime("%d-%m-%Y")}.', 'warning')
             return redirect(url_for('class_management.view_attendance', session_id=session_id))
             
         # Delete the records
@@ -7438,7 +7438,7 @@ def delete_attendance_by_date(session_id, date_str):
         
         db.session.commit()
         
-        flash(f'Successfully deleted {deleted_count} attendance records for {attendance_date.strftime("%b %d, %Y")}.', 'success')
+        flash(f'Successfully deleted {deleted_count} attendance records for {attendance_date.strftime("%d-%m-%Y")}.', 'success')
         
     except Exception as e:
         db.session.rollback()
@@ -7503,10 +7503,10 @@ def download_attendance_excel(session_id):
         for dt in sorted_dates:
             count = daily_class_counts.get(dt, 0)
             if count == 1:
-                headers.append(dt.strftime('%b %d, %Y'))
+                headers.append(dt.strftime('%d-%m-%Y'))
             else:
                 for i in range(1, count + 1):
-                    headers.append(f"{dt.strftime('%b %d, %Y')} ({i})")
+                    headers.append(f"{dt.strftime('%d-%m-%Y')} ({i})")
 
         # Prepare structured data for Excel
         local_classes_held = sum(daily_class_counts.values())
@@ -7983,7 +7983,7 @@ def download_attendance_sheet(session_id):
         header_keys = []
         for date in sorted_dates:
             count = daily_class_counts.get(date, 0)
-            day_label = date.strftime('%d %b')
+            day_label = date.strftime('%d-%m-%Y')
             if count <= 1:
                 headers.append(day_label)
                 header_keys.append((date, 1))
@@ -8286,7 +8286,7 @@ def download_attendance_sheet_weasyprint(session_id):
         for date in sorted_dates:
             count = daily_class_counts.get(date, 0)
             # Include year; compact for vertical SVG headers: "19 Jul 2024" / "19 Jul 2024·1"
-            day_label = f"{date.day} {date.strftime('%b')} {date.year}"
+            day_label = date.strftime('%d-%m-%Y')
             if count <= 1:
                 headers.append(day_label)
                 header_keys.append((date, 1))
@@ -11776,7 +11776,7 @@ def _socrates_notify_assignment(assignment, *, student_ids=None, notify_in_app=T
     course_label = _socrates_course_label(session_obj) if session_obj else ''
     chat_url = _absolute_socrates_student_url(assignment.id)
     link_url = url_for('class_management.student_socrates_chat', assignment_id=assignment.id)
-    deadline_label = assignment.deadline.strftime('%d %b %Y') if assignment.deadline else 'None'
+    deadline_label = assignment.deadline.strftime('%d-%m-%Y') if assignment.deadline else 'None'
     from utils.outline_richtext import html_is_empty, html_to_plain_text
     merged = _socrates_merged_instructions_html(assignment)
     instructions_html = str(merged) if merged else ''
@@ -12370,7 +12370,7 @@ def socrates_set_deadline(conversation_id):
             flash('ভ্যালিড ডেডলাইন দিন (YYYY-MM-DD).', 'warning')
             return _socrates_prompts_redirect(conversation, assignment, session_obj)
         db.session.commit()
-        flash(f'এই ছাত্রের ডেডলাইন এখন {conversation.deadline_override.strftime("%d %b %Y")}।', 'success')
+        flash(f'এই ছাত্রের ডেডলাইন এখন {conversation.deadline_override.strftime("%d-%m-%Y")}।', 'success')
     return _socrates_prompts_redirect(conversation, assignment, session_obj)
 
 
@@ -12451,7 +12451,7 @@ def socrates_marks_csv(session_id, assignment_id):
             convo.prompts_used,
             convo.prompt_cap(),
             convo.status,
-            format_bd(convo.submitted_at, '%Y-%m-%d %H:%M') if convo.submitted_at else '',
+            format_bd(convo.submitted_at, '%d-%m-%Y %H:%M') if convo.submitted_at else '',
             row['suggested_score'] if row['suggested_score'] is not None else '',
             convo.teacher_mark if convo.teacher_mark is not None else '',
             convo.teacher_comment or '',
@@ -14113,9 +14113,9 @@ def student_feedback_responses_pdf(session_id):
         respondent_label = respondent_name
         if respondent_name and respondent_student_id:
             respondent_label = f"{respondent_name} ({respondent_student_id})"
-        response_heading = f"Response {idx} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}"
+        response_heading = f"Response {idx} - {format_bd(item.submitted_at, '%d-%m-%Y %H:%M')}"
         if respondent_label:
-            response_heading = f"Response {idx} - {respondent_label} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}"
+            response_heading = f"Response {idx} - {respondent_label} - {format_bd(item.submitted_at, '%d-%m-%Y %H:%M')}"
         elements.append(Paragraph(response_heading, value_bold_style))
         elements.append(Spacer(1, 6))
 
@@ -14266,7 +14266,7 @@ def student_feedback_responses_pdf_weasyprint(session_id):
             respondent = data.get('respondent') or {} if teacher_sees_feedback_respondents(teacher.id) else {}
             feedback_data.append({
                 'index': idx,
-                'submitted_at': format_bd(item.submitted_at, '%Y-%m-%d'),
+                'submitted_at': format_bd(item.submitted_at, '%d-%m-%Y'),
                 'respondent_name': str(respondent.get('name') or '').strip(),
                 'respondent_student_id': str(respondent.get('student_id') or '').strip(),
                 'academic': academic,
@@ -14421,9 +14421,9 @@ def student_feedback_responses_docx(session_id):
         uni_para.runs[0].bold = True
         uni_para.runs[0].font.size = Pt(12)
 
-        meta_heading = f"Response {idx} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}"
+        meta_heading = f"Response {idx} - {format_bd(item.submitted_at, '%d-%m-%Y %H:%M')}"
         if respondent_label:
-            meta_heading = f"Response {idx} - {respondent_label} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}"
+            meta_heading = f"Response {idx} - {respondent_label} - {format_bd(item.submitted_at, '%d-%m-%Y %H:%M')}"
         meta_para = document.add_paragraph(meta_heading)
         meta_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         meta_para.runs[0].font.size = Pt(10)

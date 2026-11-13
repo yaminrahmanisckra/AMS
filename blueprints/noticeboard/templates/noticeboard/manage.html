@@ -40,7 +40,7 @@
                 {% for row in rows %}
                 <tr>
                     <td class="text-nowrap small">
-                        {{ row.notice.notice_date.strftime('%d %b %Y') }}
+                        {{ row.notice.notice_date.strftime('%d-%m-%Y') }}
                         {% if row.notice.created_at %}
                         <div class="text-muted" style="font-size:0.7rem;">{{ row.notice.created_at|bd('%I:%M %p') }}</div>
                         {% endif %}

@@ -315,8 +315,8 @@ def build_feedback_dataset(session, feedback_link, responses, enrolled_count=Non
     if submitted_at:
         first = min(submitted_at)
         last = max(submitted_at)
-        start = format_bd(first, '%Y-%m-%d')
-        end = format_bd(last, '%Y-%m-%d')
+        start = format_bd(first, '%d-%m-%Y')
+        end = format_bd(last, '%d-%m-%Y')
         period = start if start == end else f'{start} to {end}'
 
     instrument = (
@@ -348,7 +348,7 @@ def build_feedback_dataset(session, feedback_link, responses, enrolled_count=Non
     ])
 
     return {
-        'generated_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC'),
+        'generated_at': datetime.utcnow().strftime('%d-%m-%Y %H:%M UTC'),
         'discipline': tenant.display_with_university,
         'indicative_only': indicative,
         'profile': profile,

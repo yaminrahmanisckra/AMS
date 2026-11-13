@@ -562,7 +562,7 @@ def forgot_password():
                 display_name = (user.full_name or user.username or 'User').strip()
                 account_id = (user.username or user.email or '').strip()
                 from utils.timezone import format_bd as _format_bd
-                requested_at = _format_bd(datetime.utcnow(), '%d %B %Y, %H:%M') + ' (Bangladesh Time)'
+                requested_at = _format_bd(datetime.utcnow(), '%d-%m-%Y, %H:%M') + ' (Bangladesh Time)'
                 t = current_tenant()
                 recovery_from = (
                     current_app.config.get('MAIL_USERNAME')

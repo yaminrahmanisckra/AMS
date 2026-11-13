@@ -134,11 +134,11 @@
                             {% endif %}
                             <small class="text-muted">
                                 <i class="fas fa-user me-1"></i>{{ archive.archived_by or 'System' }}<br>
-                                <i class="fas fa-calendar me-1"></i>{{ archive.archived_at|bd('%Y-%m-%d %H:%M') if archive.archived_at else 'N/A' }}
+                                <i class="fas fa-calendar me-1"></i>{{ archive.archived_at|bd('%d-%m-%Y %H:%M') if archive.archived_at else 'N/A' }}
                             </small>
                             {% if archive.restored_at %}
                             <br><small class="text-muted">
-                                <i class="fas fa-undo me-1"></i>Restored: {{ archive.restored_at|bd('%Y-%m-%d %H:%M') }}
+                                <i class="fas fa-undo me-1"></i>Restored: {{ archive.restored_at|bd('%d-%m-%Y %H:%M') }}
                             </small>
                             {% endif %}
                         </div>
@@ -193,6 +193,23 @@
 </div>
 
 <script>
+function formatDisplayDate(value) {
+    if (!value) return '';
+    const d = value instanceof Date ? value : new Date(String(value).length <= 10 ? value + 'T00:00:00' : value);
+    if (isNaN(d.getTime())) return String(value);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${dd}-${mm}-${d.getFullYear()}`;
+}
+function formatDisplayDateTime(value) {
+    if (!value) return '';
+    const d = value instanceof Date ? value : new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return `${formatDisplayDate(d)} ${hh}:${mi}`;
+}
+
 function archiveSession(session, year, term) {
     if (!confirm(`Are you sure you want to archive this session?\n\nSession: ${session}\nYear: ${year}\nTerm: ${term}\n\nThis will backup all related data. The process may take a few moments.`)) {
         return;
@@ -456,7 +473,7 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
                 <div class="col-md-6"><strong>Academic Session:</strong> ${escapeHtml(data.academic_session || 'N/A')}</div>
                 <div class="col-md-6"><strong>Year:</strong> ${escapeHtml(data.year || 'N/A')}</div>
                 <div class="col-md-6"><strong>Term:</strong> ${escapeHtml(data.term || 'N/A')}</div>
-                <div class="col-md-6"><strong>Archived At:</strong> ${displayMetadata.archived_at ? escapeHtml(new Date(displayMetadata.archived_at).toLocaleString()) : 'N/A'}</div>
+                <div class="col-md-6"><strong>Archived At:</strong> ${displayMetadata.archived_at ? escapeHtml(formatDisplayDateTime(displayMetadata.archived_at)) : 'N/A'}</div>
                 ${displayMetadata.archived_by ? `<div class="col-md-6"><strong>Archived By:</strong> ${escapeHtml(displayMetadata.archived_by)}</div>` : ''}
                 ${displayMetadata.description ? `<div class="col-md-12"><strong>Description:</strong> ${escapeHtml(displayMetadata.description)}</div>` : ''}
             </div>
@@ -590,7 +607,7 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
                     html += `
                         <tr>
                             <td>${escapeHtml(att.student_id || 'N/A')}</td>
-                            <td>${att.date ? escapeHtml(new Date(att.date).toLocaleDateString()) : 'N/A'}</td>
+                            <td>${att.date ? escapeHtml(formatDisplayDate(att.date)) : 'N/A'}</td>
                             <td><span class="badge ${att.status === 'present' ? 'bg-success' : (att.status === 'absent' ? 'bg-danger' : 'bg-warning')}">${escapeHtml(att.status || 'N/A')}</span></td>
                             ${att.remark ? `<td>${escapeHtml(att.remark)}</td>` : ''}
                         </tr>
@@ -820,7 +837,7 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
                         </div>
                         <div class="text-end">
                             <span class="badge bg-primary">${escapeHtml(event.event_type || 'N/A')}</span>
-                            <br><small>${event.event_date ? new Date(event.event_date).toLocaleDateString() : 'N/A'}</small>
+                            <br><small>${event.event_date ? formatDisplayDate(event.event_date) : 'N/A'}</small>
                         </div>
                     </div>
                 </div>
@@ -896,7 +913,7 @@ function renderArchiveDetails(data, metadata, filterTeacherId) {
                     <td>${escapeHtml(form.designation || 'N/A')}</td>
                     <td>${form.total_amount ? form.total_amount.toFixed(2) : '0.00'}</td>
                     <td><span class="badge bg-info">${escapeHtml(form.status || 'N/A')}</span></td>
-                    <td>${form.created_at ? new Date(form.created_at).toLocaleDateString() : 'N/A'}</td>
+                    <td>${form.created_at ? formatDisplayDate(form.created_at) : 'N/A'}</td>
                 </tr>
             `;
         });

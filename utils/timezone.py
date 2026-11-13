@@ -19,6 +19,11 @@ except ImportError:  # pragma: no cover
 BD_TZ_NAME = 'Asia/Dhaka'
 _BD_OFFSET = timedelta(hours=6)
 
+# App-wide human date display (not for HTML date inputs / ISO keys / filenames).
+BD_DATE_FMT = '%d-%m-%Y'
+BD_DATETIME_FMT = '%d-%m-%Y %H:%M'
+BD_DATETIME_LONG_FMT = '%d-%m-%Y, %I:%M %p'
+
 DateLike = Union[datetime, date, time, None]
 
 
@@ -80,7 +85,14 @@ def _coerce_datetime(value) -> DateLike:
         try:
             return datetime.fromisoformat(s2)
         except Exception:
-            for pattern in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+            for pattern in (
+                '%Y-%m-%d %H:%M:%S.%f',
+                '%Y-%m-%d %H:%M:%S',
+                '%d-%m-%Y %H:%M',
+                '%Y-%m-%d',
+                '%d-%m-%Y %H:%M',
+                '%d-%m-%Y',
+            ):
                 try:
                     return datetime.strptime(s[:26], pattern)
                 except Exception:
@@ -90,7 +102,7 @@ def _coerce_datetime(value) -> DateLike:
 
 def format_bd(
     value,
-    fmt: str = '%Y-%m-%d %H:%M',
+    fmt: str = BD_DATETIME_FMT,
     *,
     assume_utc: bool = True,
     default: str = '',
@@ -113,17 +125,18 @@ def register_template_filters(app) -> None:
     """Register Jinja filters: ``bd``, ``bd_date``, ``bd_time``."""
 
     @app.template_filter('bd')
-    def bd_filter(value, fmt='%Y-%m-%d %H:%M', assume_utc=True):
+    def bd_filter(value, fmt=BD_DATETIME_FMT, assume_utc=True):
         """UTC datetime → Bangladesh wall time string.
 
-        Usage: ``{{ created_at|bd('%d %b %Y, %I:%M %p') }}``
+        Usage: ``{{ created_at|bd }}`` → DD-MM-YYYY HH:MM
+        ``{{ created_at|bd('%d-%m-%Y, %I:%M %p') }}``
         For fields already stored as BD wall time:
-        ``{{ apply_end|bd('%d %B %Y, %I:%M %p', assume_utc=False) }}``
+        ``{{ apply_end|bd('%d-%m-%Y, %I:%M %p', assume_utc=False) }}``
         """
         return format_bd(value, fmt, assume_utc=bool(assume_utc), default='')
 
     @app.template_filter('bd_date')
-    def bd_date_filter(value, fmt='%Y-%m-%d'):
+    def bd_date_filter(value, fmt=BD_DATE_FMT):
         return format_bd(value, fmt, assume_utc=True, default='')
 
     @app.template_filter('bd_time')

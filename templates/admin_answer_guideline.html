@@ -81,7 +81,7 @@
         <div class="p-3">
             {% if guideline %}
             <p class="mb-1 fw-semibold">{{ guideline.title }}</p>
-            <p class="muted mb-2">{{ guideline.file_name or '' }} · {{ guideline.created_at.strftime('%d %b %Y %H:%M') if guideline.created_at else '' }}</p>
+            <p class="muted mb-2">{{ guideline.file_name or '' }} · {{ guideline.created_at.strftime('%d-%m-%Y %H:%M') if guideline.created_at else '' }}</p>
             {% if preview %}
             <div class="preview-box">{{ preview }}{% if guideline.extracted_text and guideline.extracted_text|length > 1200 %}…{% endif %}</div>
             {% else %}
@@ -103,7 +103,7 @@
                 {% for row in history %}
                 <tr>
                     <td>{{ row.title }} {% if row.is_active %}<span class="badge bg-success">Active</span>{% endif %}</td>
-                    <td class="muted">{{ row.created_at.strftime('%d %b %Y') if row.created_at else '' }}</td>
+                    <td class="muted">{{ row.created_at.strftime('%d-%m-%Y') if row.created_at else '' }}</td>
                     <td class="text-end">
                         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_answer_guideline_download', guideline_id=row.id) }}">Download</a>
                         {% if not row.is_active %}

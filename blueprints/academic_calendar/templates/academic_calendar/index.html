@@ -591,7 +591,7 @@
                                                  data-event-end-date="{% if event.end_date %}{{ event.end_date.strftime('%Y-%m-%d') }}{% endif %}"
                                                  data-event-type-class="{{ event.event_type }}"
                                                  data-event-description="{{ event.description or '' }}"
-                                                 title="{{ event.title }}: {{ event.event_date.strftime('%d/%m/%Y') }} - {{ event.end_date.strftime('%d/%m/%Y') }}{% if event.description %} - {{ event.description }}{% endif %}">
+                                                 title="{{ event.title }}: {{ event.event_date.strftime('%d-%m-%Y') }} - {{ event.end_date.strftime('%d-%m-%Y') }}{% if event.description %} - {{ event.description }}{% endif %}">
                                                 {{ event.title }}
                                             </div>
                                         {% else %}
@@ -704,7 +704,7 @@
                                                              data-event-end-date="{{ event.end_date.strftime('%Y-%m-%d') }}"
                                                              data-event-type-class="{{ event.event_type }}"
                                                              data-event-description="{{ event.description or '' }}"
-                                                             title="{{ event.title }}: {{ event.event_date.strftime('%d/%m/%Y') }} - {{ event.end_date.strftime('%d/%m/%Y') }}">
+                                                             title="{{ event.title }}: {{ event.event_date.strftime('%d-%m-%Y') }} - {{ event.end_date.strftime('%d-%m-%Y') }}">
                                                             ●
                                                         </div>
                                                     {% else %}
@@ -787,16 +787,16 @@
                             <strong class="event-item-title">{{ event.get('title', '') if event is mapping and event.get('is_grouped_semester') else event.title }}</strong>
                             <small class="text-muted event-item-date">
                                 {% if event is mapping and event.get('is_batch_event') %}
-                                    {{ event_date.strftime('%B %d, %Y') }}
+                                    {{ event_date.strftime('%d-%m-%Y') }}
                                     {% if event.event_time %}
                                         at {{ event.event_time.strftime('%I:%M %p') }}
                                     {% endif %}
                                 {% elif event is mapping and event.get('is_grouped_semester') %}
-                                    {{ event.get('event_date').strftime('%B %d, %Y') if event.get('event_date') else event_date.strftime('%B %d, %Y') }}
+                                    {{ event.get('event_date').strftime('%d-%m-%Y') if event.get('event_date') else event_date.strftime('%d-%m-%Y') }}
                                 {% elif event.end_date and event.end_date > event.event_date %}
-                                    {{ event.event_date.strftime('%B %d') }} - {{ event.end_date.strftime('%B %d, %Y') }}
+                                    {{ event.event_date.strftime('%d-%m-%Y') }} - {{ event.end_date.strftime('%d-%m-%Y') }}
                                 {% else %}
-                                    {{ event_date.strftime('%B %d, %Y') }}
+                                    {{ event_date.strftime('%d-%m-%Y') }}
                                 {% endif %}
                             </small>
                             {% if event is mapping and event.get('is_grouped_semester') and event.get('description') %}
@@ -931,6 +931,15 @@
 </style>
 
 <script>
+function formatDisplayDate(value) {
+    if (!value) return '';
+    const d = value instanceof Date ? value : new Date(String(value).length <= 10 ? value + 'T00:00:00' : value);
+    if (isNaN(d.getTime())) return String(value);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${dd}-${mm}-${d.getFullYear()}`;
+}
+
 function withLineBreaks(text) {
     return String(text || '').replace(/\n/g, '<br>');
 }
@@ -955,14 +964,8 @@ function showEventDetails(element) {
         const eventCourseName = element.getAttribute('data-event-course-name');
         const eventBatch = element.getAttribute('data-event-batch');
         
-        // Format date
-        const dateObj = new Date(eventDate + 'T00:00:00');
-        const formattedDate = dateObj.toLocaleDateString('en-US', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        // Format date (app-wide DD-MM-YYYY)
+        const formattedDate = formatDisplayDate(eventDate);
         
         content = `
             <div class="event-details">
@@ -1003,23 +1006,11 @@ function showEventDetails(element) {
         const eventEndDate = element.getAttribute('data-event-end-date');
         const eventTypeClass = element.getAttribute('data-event-type-class') || 'event';
         
-        // Format date
-        const dateObj = new Date(eventDate + 'T00:00:00');
-        let dateRange = dateObj.toLocaleDateString('en-US', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        // Format date (app-wide DD-MM-YYYY)
+        let dateRange = formatDisplayDate(eventDate);
         
         if (eventEndDate && eventEndDate !== eventDate) {
-            const endDateObj = new Date(eventEndDate + 'T00:00:00');
-            const endDateFormatted = endDateObj.toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-            });
-            dateRange = `${dateRange} - ${endDateFormatted}`;
+            dateRange = `${dateRange} - ${formatDisplayDate(eventEndDate)}`;
         }
         
         content = `

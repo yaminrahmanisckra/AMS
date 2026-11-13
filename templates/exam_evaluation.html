@@ -152,7 +152,7 @@
                                         <span><span class="text-muted">Part:</span> {% if entry.section %}{{ entry.section }}{% else %}—{% endif %}</span>
                                         <span><span class="text-muted">Year/Term:</span> {{ (entry.year or '-') ~ '/' ~ (entry.term or '-') }}</span>
                                         {% if entry.submitted_to_committee %}
-                                        <span class="text-success"><i class="fas fa-check-circle me-1"></i>Submitted {{ entry.submitted_at|bd('%Y-%m-%d') if entry.submitted_at else '' }}</span>
+                                        <span class="text-success"><i class="fas fa-check-circle me-1"></i>Submitted {{ entry.submitted_at|bd('%d-%m-%Y') if entry.submitted_at else '' }}</span>
                                         {% endif %}
                                     </div>
                                 </div>
@@ -220,7 +220,7 @@
                                                 <span class="text-muted">—</span>
                                             {% endif %}
                                         </td>
-                                        <td>{{ entry.created_at|bd('%Y-%m-%d') }}</td>
+                                        <td>{{ entry.created_at|bd('%d-%m-%Y') }}</td>
                                         <td class="text-end">
                                             {% if entry.submitted_to_committee %}
                                             <button class="btn btn-outline-primary btn-sm" disabled title="Cannot edit marks after submission. Please unsubmit first.">Open</button>
@@ -320,7 +320,7 @@
                                                 <span class="text-muted">—</span>
                                             {% endif %}
                                         </td>
-                                        <td>{{ entry.created_at|bd('%Y-%m-%d') }}</td>
+                                        <td>{{ entry.created_at|bd('%d-%m-%Y') }}</td>
                                         <td class="text-end">
                                             <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Open</a>
                                             <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="d-inline">

@@ -378,7 +378,7 @@
                                                         {% if n.unread %}<span class="badge bg-danger ms-1" style="font-size: 0.65rem;">New</span>{% endif %}
                                                     </div>
                                                     <small class="text-muted">{{ n.student_name }} · {{ n.course_label }}</small>
-                                                    <div class="small text-muted mt-0">{{ n.created_at|bd('%b %d, %I:%M %p') if n.created_at else '' }}</div>
+                                                    <div class="small text-muted mt-0">{{ n.created_at|bd('%d-%m-%Y %I:%M %p') if n.created_at else '' }}</div>
                                                 </div>
                                             </div>
                                         </a>
@@ -417,7 +417,7 @@
                                                 </div>
                                                 <div class="flex-grow-1 overflow-hidden">
                                                     <div class="fw-semibold text-dark text-truncate">{{ n.title }}</div>
-                                                    <div class="small text-muted mt-0">{{ n.created_at|bd('%b %d, %I:%M %p') if n.created_at else '' }}</div>
+                                                    <div class="small text-muted mt-0">{{ n.created_at|bd('%d-%m-%Y %I:%M %p') if n.created_at else '' }}</div>
                                                 </div>
                                             </div>
                                         </a>

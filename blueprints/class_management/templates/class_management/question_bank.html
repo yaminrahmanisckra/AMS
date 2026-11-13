@@ -441,7 +441,7 @@
                                     <div class="qb-file-title">{{ f.title }}</div>
                                     <div class="qb-file-meta">
                                         <span class="qb-year-chip">{{ f.question_year }}</span>
-                                        <span>{{ f.created_at|bd('%d %b %Y') if f.created_at else '—' }}</span>
+                                        <span>{{ f.created_at|bd('%d-%m-%Y') if f.created_at else '—' }}</span>
                                     </div>
                                     {% if can_manage %}
                                     <div class="collapse mt-2" id="edit-title-{{ f.id }}">
