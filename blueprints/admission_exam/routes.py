@@ -37,6 +37,7 @@ from . import admission_exam_bp
 from .models import (
     AdmissionCycle, AdmissionCommitteeMember, AdmissionCandidate,
     AdmissionCandidateDocument, AdmissionWaitingList, AdmissionWaitingListMember,
+    AdmissionNotice, AdmissionNoticeRecipient,
     MERIT_LIST_KINDS, MERIT_LIST_KIND_LABELS,
 )
 from .fields import (
@@ -56,11 +57,15 @@ from .fields import (
 from user_models import User
 
 ALLOWED_PHOTO_EXTS = {'png', 'jpg', 'jpeg'}
-# Passport photo: reject uploads over 1 MB; store resized JPEG (~50–150 KB typical).
+# Passport photo: reject uploads over 1 MB; store resized JPEG.
 PHOTO_MAX_UPLOAD_BYTES = 1 * 1024 * 1024
 PHOTO_MAX_SIZE_LABEL = '1 MB'
-PHOTO_MAX_DIMENSIONS = (600, 750)  # width × height — enough for admit-card print
+PHOTO_MAX_DIMENSIONS = (300, 300)
 PHOTO_JPEG_QUALITY = 85
+# Signature stamp: wide/short for admit and application-form PDF slots.
+SIGNATURE_MAX_UPLOAD_BYTES = 512 * 1024
+SIGNATURE_MAX_SIZE_LABEL = '500 KB'
+SIGNATURE_MAX_DIMENSIONS = (300, 80)
 CANDIDATE_SESSION_KEY = 'admission_candidate_id'
 
 # Bump this when admit-card PDF code changes. Visible in PDF title/footer + HTTP header.
@@ -294,8 +299,12 @@ def _admission_rel(*parts):
 
 def _save_image_upload(cycle, application_id, file_storage, *, kind='photo',
                        max_bytes=PHOTO_MAX_UPLOAD_BYTES, max_label=PHOTO_MAX_SIZE_LABEL,
-                       max_dims=PHOTO_MAX_DIMENSIONS):
-    """Validate/resize an image upload. Returns (relative_path, error)."""
+                       max_dims=PHOTO_MAX_DIMENSIONS, exact_dims=False):
+    """Validate an image upload. Returns (relative_path, error).
+
+    When ``exact_dims`` is True (photo/signature), the file must already be
+    cropped to ``max_dims`` — no server-side resize/thumbnail.
+    """
     filename = secure_filename(file_storage.filename or '')
     if not filename or '.' not in filename:
         return None, f'Invalid {kind} file.'
@@ -312,7 +321,7 @@ def _save_image_upload(cycle, application_id, file_storage, *, kind='photo',
         return None, (
             f'{kind.capitalize()} is too large ({size / (1024 * 1024):.1f} MB). '
             f'Maximum allowed size is {max_label}. '
-            'Compress or resize the image and try again.'
+            'Compress or crop the image and try again.'
         )
 
     try:
@@ -326,8 +335,15 @@ def _save_image_upload(cycle, application_id, file_storage, *, kind='photo',
             img = img.convert('RGB')
         elif img.mode != 'RGB':
             img = img.convert('RGB')
-        resample = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS', Image.LANCZOS)
-        img.thumbnail(max_dims, resample)
+        if exact_dims:
+            if img.size != max_dims:
+                return None, (
+                    f'{kind.capitalize()} must be exactly {max_dims[0]}×{max_dims[1]} px. '
+                    'Use the crop tool after selecting your image.'
+                )
+        else:
+            resample = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS', Image.LANCZOS)
+            img.thumbnail(max_dims, resample)
     except Exception:
         return None, f'Could not read the {kind}. Please upload a valid JPG or PNG image.'
 
@@ -348,11 +364,11 @@ def _save_image_upload(cycle, application_id, file_storage, *, kind='photo',
 
 
 def _save_photo(cycle, application_id, file_storage):
-    """Validate size, resize to passport dimensions, save as JPEG. Returns (path, error)."""
+    """Validate cropped passport photo (exact px) and save as JPEG. Returns (path, error)."""
     return _save_image_upload(
         cycle, application_id, file_storage, kind='photo',
         max_bytes=PHOTO_MAX_UPLOAD_BYTES, max_label=PHOTO_MAX_SIZE_LABEL,
-        max_dims=PHOTO_MAX_DIMENSIONS,
+        max_dims=PHOTO_MAX_DIMENSIONS, exact_dims=True,
     )
 
 
@@ -366,11 +382,11 @@ def _save_bank_slip(cycle, application_id, file_storage):
 
 
 def _save_candidate_signature(cycle, application_id, file_storage):
-    """Save applicant signature (PNG/JPG). Returns (relative_path, error)."""
+    """Save cropped applicant signature (exact px). Returns (relative_path, error)."""
     return _save_image_upload(
         cycle, application_id, file_storage, kind='signature',
-        max_bytes=PHOTO_MAX_UPLOAD_BYTES, max_label=PHOTO_MAX_SIZE_LABEL,
-        max_dims=(800, 300),
+        max_bytes=SIGNATURE_MAX_UPLOAD_BYTES, max_label=SIGNATURE_MAX_SIZE_LABEL,
+        max_dims=SIGNATURE_MAX_DIMENSIONS, exact_dims=True,
     )
 
 
@@ -662,6 +678,42 @@ def _contains_bengali(text):
     if not text:
         return False
     return any('\u0980' <= ch <= '\u09FF' for ch in str(text))
+
+
+def _is_bangla_name_char(ch):
+    """Allowed character in Name of the Applicant (Bangla)."""
+    if not ch:
+        return False
+    o = ord(ch)
+    # Bengali block (letters, signs, digits) + ZWNJ/ZWJ for conjuncts
+    if 0x0980 <= o <= 0x09FF or o in (0x200C, 0x200D):
+        return True
+    # Spaces and light punctuation used in names
+    return ch in ' \t.-·'
+
+
+def _is_valid_bangla_name(text):
+    """Non-empty Bangla-only name (no Latin letters/digits)."""
+    text = (text or '').strip()
+    if not text:
+        return False
+    if not _contains_bengali(text):
+        return False
+    if re.search(r'[A-Za-z0-9]', text):
+        return False
+    return all(_is_bangla_name_char(ch) for ch in text)
+
+
+def _validate_name_bangla_value(value, *, required=False, label='Name of the Applicant (Bangla)'):
+    """Return error message or None."""
+    value = (value or '').strip()
+    if not value:
+        if required:
+            return f'{label} is required.'
+        return None
+    if not _is_valid_bangla_name(value):
+        return f'{label} must be written in Bangla only (বাংলায় লিখুন).'
+    return None
 
 
 class _CanvasPathAdapter:
@@ -1215,7 +1267,7 @@ def _reportlab_flowable_image(abs_path, width, height, label='image', cache_name
 
 
 def _save_signature(cycle, file_storage):
-    """Save chairman signature image (PNG/JPG), max 1 MB, resized. Returns (path, error)."""
+    """Save chairman signature image (PNG/JPG), resized. Returns (path, error)."""
     filename = secure_filename(file_storage.filename or '')
     if not filename or '.' not in filename:
         return None, 'Invalid signature file.'
@@ -1228,8 +1280,8 @@ def _save_signature(cycle, file_storage):
     file_storage.stream.seek(0)
     if size <= 0:
         return None, 'Signature file is empty.'
-    if size > PHOTO_MAX_UPLOAD_BYTES:
-        return None, f'Signature is too large. Maximum allowed size is {PHOTO_MAX_SIZE_LABEL}.'
+    if size > SIGNATURE_MAX_UPLOAD_BYTES:
+        return None, f'Signature is too large. Maximum allowed size is {SIGNATURE_MAX_SIZE_LABEL}.'
 
     try:
         from PIL import Image, ImageOps
@@ -1240,8 +1292,11 @@ def _save_signature(cycle, file_storage):
             img = img.convert('RGBA')
         elif img.mode != 'RGB':
             img = img.convert('RGB')
-        resample = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS', Image.LANCZOS)
-        img.thumbnail((600, 240), resample)
+        if img.size != SIGNATURE_MAX_DIMENSIONS:
+            return None, (
+                f'Signature must be exactly {SIGNATURE_MAX_DIMENSIONS[0]}×'
+                f'{SIGNATURE_MAX_DIMENSIONS[1]} px. Use the crop tool after selecting your image.'
+            )
     except Exception:
         return None, 'Could not read the signature image. Please upload a valid JPG or PNG.'
 
@@ -3867,6 +3922,7 @@ def landing(token):
             }
             for wl in _published_merit_lists(cycle)
         ],
+        public_notices=_public_cycle_notices(cycle),
     )
 
 
@@ -4061,9 +4117,20 @@ def apply_form(token):
             key = field['key']
             if key in FILE_FIELD_KEYS or key in PAYMENT_FIELD_KEYS:
                 continue
+            if key == 'name_bangla':
+                continue  # validated separately below
             val = (request.form.get(key) or '').strip()
             if not val:
                 errors.append(f'{field.get("label") or key} is required.')
+        name_bangla_field = next((f for f in form_fields if f.get('key') == 'name_bangla'), None)
+        if name_bangla_field:
+            bn_err = _validate_name_bangla_value(
+                request.form.get('name_bangla'),
+                required=bool(name_bangla_field.get('required')),
+                label=name_bangla_field.get('label') or 'Name of the Applicant (Bangla)',
+            )
+            if bn_err:
+                errors.append(bn_err)
         if photo_required and (not photo or not photo.filename):
             errors.append('A passport-size photo is required.')
         if signature_required and (not candidate_signature or not candidate_signature.filename):
@@ -4226,6 +4293,126 @@ def candidate_logout(token):
     return redirect(url_for('admission_exam.landing', token=token))
 
 
+def _public_cycle_notices(cycle):
+    """Notices addressed to all candidates — shown on the public admission portal."""
+    return (
+        AdmissionNotice.query
+        .filter_by(cycle_id=cycle.id, audience='all')
+        .order_by(AdmissionNotice.created_at.desc(), AdmissionNotice.id.desc())
+        .all()
+    )
+
+
+def _candidate_notice_receipts(candidate):
+    """All notice receipts for a candidate, newest first."""
+    return (
+        AdmissionNoticeRecipient.query
+        .filter_by(candidate_id=candidate.id)
+        .join(AdmissionNotice)
+        .order_by(AdmissionNotice.created_at.desc(), AdmissionNoticeRecipient.id.desc())
+        .all()
+    )
+
+
+def _candidate_unread_notices(candidate):
+    return (
+        AdmissionNoticeRecipient.query
+        .filter_by(candidate_id=candidate.id, read_at=None)
+        .join(AdmissionNotice)
+        .order_by(AdmissionNotice.created_at.asc(), AdmissionNoticeRecipient.id.asc())
+        .all()
+    )
+
+
+def _notice_files_dir(cycle):
+    path = os.path.join(_photo_dir(cycle), 'notices')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _save_notice_attachment(cycle, file_storage):
+    """Validate and store a notice attachment. Returns (rel_path, orig_name, size).
+
+    Raises ValueError with a user-facing message on failure.
+    """
+    from utils.uploads import LANDING_PURPOSE, UploadError, validate_upload
+
+    if not file_storage or not file_storage.filename:
+        raise ValueError('Please choose a file to upload.')
+    try:
+        validated = validate_upload(file_storage, LANDING_PURPOSE)
+    except UploadError as exc:
+        raise ValueError(exc.message) from exc
+    stored = f"{uuid.uuid4().hex}.{validated.ext}"
+    abs_path = os.path.join(_notice_files_dir(cycle), stored)
+    with open(abs_path, 'wb') as fh:
+        fh.write(validated.data)
+    rel_path = _admission_rel(f'cycle_{cycle.id}', 'notices', stored)
+    return rel_path, validated.original_name[:180], len(validated.data)
+
+
+def _delete_notice_attachment_file(notice):
+    """Best-effort remove of notice attachment from disk."""
+    rel = getattr(notice, 'file_path', None)
+    if not rel:
+        return
+    abs_path = _resolve_upload_path(rel)
+    if abs_path and os.path.isfile(abs_path):
+        try:
+            os.remove(abs_path)
+        except OSError:
+            pass
+
+
+def _create_admission_notice(cycle, title, body, candidates, audience='selected',
+                             file_storage=None):
+    """Create notice + recipient rows. Caller commits."""
+    title = (title or '').strip()
+    body = (body or '').strip()
+    if not title:
+        raise ValueError('Title is required.')
+    if len(title) > 200:
+        raise ValueError('Title must be 200 characters or fewer.')
+    has_file = bool(file_storage and file_storage.filename)
+    if not body and not has_file:
+        raise ValueError('Write a message or attach a file.')
+    candidates = [c for c in candidates if c and c.cycle_id == cycle.id]
+    # Deduplicate while preserving order
+    seen = set()
+    unique = []
+    for c in candidates:
+        if c.id in seen:
+            continue
+        seen.add(c.id)
+        unique.append(c)
+    if not unique:
+        raise ValueError('Select at least one candidate.')
+
+    file_path = original_filename = None
+    file_size = None
+    if has_file:
+        file_path, original_filename, file_size = _save_notice_attachment(cycle, file_storage)
+
+    notice = AdmissionNotice(
+        cycle_id=cycle.id,
+        title=title,
+        body=body or '',
+        file_path=file_path,
+        original_filename=original_filename,
+        file_size=file_size,
+        audience=audience if audience in ('all', 'selected') else 'selected',
+        created_by=current_user.id if current_user.is_authenticated else None,
+    )
+    db.session.add(notice)
+    db.session.flush()
+    for c in unique:
+        db.session.add(AdmissionNoticeRecipient(
+            notice_id=notice.id,
+            candidate_id=c.id,
+        ))
+    return notice, len(unique)
+
+
 @admission_exam_bp.route('/apply/<token>/dashboard')
 @candidate_required
 def candidate_dashboard(cycle, candidate):
@@ -4236,6 +4423,9 @@ def candidate_dashboard(cycle, candidate):
     extra = _parse_extra_fields(candidate)
     published_lists = _published_merit_lists(cycle)
     my_merit = _candidate_merit_memberships(candidate, published_only=True)
+    notice_receipts = _candidate_notice_receipts(candidate)
+    unread_notices = [r for r in notice_receipts if not r.is_read]
+    unread_notices.sort(key=lambda r: (r.notice.created_at or datetime.min, r.id))
     resp = make_response(render_template(
         'admission_exam/candidate_dashboard.html',
         cycle=cycle,
@@ -4264,11 +4454,48 @@ def candidate_dashboard(cycle, candidate):
             for wl in published_lists
         ],
         my_merit_lists=my_merit,
+        notice_receipts=notice_receipts,
+        unread_notices=unread_notices,
+        popup_notice=unread_notices[0] if unread_notices else None,
+        format_file_size=_format_file_size,
     ))
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private, max-age=0'
     resp.headers['Pragma'] = 'no-cache'
     resp.headers['Expires'] = '0'
     return resp
+
+
+@admission_exam_bp.route('/apply/<token>/notices')
+@candidate_required
+def candidate_notices(cycle, candidate):
+    receipts = _candidate_notice_receipts(candidate)
+    unread = [r for r in receipts if not r.is_read]
+    unread.sort(key=lambda r: (r.notice.created_at or datetime.min, r.id))
+    return render_template(
+        'admission_exam/candidate_notices.html',
+        cycle=cycle,
+        candidate=candidate,
+        notice_receipts=receipts,
+        unread_notices=unread,
+        popup_notice=unread[0] if unread else None,
+        format_file_size=_format_file_size,
+    )
+
+
+@admission_exam_bp.route('/apply/<token>/notices/<int:receipt_id>/read', methods=['POST'])
+@candidate_required
+def candidate_notice_mark_read(cycle, candidate, receipt_id):
+    receipt = AdmissionNoticeRecipient.query.filter_by(
+        id=receipt_id, candidate_id=candidate.id
+    ).first_or_404()
+    if receipt.read_at is None:
+        receipt.read_at = datetime.utcnow()
+        db.session.commit()
+    next_url = safe_redirect_target(
+        request.form.get('next') or request.args.get('next'),
+        fallback=url_for('admission_exam.candidate_dashboard', token=cycle.public_token),
+    )
+    return redirect(next_url)
 
 
 @admission_exam_bp.route('/apply/<token>/payment', methods=['POST'])
@@ -4449,6 +4676,27 @@ def candidate_photo(cycle, candidate):
     if not candidate.photo_path:
         abort(404)
     return send_confined_file(candidate.photo_path)
+
+
+@admission_exam_bp.route('/apply/<token>/photo', methods=['POST'])
+@candidate_required
+def candidate_update_photo(cycle, candidate):
+    """Allow candidate to upload/replace passport photo while payment is not verified."""
+    if candidate.payment_status == 'verified':
+        flash('Payment is already verified; photo can no longer be changed.', 'warning')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+    file_storage = request.files.get('candidate_photo')
+    if not file_storage or not file_storage.filename:
+        flash('Please choose a photo to upload.', 'danger')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+    path, err = _save_photo(cycle, candidate.application_id, file_storage)
+    if err:
+        flash(err, 'danger')
+        return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
+    candidate.photo_path = path
+    db.session.commit()
+    flash('Photo updated.', 'success')
+    return redirect(url_for('admission_exam.candidate_dashboard', token=cycle.public_token))
 
 
 @admission_exam_bp.route('/apply/<token>/signature')
@@ -5130,6 +5378,195 @@ def candidates_list(cycle):
             'waiting': [wl for wl in waiting_lists if wl.kind_key == 'waiting'],
         },
     )
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/notices', methods=['GET', 'POST'])
+@login_required
+@cycle_access_required
+def cycle_notices(cycle):
+    """Committee: list notices and send to all or selected candidates."""
+    if request.method == 'POST':
+        audience = (request.form.get('audience') or 'selected').strip().lower()
+        title = request.form.get('title')
+        body = request.form.get('body')
+        if audience == 'all':
+            targets = cycle.candidates.order_by(AdmissionCandidate.application_id).all()
+            audience_key = 'all'
+        else:
+            audience_key = 'selected'
+            raw_ids = request.form.getlist('candidate_ids')
+            try:
+                ids = [int(i) for i in raw_ids]
+            except ValueError:
+                ids = []
+            if not ids:
+                # Allow comma-separated paste from query/preselect
+                pasted = (request.form.get('candidate_ids_text') or '').strip()
+                if pasted:
+                    try:
+                        ids = [int(x.strip()) for x in pasted.replace(',', ' ').split() if x.strip()]
+                    except ValueError:
+                        ids = []
+            targets = (
+                AdmissionCandidate.query.filter(
+                    AdmissionCandidate.cycle_id == cycle.id,
+                    AdmissionCandidate.id.in_(ids),
+                ).all()
+                if ids else []
+            )
+        try:
+            notice, n = _create_admission_notice(
+                cycle, title, body, targets, audience=audience_key,
+                file_storage=request.files.get('notice_file'),
+            )
+            db.session.commit()
+            flash(f'Notice sent to {n} candidate(s).', 'success')
+            return redirect(url_for('admission_exam.cycle_notice_detail', cycle_id=cycle.id, notice_id=notice.id))
+        except ValueError as e:
+            flash(str(e), 'danger')
+
+    notices = (
+        AdmissionNotice.query
+        .filter_by(cycle_id=cycle.id)
+        .order_by(AdmissionNotice.created_at.desc())
+        .all()
+    )
+    notice_stats = {}
+    for n in notices:
+        total = n.recipients.count()
+        unread = n.recipients.filter_by(read_at=None).count()
+        notice_stats[n.id] = {'total': total, 'unread': unread, 'read': total - unread}
+
+    preselect = []
+    raw_pre = request.args.getlist('candidate_ids') or []
+    if not raw_pre and request.args.get('candidate_ids'):
+        raw_pre = [request.args.get('candidate_ids')]
+    try:
+        preselect = [int(x) for x in raw_pre]
+    except ValueError:
+        preselect = []
+    all_candidates = cycle.candidates.order_by(AdmissionCandidate.application_id).all()
+    return render_template(
+        'admission_exam/admin_notices.html',
+        cycle=cycle,
+        notices=notices,
+        notice_stats=notice_stats,
+        all_candidates=all_candidates,
+        preselect=set(preselect),
+        form_title=request.form.get('title', ''),
+        form_body=request.form.get('body', ''),
+        form_audience=request.form.get('audience', 'all' if not preselect else 'selected'),
+        notice_file_max_label=LANDING_FILE_MAX_LABEL,
+        format_file_size=_format_file_size,
+    )
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/notices/<int:notice_id>')
+@login_required
+@cycle_access_required
+def cycle_notice_detail(cycle, notice_id):
+    notice = AdmissionNotice.query.filter_by(id=notice_id, cycle_id=cycle.id).first_or_404()
+    recipients = (
+        notice.recipients
+        .join(AdmissionCandidate)
+        .order_by(AdmissionCandidate.application_id)
+        .all()
+    )
+    return render_template(
+        'admission_exam/admin_notice_detail.html',
+        cycle=cycle,
+        notice=notice,
+        recipients=recipients,
+        format_file_size=_format_file_size,
+    )
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/notices/<int:notice_id>/delete', methods=['POST'])
+@login_required
+@cycle_access_required
+def cycle_notice_delete(cycle, notice_id):
+    """Delete a notice and all recipient/read rows."""
+    notice = AdmissionNotice.query.filter_by(id=notice_id, cycle_id=cycle.id).first_or_404()
+    title = notice.title
+    _delete_notice_attachment_file(notice)
+    db.session.delete(notice)
+    db.session.commit()
+    flash(f'Notice “{title}” deleted.', 'success')
+    return redirect(url_for('admission_exam.cycle_notices', cycle_id=cycle.id))
+
+
+@admission_exam_bp.route('/cycle/<int:cycle_id>/notices/<int:notice_id>/file')
+@login_required
+@cycle_access_required
+def cycle_notice_file_admin(cycle, notice_id):
+    """Committee download of a notice attachment."""
+    from utils.safe_files import send_confined_file
+
+    notice = AdmissionNotice.query.filter_by(id=notice_id, cycle_id=cycle.id).first_or_404()
+    if not notice.file_path:
+        abort(404)
+    return send_confined_file(
+        notice.file_path,
+        as_attachment=True,
+        force_attachment=True,
+        download_name=notice.original_filename or os.path.basename(notice.file_path),
+    )
+
+
+@admission_exam_bp.route('/apply/<token>/notices/<int:notice_id>/file')
+def public_notice_file(token, notice_id):
+    """Download a public (audience=all) notice file from the admission portal.
+
+    Logged-in recipients may also download selected/personal notice files here.
+    """
+    from utils.safe_files import send_confined_file
+
+    cycle, disabled = _public_cycle_by_token(token)
+    if disabled:
+        return disabled
+    notice = AdmissionNotice.query.filter_by(id=notice_id, cycle_id=cycle.id).first_or_404()
+    if not notice.file_path:
+        abort(404)
+    if notice.audience == 'all':
+        pass  # public
+    else:
+        candidate = _current_candidate(token)
+        if not candidate:
+            return redirect(url_for('admission_exam.candidate_login', token=token))
+        receipt = AdmissionNoticeRecipient.query.filter_by(
+            notice_id=notice.id, candidate_id=candidate.id
+        ).first()
+        if not receipt:
+            abort(403)
+    return send_confined_file(
+        notice.file_path,
+        as_attachment=True,
+        force_attachment=True,
+        download_name=notice.original_filename or os.path.basename(notice.file_path),
+    )
+
+
+@admission_exam_bp.route('/candidate/<int:candidate_id>/notice', methods=['POST'])
+@login_required
+@candidate_access_required
+def candidate_send_notice(candidate):
+    """Send a notice to a single candidate from their detail page."""
+    cycle = candidate.cycle
+    try:
+        notice, n = _create_admission_notice(
+            cycle,
+            request.form.get('title'),
+            request.form.get('body'),
+            [candidate],
+            audience='selected',
+            file_storage=request.files.get('notice_file'),
+        )
+        db.session.commit()
+        flash(f'Notice sent to {candidate.application_id}.', 'success')
+        return redirect(url_for('admission_exam.cycle_notice_detail', cycle_id=cycle.id, notice_id=notice.id))
+    except ValueError as e:
+        flash(str(e), 'danger')
+        return redirect(url_for('admission_exam.candidate_detail', candidate_id=candidate.id))
 
 
 @admission_exam_bp.route('/cycle/<int:cycle_id>/candidates/marks', methods=['POST'])
@@ -6237,6 +6674,15 @@ def candidate_edit(candidate):
     candidate.full_name = (request.form.get('full_name') or candidate.full_name).strip().upper()
     candidate.phone = (request.form.get('phone') or candidate.phone).strip()
     candidate.email = (request.form.get('email') or '').strip() or None
+    if 'name_bangla' in request.form:
+        bn_err = _validate_name_bangla_value(
+            request.form.get('name_bangla'),
+            required=True,
+            label='Name of the Applicant (Bangla)',
+        )
+        if bn_err:
+            flash(bn_err, 'danger')
+            return redirect(url_for('admission_exam.candidate_detail', candidate_id=candidate.id))
     candidate.extra_fields = json.dumps(
         _collect_extra_fields(
             request.form,

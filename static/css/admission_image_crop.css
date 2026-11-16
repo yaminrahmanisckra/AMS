@@ -1,0 +1,156 @@
+/* Fixed-frame crop: frame stays; drag/zoom the image */
+body.adm-crop-open {
+  overflow: hidden;
+}
+
+.adm-crop-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1080;
+  background: rgba(15, 23, 42, 0.55);
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.adm-crop-modal.is-open {
+  display: flex;
+}
+
+.adm-crop-dialog {
+  width: min(520px, 100%);
+  max-height: min(92vh, 760px);
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.adm-crop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.adm-crop-close {
+  border: 0;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0 0.25rem;
+}
+
+.adm-crop-stage {
+  position: relative;
+  height: min(54vh, 400px);
+  background: #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+.adm-crop-frame {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.45);
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.adm-crop-frame.is-dragging {
+  cursor: grabbing;
+}
+
+.adm-crop-frame.is-wide {
+  /* signature-style wide frame — slightly more stage breathing room via max width already */
+}
+
+.adm-crop-frame img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  max-height: none;
+  transform-origin: 0 0;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.adm-crop-frame-border {
+  position: absolute;
+  inset: 0;
+  border: 2px solid #0f766e;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.adm-crop-toolbar {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem 0;
+}
+
+.adm-crop-toolbar .btn {
+  min-width: 2.25rem;
+  font-weight: 700;
+}
+
+.adm-crop-hint {
+  padding: 0.45rem 1rem 0.15rem;
+  font-size: 0.8rem;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.adm-crop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 1rem;
+}
+
+.adm-crop-field .adm-crop-preview {
+  margin-top: 0.65rem;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.adm-crop-field .adm-crop-preview img {
+  display: block;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.adm-crop-field .adm-crop-preview.is-photo img {
+  width: 96px;
+  height: 96px;
+}
+
+.adm-crop-field .adm-crop-preview.is-signature img {
+  width: 180px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.adm-crop-field .adm-crop-preview-cap {
+  font-size: 0.75rem;
+  color: #64748b;
+}

@@ -2,7 +2,8 @@
 {% block title %}Apply – {{ cycle.name }}{% endblock %}
 {% block mobile_title %}Apply{% endblock %}
 {% block extra_css %}
-<link href="{{ url_for('static', filename='css/admission_public.css') }}?v=adm1" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/admission_public.css') }}?v=adm3" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/admission_image_crop.css') }}?v=3" rel="stylesheet">
 {% endblock %}
 {% block content %}
 <div class="adm-shell">
@@ -48,10 +49,14 @@
                                name="{{ field.key }}"
                                {% if field.required %}required{% endif %}
                                {% if field.key == 'full_name' %}style="text-transform: uppercase;" autocomplete="name"{% endif %}
+                               {% if field.key == 'name_bangla' %}lang="bn" inputmode="text" autocomplete="off" data-bangla-name="1"{% endif %}
                                {% if field.key == 'phone' %}placeholder="01XXXXXXXXX"{% endif %}
                                value="{{ form.get(field.key, '') }}">
                         {% if field.key == 'full_name' %}
                         <div class="form-text">Please type in CAPITAL letters.</div>
+                        {% elif field.key == 'name_bangla' %}
+                        <div class="form-text">শুধু বাংলায় লিখুন। ইংরেজি অক্ষর লেখা যাবে না।</div>
+                        <div class="text-danger small d-none" data-bangla-name-error>বাংলা অক্ষরে নাম লিখুন।</div>
                         {% endif %}
                         {% endif %}
                     </div>
@@ -68,7 +73,7 @@
                                 <input type="file" class="form-control" name="photo" id="photoInput"
                                        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
                                        {% if photo_required %}required{% endif %}>
-                                <div class="form-text">JPG or PNG, maximum <strong>1 MB</strong>. This photo will appear on your admit card.</div>
+                                <div class="form-text">JPG/PNG. After selecting, crop to exactly <strong>300×300 px</strong>. Max <strong>1 MB</strong> after crop. Appears on your admit card.</div>
                                 <div class="text-danger small mt-1 d-none" id="photoSizeError"></div>
                             </div>
                             {% endif %}
@@ -81,7 +86,7 @@
                                 <input type="file" class="form-control" name="candidate_signature" id="signatureInput"
                                        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
                                        {% if signature_required %}required{% endif %}>
-                                <div class="form-text">Clear signature on white background, JPG or PNG, maximum <strong>1 MB</strong>.</div>
+                                <div class="form-text">Clear signature on white background, JPG/PNG. After selecting, crop to exactly <strong>300×80 px</strong>. Max <strong>500 KB</strong> after crop.</div>
                                 <div class="text-danger small mt-1 d-none" id="signatureSizeError"></div>
                             </div>
                             {% endif %}
@@ -97,7 +102,7 @@
             <div class="card-header bg-light"><strong>Academic Qualifications</strong></div>
             <div class="card-body">
                 <div class="table-responsive">
-                    <table class="table table-bordered table-sm align-middle mb-0" id="academicTable">
+                    <table class="table table-bordered table-sm align-middle mb-0 adm-academic-table m-keep-table" id="academicTable">
                         <thead class="table-light">
                             <tr>
                                 <th style="min-width: 140px;">Name of the Examination</th>
@@ -110,7 +115,7 @@
                         <tbody id="academicTableBody">
                             {% for prefix, exam_label in academic_exam_rows %}
                             <tr>
-                                <td>
+                                <td data-label="Name of the Examination">
                                     <strong>{{ exam_label }}</strong>
                                     {% if prefix == 'other' %}
                                     <input type="text" class="form-control form-control-sm mt-1"
@@ -119,29 +124,33 @@
                                     {% endif %}
                                 </td>
                                 {% for suffix, col_label in academic_col_suffixes %}
-                                <td>
+                                <td data-label="{{ col_label }}">
                                     <input type="text" class="form-control form-control-sm"
                                            name="{{ prefix }}_{{ suffix }}"
                                            value="{{ form.get(prefix ~ '_' ~ suffix, '') }}"
-                                           aria-label="{{ exam_label }} – {{ col_label }}">
+                                           aria-label="{{ exam_label }} – {{ col_label }}"
+                                           placeholder="{{ col_label }}">
                                 </td>
                                 {% endfor %}
-                                <td></td>
+                                <td data-label=""></td>
                             </tr>
                             {% endfor %}
                             {% for row in academic_extra_rows or [] %}
                             <tr class="academic-extra-row">
-                                <td>
+                                <td data-label="Name of the Examination">
                                     <input type="text" class="form-control form-control-sm"
                                            name="extra_row_exam_name" placeholder="Name of examination"
                                            value="{{ row.exam_name }}" required>
                                 </td>
-                                <td><input type="text" class="form-control form-control-sm" name="extra_row_year" value="{{ row.year }}"></td>
-                                <td><input type="text" class="form-control form-control-sm" name="extra_row_board" value="{{ row.board }}"></td>
-                                <td><input type="text" class="form-control form-control-sm" name="extra_row_institution" value="{{ row.institution }}"></td>
-                                <td><input type="text" class="form-control form-control-sm" name="extra_row_cgpa" value="{{ row.cgpa }}"></td>
-                                <td><input type="text" class="form-control form-control-sm" name="extra_row_percentage" value="{{ row.percentage }}"></td>
-                                <td class="text-center">
+                                {% for suffix, col_label in academic_col_suffixes %}
+                                <td data-label="{{ col_label }}">
+                                    <input type="text" class="form-control form-control-sm"
+                                           name="extra_row_{{ suffix }}"
+                                           value="{{ row[suffix] }}"
+                                           placeholder="{{ col_label }}">
+                                </td>
+                                {% endfor %}
+                                <td class="text-center" data-label="">
                                     <button type="button" class="btn btn-sm btn-outline-danger academic-row-remove" title="Remove row">&times;</button>
                                 </td>
                             </tr>
@@ -294,6 +303,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/admission_image_crop.js') }}?v=3"></script>
 <script>
 (function () {
     function bindMaxSize(inputId, errId, maxBytes, label) {
@@ -312,8 +322,20 @@
             }
         });
     }
-    bindMaxSize('photoInput', 'photoSizeError', 1 * 1024 * 1024, 'Photo');
-    bindMaxSize('signatureInput', 'signatureSizeError', 1 * 1024 * 1024, 'Signature');
+    if (window.AdmissionImageCrop) {
+        AdmissionImageCrop.bind('photoInput', {
+            width: 300, height: 300, kind: 'photo', label: 'Photo',
+            title: 'Crop passport photo (300×300)',
+            errId: 'photoSizeError', maxOutputBytes: 1 * 1024 * 1024,
+            maxSourceBytes: 10 * 1024 * 1024, fileName: 'photo.jpg'
+        });
+        AdmissionImageCrop.bind('signatureInput', {
+            width: 300, height: 80, kind: 'signature', label: 'Signature',
+            title: 'Crop signature (300×80)',
+            errId: 'signatureSizeError', maxOutputBytes: 512 * 1024,
+            maxSourceBytes: 10 * 1024 * 1024, fileName: 'signature.jpg'
+        });
+    }
     bindMaxSize('bankSlipInput', 'bankSlipSizeError', 2 * 1024 * 1024, 'Slip photo');
 
     const nameInput = document.querySelector('input[name="full_name"]');
@@ -325,6 +347,37 @@
             try { nameInput.setSelectionRange(start, end); } catch (e) {}
         });
     }
+
+    (function bindBanglaNameInputs() {
+        const BANGLA_KEEP = /[^\u0980-\u09FF\u200C\u200D\s.\-·]/g;
+        function hasBangla(s) { return /[\u0980-\u09FF]/.test(s || ''); }
+        function hasLatinOrDigit(s) { return /[A-Za-z0-9]/.test(s || ''); }
+        document.querySelectorAll('input[data-bangla-name="1"]').forEach(function (el) {
+            const err = el.parentElement && el.parentElement.querySelector('[data-bangla-name-error]');
+            function syncValidity() {
+                const v = (el.value || '').trim();
+                const bad = v && (!hasBangla(v) || hasLatinOrDigit(v));
+                if (err) err.classList.toggle('d-none', !bad);
+                if (bad) el.setCustomValidity('বাংলা অক্ষরে নাম লিখুন।');
+                else el.setCustomValidity('');
+            }
+            el.addEventListener('input', function () {
+                const start = el.selectionStart;
+                const before = el.value;
+                const cleaned = before.replace(BANGLA_KEEP, '');
+                if (cleaned !== before) {
+                    el.value = cleaned;
+                    try {
+                        const delta = before.length - cleaned.length;
+                        el.setSelectionRange(Math.max(0, start - delta), Math.max(0, start - delta));
+                    } catch (e) {}
+                }
+                syncValidity();
+            });
+            el.addEventListener('blur', syncValidity);
+            syncValidity();
+        });
+    })();
 
     const MFS = new Set({{ mfs_payment_methods|tojson }});
     const LABELS = {{ payment_method_labels|tojson }};
@@ -365,17 +418,19 @@
     // Extra academic rows
     const academicBody = document.getElementById('academicTableBody');
     const addAcademicBtn = document.getElementById('addAcademicRowBtn');
+    const academicColSuffixes = {{ academic_col_suffixes|list|tojson }};
     function academicExtraRowHtml(values) {
         values = values || {};
-        return '<tr class="academic-extra-row">' +
-            '<td><input type="text" class="form-control form-control-sm" name="extra_row_exam_name" placeholder="Name of examination" value="' + (values.exam_name || '') + '" required></td>' +
-            '<td><input type="text" class="form-control form-control-sm" name="extra_row_year" value="' + (values.year || '') + '"></td>' +
-            '<td><input type="text" class="form-control form-control-sm" name="extra_row_board" value="' + (values.board || '') + '"></td>' +
-            '<td><input type="text" class="form-control form-control-sm" name="extra_row_institution" value="' + (values.institution || '') + '"></td>' +
-            '<td><input type="text" class="form-control form-control-sm" name="extra_row_cgpa" value="' + (values.cgpa || '') + '"></td>' +
-            '<td><input type="text" class="form-control form-control-sm" name="extra_row_percentage" value="' + (values.percentage || '') + '"></td>' +
-            '<td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger academic-row-remove" title="Remove row">&times;</button></td>' +
-            '</tr>';
+        let cells = '<td data-label="Name of the Examination"><input type="text" class="form-control form-control-sm" name="extra_row_exam_name" placeholder="Name of examination" value="' + (values.exam_name || '') + '" required></td>';
+        academicColSuffixes.forEach(function (pair) {
+            const suffix = pair[0];
+            const label = pair[1];
+            cells += '<td data-label="' + String(label).replace(/"/g, '&quot;') + '">' +
+                '<input type="text" class="form-control form-control-sm" name="extra_row_' + suffix + '" ' +
+                'value="' + (values[suffix] || '') + '" placeholder="' + String(label).replace(/"/g, '&quot;') + '"></td>';
+        });
+        cells += '<td class="text-center" data-label=""><button type="button" class="btn btn-sm btn-outline-danger academic-row-remove" title="Remove row">&times;</button></td>';
+        return '<tr class="academic-extra-row">' + cells + '</tr>';
     }
     if (addAcademicBtn && academicBody) {
         addAcademicBtn.addEventListener('click', function () {

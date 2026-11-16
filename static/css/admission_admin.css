@@ -260,3 +260,330 @@
 .adm-manage .adm-collapse-toggle[aria-expanded="false"] .adm-collapse-chevron {
   transform: rotate(-90deg);
 }
+
+/* —— Candidates list (workflow-focused) —— */
+.adm-cand {
+  --am-ink: #14343a;
+  --am-muted: #5f7479;
+  --am-teal: #0d7377;
+  --am-teal-deep: #095456;
+  --am-mint: #e7f5f3;
+  --am-line: rgba(20, 52, 58, 0.1);
+  --am-radius: 1rem;
+  --am-font: 'Manrope', system-ui, sans-serif;
+  --am-display: 'Fraunces', Georgia, serif;
+
+  font-family: var(--am-font);
+  color: var(--am-ink);
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1rem 1rem 2.5rem;
+}
+
+.adm-cand-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.adm-cand-hero h1 {
+  font-family: var(--am-display);
+  font-size: clamp(1.45rem, 3vw, 1.85rem);
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.adm-cand-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  padding: 0.1rem 0.55rem;
+  margin-left: 0.35rem;
+  border-radius: 999px;
+  font-family: var(--am-font);
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: var(--am-mint);
+  color: var(--am-teal-deep);
+  vertical-align: middle;
+}
+
+.adm-cand-sub {
+  margin: 0.25rem 0 0;
+  color: var(--am-muted);
+  font-size: 0.9rem;
+}
+
+.adm-cand-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.adm-cand-panel {
+  background: #fff;
+  border: 1px solid var(--am-line);
+  border-radius: var(--am-radius);
+  box-shadow: 0 10px 24px rgba(9, 84, 86, 0.04);
+  margin-bottom: 0.85rem;
+}
+
+.adm-cand-filters {
+  padding: 0.85rem 1rem;
+}
+
+.adm-cand-filter-grid,
+.adm-cand-assign-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.65rem 0.75rem;
+  align-items: end;
+}
+
+@media (min-width: 768px) {
+  .adm-cand-filter-grid {
+    grid-template-columns: minmax(12rem, 2fr) repeat(2, minmax(8rem, 1fr)) auto;
+  }
+  .adm-cand-assign-grid {
+    grid-template-columns: minmax(10rem, 1.4fr) repeat(4, minmax(5.5rem, 1fr)) auto auto;
+  }
+}
+
+.adm-cand-field .form-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--am-muted);
+  margin-bottom: 0.25rem;
+}
+
+.adm-cand-field-narrow {
+  max-width: 6.5rem;
+}
+
+.adm-cand-field-check {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 0.35rem;
+}
+
+.adm-cand-field-action {
+  min-width: 6.5rem;
+}
+
+.adm-cand-tools {
+  padding: 0;
+}
+
+.adm-cand-tools > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  padding: 0.8rem 1rem;
+  font-weight: 700;
+  color: var(--am-ink);
+  background: linear-gradient(90deg, rgba(13, 115, 119, 0.08), rgba(201, 120, 16, 0.05));
+  border-radius: var(--am-radius);
+}
+
+.adm-cand-tools > summary::-webkit-details-marker {
+  display: none;
+}
+
+.adm-cand-tools[open] > summary {
+  border-radius: var(--am-radius) var(--am-radius) 0 0;
+  border-bottom: 1px solid var(--am-line);
+}
+
+.adm-cand-tools-meta {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--am-muted);
+}
+
+.adm-cand-tools .adm-cand-assign-grid,
+.adm-cand-tools .adm-cand-hint {
+  padding: 0.85rem 1rem;
+}
+
+.adm-cand-hint {
+  font-size: 0.8rem;
+  color: var(--am-muted);
+}
+
+.adm-cand-table-wrap {
+  overflow: hidden;
+  padding: 0;
+}
+
+.adm-cand-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--am-line);
+  background: #fbfcfc;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.adm-cand-toolbar-left,
+.adm-cand-toolbar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.adm-cand-selected {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--am-muted);
+  min-width: 5.5rem;
+}
+
+.adm-cand-action-group {
+  display: none;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.adm-cand-toolbar.has-selection .adm-cand-action-group {
+  display: flex;
+}
+
+.adm-cand-toolbar.has-selection .adm-cand-selected {
+  color: var(--am-teal-deep);
+}
+
+.adm-cand-marks-hint {
+  font-size: 0.78rem;
+  color: var(--am-muted);
+}
+
+.adm-cand-table thead th {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--am-muted);
+  background: #f4f8f8;
+  border-bottom: 1px solid var(--am-line);
+  white-space: nowrap;
+  padding: 0.65rem 0.55rem;
+}
+
+.adm-cand-table td {
+  padding: 0.7rem 0.55rem;
+  border-color: var(--am-line);
+  vertical-align: middle;
+}
+
+.adm-cand-check {
+  width: 2rem;
+}
+
+.adm-cand-appid {
+  font-weight: 700;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.adm-cand-name {
+  font-weight: 650;
+  font-size: 0.9rem;
+}
+
+.adm-cand-meta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--am-muted);
+}
+
+.adm-cand-pay {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.3rem;
+}
+
+.adm-cand-pay code {
+  font-size: 0.75rem;
+  color: #9b2c2c;
+}
+
+.adm-cand-pill {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: #f1f5f5;
+  border: 1px solid var(--am-line);
+  color: var(--am-ink);
+}
+
+.adm-cand-roll {
+  font-weight: 700;
+}
+
+.adm-cand-mark-col {
+  width: 4.75rem;
+  min-width: 4.75rem;
+}
+
+.adm-cand-mark-col .form-control {
+  padding: 0.25rem 0.35rem;
+  font-size: 0.82rem;
+}
+
+.adm-cand-view {
+  font-weight: 700;
+  border-radius: 0.55rem;
+}
+
+.adm-cand-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--am-line);
+  background: #fbfcfc;
+}
+
+.adm-cand .btn {
+  border-radius: 0.65rem;
+  font-weight: 650;
+}
+
+.adm-cand-table-scroll {
+  max-height: min(70vh, 720px);
+}
+
+@media (max-width: 767.98px) {
+  .adm-cand {
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+  }
+  .adm-cand-mark-col {
+    width: 4.25rem;
+    min-width: 4.25rem;
+  }
+}

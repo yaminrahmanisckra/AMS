@@ -3,6 +3,7 @@
 {% block mobile_title %}Cycle{% endblock %}
 {% block extra_css %}
 <link href="{{ url_for('static', filename='css/admission_admin.css') }}?v=adm-m3" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/admission_image_crop.css') }}?v=3" rel="stylesheet">
 {% endblock %}
 {% block content %}
 <div class="container my-4 adm-manage">
@@ -23,6 +24,9 @@
             <a href="#merit-lists" class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-trophy me-1"></i>Merit Lists
             </a>
+            <a href="{{ url_for('admission_exam.cycle_notices', cycle_id=cycle.id) }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-bell me-1"></i>Notices
+            </a>
             <a href="{{ url_for('admission_exam.candidates_list', cycle_id=cycle.id) }}" class="btn btn-primary btn-sm">
                 <i class="fas fa-users me-1"></i>Candidates ({{ counts.total }})
             </a>
@@ -37,6 +41,7 @@
         <a href="#documents"><i class="fas fa-tags"></i> Certificates</a>
         <a href="#declaration"><i class="fas fa-file-signature"></i> Declaration</a>
         <a href="#settings-committee"><i class="fas fa-cog"></i> Settings</a>
+        <a href="{{ url_for('admission_exam.cycle_notices', cycle_id=cycle.id) }}"><i class="fas fa-bell"></i> Notices</a>
         <a href="{{ url_for('admission_exam.candidates_list', cycle_id=cycle.id) }}"><i class="fas fa-users"></i> Candidates</a>
     </nav>
 
@@ -471,10 +476,12 @@
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="action" value="upload">
                         <div class="input-group input-group-sm">
-                            <input type="file" class="form-control" name="signature" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
+                            <input type="file" class="form-control" name="signature" id="chairmanSignatureInput"
+                                   accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
                             <button type="submit" class="btn btn-primary">Upload</button>
                         </div>
-                        <div class="form-text">JPG/PNG, max 1 MB. Transparent PNG works best.</div>
+                        <div class="form-text">JPG/PNG. Crop to exactly <strong>300×80 px</strong>. Max 500 KB after crop. Transparent PNG works best before crop (exported as JPEG).</div>
+                        <div class="text-danger small mt-1 d-none" id="chairmanSignatureError"></div>
                     </form>
                     {% if cycle.chairman_signature_path %}
                     <form method="POST" action="{{ url_for('admission_exam.cycle_signature_upload', cycle_id=cycle.id) }}" class="mt-2"
@@ -490,7 +497,7 @@
                     <div class="small text-muted mb-1">Current signature</div>
                     <img src="{{ url_for('admission_exam.cycle_signature_image', cycle_id=cycle.id) }}"
                          alt="Chairman signature" class="img-thumbnail bg-white"
-                         style="max-height: 80px; max-width: 100%;">
+                         style="max-width: 150px; max-height: 40px; object-fit: contain;">
                     {% else %}
                     <div class="border rounded p-3 text-muted small">No signature uploaded yet</div>
                     {% endif %}
@@ -793,7 +800,16 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js" referrerpolicy="origin"></script>
+<script src="{{ url_for('static', filename='js/admission_image_crop.js') }}?v=3"></script>
 <script>
+if (window.AdmissionImageCrop) {
+    AdmissionImageCrop.bind('chairmanSignatureInput', {
+        width: 300, height: 80, kind: 'signature', label: 'Signature',
+        title: 'Crop chairman signature (300×80)',
+        errId: 'chairmanSignatureError', maxOutputBytes: 512 * 1024,
+        maxSourceBytes: 10 * 1024 * 1024, fileName: 'chairman_signature.jpg'
+    });
+}
 function copyPublicUrl() {
     const input = document.getElementById('publicUrlInput');
     input.select();

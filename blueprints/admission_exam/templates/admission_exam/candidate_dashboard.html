@@ -2,7 +2,8 @@
 {% block title %}My Application – {{ cycle.name }}{% endblock %}
 {% block mobile_title %}My Application{% endblock %}
 {% block extra_css %}
-<link href="{{ url_for('static', filename='css/admission_public.css') }}?v=adm1" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/admission_public.css') }}?v=adm3" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/admission_image_crop.css') }}?v=3" rel="stylesheet">
 {% endblock %}
 {% block content %}
 <div class="adm-shell">
@@ -19,6 +20,62 @@
                 <i class="fas fa-sign-out-alt"></i>Logout
             </button>
         </form>
+    </div>
+
+    <div class="adm-panel mb-3 adm-rise" id="notices-panel">
+        <div class="adm-panel-head d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <strong><i class="fas fa-bell me-1"></i>Notices</strong>
+            <div class="d-flex align-items-center gap-2">
+                {% if unread_notices %}
+                <span class="badge bg-warning text-dark">{{ unread_notices|length }} unread</span>
+                {% endif %}
+                <a href="{{ url_for('admission_exam.candidate_notices', token=cycle.public_token) }}" class="adm-btn adm-btn-ghost adm-btn-sm">
+                    View all
+                </a>
+            </div>
+        </div>
+        <div class="adm-panel-body">
+            {% if notice_receipts %}
+            <div class="list-group list-group-flush">
+                {% for r in notice_receipts[:5] %}
+                <div class="list-group-item px-0 {% if not r.is_read %}border-start border-3 border-warning ps-2{% endif %}">
+                    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                        <div>
+                            <div class="fw-semibold">{{ r.notice.title }}</div>
+                            <div class="small text-muted">
+                                {{ r.notice.created_at|bd('%d-%m-%Y, %I:%M %p') if r.notice.created_at else '' }}
+                                {% if not r.is_read %}<span class="text-warning">· Unread</span>{% endif %}
+                            </div>
+                            {% if r.notice.body %}
+                            <div class="small mt-1" style="white-space: pre-wrap;">{{ r.notice.body[:220] }}{% if r.notice.body|length > 220 %}…{% endif %}</div>
+                            {% endif %}
+                            {% if r.notice.has_attachment %}
+                            <a class="small d-inline-block mt-1"
+                               href="{{ url_for('admission_exam.public_notice_file', token=cycle.public_token, notice_id=r.notice.id) }}">
+                                <i class="fas fa-paperclip me-1"></i>{{ r.notice.original_filename or 'Download' }}
+                            </a>
+                            {% endif %}
+                        </div>
+                        {% if not r.is_read %}
+                        <form method="POST" action="{{ url_for('admission_exam.candidate_notice_mark_read', token=cycle.public_token, receipt_id=r.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="next" value="{{ url_for('admission_exam.candidate_dashboard', token=cycle.public_token) }}#notices-panel">
+                            <button type="submit" class="adm-btn adm-btn-primary adm-btn-sm">Mark read</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% if notice_receipts|length > 5 %}
+            <a href="{{ url_for('admission_exam.candidate_notices', token=cycle.public_token) }}" class="adm-btn adm-btn-ghost adm-btn-sm mt-2">
+                See all {{ notice_receipts|length }} notices
+            </a>
+            {% endif %}
+            {% else %}
+            <p class="text-muted mb-0 small">No notices from the admission committee yet.</p>
+            {% endif %}
+        </div>
     </div>
 
     <div class="adm-stat-grid adm-rise adm-rise-delay-1">
@@ -40,6 +97,20 @@
             {% if candidate.payment_note %}
             <div class="small text-muted mt-2">{{ candidate.payment_note }}</div>
             {% endif %}
+        </div>
+        <div class="adm-stat">
+            <div class="adm-stat-label">Application Status</div>
+            <div class="adm-stat-value" style="font-size:1.05rem;">
+                {% if candidate.application_status == 'selected' %}
+                <span class="adm-status adm-status-open">Selected</span>
+                {% elif candidate.application_status == 'eligible' %}
+                <span class="badge bg-info text-dark">Eligible</span>
+                {% elif candidate.application_status == 'rejected' %}
+                <span class="badge bg-danger">Rejected</span>
+                {% else %}
+                <span class="badge bg-light text-dark border">Submitted</span>
+                {% endif %}
+            </div>
         </div>
         <div class="adm-stat">
             <div class="adm-stat-label">Roll Number</div>
@@ -135,7 +206,8 @@
                 <div class="col-md-3 text-center mb-3">
                     {% if candidate.photo_path %}
                     <img src="{{ url_for('admission_exam.candidate_photo', token=cycle.public_token) }}"
-                         alt="Photo" class="img-thumbnail" style="max-width: 140px;">
+                         alt="Photo" class="img-thumbnail"
+                         style="width: 96px; height: 96px; object-fit: cover;">
                     {% else %}
                     <div class="border rounded p-4 text-muted small">No photo</div>
                     {% endif %}
@@ -143,22 +215,41 @@
                         <div class="small text-muted mb-1">Your signature</div>
                         {% if candidate.signature_path %}
                         <img src="{{ url_for('admission_exam.candidate_signature_image', token=cycle.public_token) }}"
-                             alt="Signature" class="img-thumbnail bg-white" style="max-width: 160px; max-height: 70px;">
+                             alt="Signature" class="img-thumbnail bg-white"
+                             style="max-width: 150px; max-height: 40px; object-fit: contain;">
                         {% else %}
                         <div class="border rounded p-2 text-muted small">No signature</div>
                         {% endif %}
                     </div>
                     {% if candidate.payment_status != 'verified' %}
-                    <form method="POST" enctype="multipart/form-data" class="mt-2 text-start"
+                    <form method="POST" enctype="multipart/form-data" class="mt-3 text-start"
+                          action="{{ url_for('admission_exam.candidate_update_photo', token=cycle.public_token) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <label class="form-label small mb-1">
+                            {% if candidate.photo_path %}Replace photo{% else %}Upload photo{% endif %}
+                        </label>
+                        <input type="file" class="form-control form-control-sm" name="candidate_photo"
+                               id="dashPhotoInput"
+                               accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
+                        <div class="form-text">JPG/PNG. Crop to exactly <strong>300×300 px</strong>. Max 1 MB after crop.</div>
+                        <div class="text-danger small mt-1 d-none" id="dashPhotoError"></div>
+                        <button type="submit" class="btn btn-sm btn-outline-primary mt-2 w-100">Save Photo</button>
+                    </form>
+                    <form method="POST" enctype="multipart/form-data" class="mt-3 text-start"
                           action="{{ url_for('admission_exam.candidate_update_signature', token=cycle.public_token) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <label class="form-label small mb-1">
                             {% if candidate.signature_path %}Replace signature{% else %}Upload signature{% endif %}
                         </label>
                         <input type="file" class="form-control form-control-sm" name="candidate_signature"
+                               id="dashSignatureInput"
                                accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
+                        <div class="form-text">JPG/PNG. Crop to exactly <strong>300×80 px</strong>. Max 500 KB after crop.</div>
+                        <div class="text-danger small mt-1 d-none" id="dashSignatureError"></div>
                         <button type="submit" class="btn btn-sm btn-outline-primary mt-2 w-100">Save Signature</button>
                     </form>
+                    {% else %}
+                    <p class="small text-muted mt-2 mb-0">Photo and signature are locked after payment verification.</p>
                     {% endif %}
                 </div>
                 <div class="col-md-9">
@@ -186,7 +277,7 @@
         <div class="card-header bg-light"><strong>Academic Qualifications</strong></div>
         <div class="card-body">
             <div class="table-responsive">
-                <table class="table table-bordered table-sm align-middle mb-0 small">
+                <table class="table table-bordered table-sm align-middle mb-0 small adm-academic-table m-keep-table">
                     <thead class="table-light">
                         <tr>
                             <th>Name of the Examination</th>
@@ -198,12 +289,10 @@
                     <tbody>
                         {% for row in academic_rows %}
                         <tr>
-                            <td><strong>{{ row.label }}</strong></td>
-                            <td>{{ row.year or '—' }}</td>
-                            <td>{{ row.board or '—' }}</td>
-                            <td>{{ row.institution or '—' }}</td>
-                            <td>{{ row.cgpa or '—' }}</td>
-                            <td>{{ row.percentage or '—' }}</td>
+                            <td data-label="Name of the Examination"><strong>{{ row.label }}</strong></td>
+                            {% for suffix, col_label in academic_col_suffixes %}
+                            <td data-label="{{ col_label }}">{{ row[suffix] or '—' }}</td>
+                            {% endfor %}
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -399,10 +488,29 @@
     </div>
 </div>
 </div>
+
+{% if popup_notice %}
+{% include "admission_exam/_notice_popup.html" %}
+{% endif %}
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/admission_image_crop.js') }}?v=3"></script>
 <script>
 (function () {
+    if (window.AdmissionImageCrop) {
+        AdmissionImageCrop.bind('dashPhotoInput', {
+            width: 300, height: 300, kind: 'photo', label: 'Photo',
+            title: 'Crop passport photo (300×300)',
+            errId: 'dashPhotoError', maxOutputBytes: 1 * 1024 * 1024,
+            maxSourceBytes: 10 * 1024 * 1024, fileName: 'photo.jpg'
+        });
+        AdmissionImageCrop.bind('dashSignatureInput', {
+            width: 300, height: 80, kind: 'signature', label: 'Signature',
+            title: 'Crop signature (300×80)',
+            errId: 'dashSignatureError', maxOutputBytes: 512 * 1024,
+            maxSourceBytes: 10 * 1024 * 1024, fileName: 'signature.jpg'
+        });
+    }
     const slipInput = document.getElementById('dashBankSlip');
     const slipErr = document.getElementById('dashBankSlipErr');
     const SLIP_MAX = 2 * 1024 * 1024;

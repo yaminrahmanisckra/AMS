@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ notice.title }} – Notice{% endblock %}
+{% block mobile_title %}Notice{% endblock %}
+{% block content %}
+<div class="container my-4" style="max-width: 900px;">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-2">
+            <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.index') }}">Admission Exam</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}">{{ cycle.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.cycle_notices', cycle_id=cycle.id) }}">Notices</a></li>
+            <li class="breadcrumb-item active">Detail</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+        <div>
+            <h1 class="h3 mb-1">{{ notice.title }}</h1>
+            <p class="text-muted small mb-0">
+                Sent {{ notice.created_at|bd('%d-%m-%Y, %I:%M %p') if notice.created_at else '—' }}
+                · {% if notice.audience == 'all' %}All candidates (portal + dashboards){% else %}Selected candidates (dashboard only){% endif %}
+                · {{ recipients|length }} recipient(s)
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('admission_exam.cycle_notices', cycle_id=cycle.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>All notices
+            </a>
+            <form method="POST"
+                  action="{{ url_for('admission_exam.cycle_notice_delete', cycle_id=cycle.id, notice_id=notice.id) }}"
+                  onsubmit="return confirm('Delete this notice permanently? It will disappear from the portal and all candidate dashboards.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="fas fa-trash me-1"></i>Delete
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light"><strong>Message</strong></div>
+        <div class="card-body">
+            {% if notice.body %}
+            <div style="white-space: pre-wrap;">{{ notice.body }}</div>
+            {% else %}
+            <p class="text-muted mb-0 small">No message text.</p>
+            {% endif %}
+            {% if notice.has_attachment %}
+            <div class="mt-3">
+                <a class="btn btn-sm btn-outline-primary"
+                   href="{{ url_for('admission_exam.cycle_notice_file_admin', cycle_id=cycle.id, notice_id=notice.id) }}">
+                    <i class="fas fa-paperclip me-1"></i>{{ notice.original_filename or 'Download file' }}
+                    {% if notice.file_size %}<span class="text-muted">({{ format_file_size(notice.file_size) }})</span>{% endif %}
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-light"><strong>Recipients</strong></div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Application ID</th>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Read at</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in recipients %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('admission_exam.candidate_detail', candidate_id=r.candidate_id) }}">
+                                {{ r.candidate.application_id }}
+                            </a>
+                        </td>
+                        <td>{{ r.candidate.full_name }}</td>
+                        <td>
+                            {% if r.is_read %}
+                            <span class="badge bg-success">Read</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">Unread</span>
+                            {% endif %}
+                        </td>
+                        <td class="small">{{ r.read_at|bd('%d-%m-%Y, %I:%M %p') if r.read_at else '—' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-muted text-center py-3">No recipients.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

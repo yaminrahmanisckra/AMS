@@ -411,3 +411,66 @@ class AdmissionCandidateDocument(db.Model):
 
     def __repr__(self):
         return f"<AdmissionCandidateDocument {self.id} {self.tag}>"
+
+
+class AdmissionNotice(db.Model):
+    """Committee notice to one candidate or all candidates in a cycle."""
+    __tablename__ = 'admission_notice'
+    id = db.Column(db.Integer, primary_key=True)
+    cycle_id = db.Column(db.Integer, db.ForeignKey('admission_cycle.id'), nullable=False, index=True)
+    title = db.Column(db.String(200), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    # Optional single attachment (PDF/Office/image/txt — same rules as landing files)
+    file_path = db.Column(db.String(255), nullable=True)
+    original_filename = db.Column(db.String(255), nullable=True)
+    file_size = db.Column(db.Integer, nullable=True)
+    # all | selected (recipients listed in admission_notice_recipient)
+    audience = db.Column(db.String(20), nullable=False, default='selected')
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def has_attachment(self):
+        return bool(self.file_path)
+
+    cycle = db.relationship(
+        'AdmissionCycle',
+        backref=db.backref('notices', lazy='dynamic', cascade='all, delete-orphan'),
+    )
+    creator = db.relationship('User', foreign_keys=[created_by])
+    recipients = db.relationship(
+        'AdmissionNoticeRecipient', backref='notice', lazy='dynamic',
+        cascade='all, delete-orphan',
+    )
+
+    def __repr__(self):
+        return f"<AdmissionNotice {self.id} cycle={self.cycle_id}>"
+
+
+class AdmissionNoticeRecipient(db.Model):
+    """Per-candidate delivery / read state for an admission notice."""
+    __tablename__ = 'admission_notice_recipient'
+    id = db.Column(db.Integer, primary_key=True)
+    notice_id = db.Column(
+        db.Integer, db.ForeignKey('admission_notice.id'), nullable=False, index=True
+    )
+    candidate_id = db.Column(
+        db.Integer, db.ForeignKey('admission_candidate.id'), nullable=False, index=True
+    )
+    read_at = db.Column(db.DateTime, nullable=True)
+
+    candidate = db.relationship(
+        'AdmissionCandidate',
+        backref=db.backref('notice_receipts', lazy='dynamic', cascade='all, delete-orphan'),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('notice_id', 'candidate_id', name='uq_admission_notice_recipient'),
+    )
+
+    @property
+    def is_read(self):
+        return self.read_at is not None
+
+    def __repr__(self):
+        return f"<AdmissionNoticeRecipient notice={self.notice_id} cand={self.candidate_id}>"

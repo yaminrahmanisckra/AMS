@@ -87,6 +87,28 @@
             {% endif %}
         </section>
 
+        {% if public_notices %}
+        <section class="adm-panel adm-panel-amber adm-rise adm-rise-delay-1" aria-label="Public notices">
+            <div class="adm-panel-head">
+                <h2 class="adm-panel-title"><i class="fas fa-bell me-1"></i>Notices</h2>
+            </div>
+            <div class="adm-panel-body">
+                {% for n in public_notices %}
+                <article class="mb-3 {% if not loop.last %}pb-3 border-bottom{% endif %}">
+                    <h3 class="h6 mb-1">{{ n.title }}</h3>
+                    <div class="small text-muted mb-2">
+                        {{ n.created_at|bd('%d-%m-%Y, %I:%M %p') if n.created_at else '' }}
+                    </div>
+                    {% if n.body %}<div style="white-space: pre-wrap;">{{ n.body }}</div>{% endif %}
+                    {% with notice=n %}
+                    {% include "admission_exam/_notice_attachment.html" %}
+                    {% endwith %}
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
         {% for section in landing_sections %}
         {% if section.body %}
         <section class="adm-panel adm-panel-accent adm-rise adm-rise-delay-2">

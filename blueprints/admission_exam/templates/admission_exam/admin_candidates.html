@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Candidates – {{ cycle.name }}{% endblock %}
 {% block mobile_title %}Candidates{% endblock %}
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/admission_admin.css') }}?v=adm-cand2" rel="stylesheet">
+{% endblock %}
 {% block content %}
-<div class="container-fluid my-4" style="max-width: 1400px;">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+<div class="container-fluid adm-cand">
+    <div class="adm-cand-hero">
         <div>
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb mb-1">
@@ -12,191 +15,152 @@
                     <li class="breadcrumb-item active">Candidates</li>
                 </ol>
             </nav>
-            <h4 class="fw-bold mb-0">Candidates <span class="text-muted fs-6">({{ candidates|length }})</span></h4>
+            <h1>Candidates <span class="adm-cand-count">{{ candidates|length }}</span></h1>
+            <p class="adm-cand-sub">{{ cycle.name }}</p>
         </div>
-        <div class="d-flex flex-wrap gap-2">
-            <a href="{{ url_for('admission_exam.export_application_forms_zip', cycle_id=cycle.id) }}"
-               class="btn btn-outline-primary btn-sm"
-               title="All candidates in this cycle — verified or not, with or without roll. Each form + attachments as a PDF in one ZIP.">
-                <i class="fas fa-file-archive me-1"></i>All Forms ZIP
+        <div class="adm-cand-hero-actions">
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fas fa-download me-1"></i>Export
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li>
+                        <a class="dropdown-item" href="{{ url_for('admission_exam.export_application_forms_zip', cycle_id=cycle.id) }}">
+                            <i class="fas fa-file-archive me-2 text-primary"></i>All Forms ZIP
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" href="{{ url_for('admission_exam.export_admit_cards_pdf', cycle_id=cycle.id, payment=payment, status=status, search=search) }}">
+                            <i class="fas fa-id-card me-2 text-success"></i>Admit Cards PDF
+                        </a>
+                    </li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                        <a class="dropdown-item" href="{{ url_for('admission_exam.export_candidates', cycle_id=cycle.id, payment=payment, status=status, search=search) }}">
+                            <i class="fas fa-file-excel me-2 text-success"></i>Candidates Excel
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" href="{{ url_for('admission_exam.export_candidates_marks_xlsx', cycle_id=cycle.id, payment=payment, status=status, search=search) }}">
+                            <i class="fas fa-file-excel me-2 text-success"></i>Marks Excel
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" href="{{ url_for('admission_exam.export_candidates_marks_pdf', cycle_id=cycle.id, payment=payment, status=status, search=search) }}">
+                            <i class="fas fa-file-pdf me-2 text-danger"></i>Marks PDF
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            <a href="{{ url_for('admission_exam.cycle_notices', cycle_id=cycle.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-bell me-1"></i>Notices
             </a>
-            <a href="{{ url_for('admission_exam.export_admit_cards_pdf', cycle_id=cycle.id, payment=payment, status=status, search=search) }}"
-               class="btn btn-outline-success btn-sm"
-               title="Merged admit cards (verified + roll assigned only)">
-                <i class="fas fa-id-card me-1"></i>Admit Cards PDF
-            </a>
-            <a href="{{ url_for('admission_exam.export_candidates', cycle_id=cycle.id, payment=payment, status=status, search=search) }}"
-               class="btn btn-outline-secondary btn-sm"
-               title="Excel of the current filter (includes marks)">
-                <i class="fas fa-file-excel me-1"></i>Export Excel
-            </a>
-            <a href="{{ url_for('admission_exam.export_candidates_marks_xlsx', cycle_id=cycle.id, payment=payment, status=status, search=search) }}"
-               class="btn btn-outline-success btn-sm"
-               title="Marks sheet for the current filter">
-                <i class="fas fa-file-excel me-1"></i>Marks Excel
-            </a>
-            <a href="{{ url_for('admission_exam.export_candidates_marks_pdf', cycle_id=cycle.id, payment=payment, status=status, search=search) }}"
-               class="btn btn-outline-danger btn-sm"
-               title="Marks PDF for the current filter">
-                <i class="fas fa-file-pdf me-1"></i>Marks PDF
+            <a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Cycle
             </a>
         </div>
     </div>
 
-    <!-- Filters -->
-    <form method="GET" class="card shadow-sm mb-3">
-        <div class="card-body py-2">
-            <div class="row g-2 align-items-end">
-                <div class="col-md-4">
-                    <label class="form-label small mb-0">Search</label>
-                    <input type="text" class="form-control form-control-sm" name="search" value="{{ search }}"
-                           placeholder="Name, Application ID, phone, roll, TxnID…">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small mb-0">Payment</label>
-                    <select class="form-select form-select-sm" name="payment">
-                        <option value="">All</option>
-                        <option value="pending" {% if payment == 'pending' %}selected{% endif %}>Pending</option>
-                        <option value="verified" {% if payment == 'verified' %}selected{% endif %}>Verified</option>
-                        <option value="rejected" {% if payment == 'rejected' %}selected{% endif %}>Rejected</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small mb-0">Application Status</label>
-                    <select class="form-select form-select-sm" name="status">
-                        <option value="">All</option>
-                        <option value="submitted" {% if status == 'submitted' %}selected{% endif %}>Submitted</option>
-                        <option value="eligible" {% if status == 'eligible' %}selected{% endif %}>Eligible</option>
-                        <option value="selected" {% if status == 'selected' %}selected{% endif %}>Selected</option>
-                        <option value="rejected" {% if status == 'rejected' %}selected{% endif %}>Rejected</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <button type="submit" class="btn btn-sm btn-primary w-100"><i class="fas fa-filter me-1"></i>Filter</button>
-                </div>
+    <form method="GET" class="adm-cand-panel adm-cand-filters">
+        <div class="adm-cand-filter-grid">
+            <div class="adm-cand-field adm-cand-field-grow">
+                <label class="form-label">Search</label>
+                <input type="text" class="form-control form-control-sm" name="search" value="{{ search }}"
+                       placeholder="Name, Application ID, phone, roll, TxnID…">
+            </div>
+            <div class="adm-cand-field">
+                <label class="form-label">Payment</label>
+                <select class="form-select form-select-sm" name="payment">
+                    <option value="">All</option>
+                    <option value="pending" {% if payment == 'pending' %}selected{% endif %}>Pending</option>
+                    <option value="verified" {% if payment == 'verified' %}selected{% endif %}>Verified</option>
+                    <option value="rejected" {% if payment == 'rejected' %}selected{% endif %}>Rejected</option>
+                </select>
+            </div>
+            <div class="adm-cand-field">
+                <label class="form-label">Application</label>
+                <select class="form-select form-select-sm" name="status">
+                    <option value="">All</option>
+                    <option value="submitted" {% if status == 'submitted' %}selected{% endif %}>Submitted</option>
+                    <option value="eligible" {% if status == 'eligible' %}selected{% endif %}>Eligible</option>
+                    <option value="selected" {% if status == 'selected' %}selected{% endif %}>Selected</option>
+                    <option value="rejected" {% if status == 'rejected' %}selected{% endif %}>Rejected</option>
+                </select>
+            </div>
+            <div class="adm-cand-field adm-cand-field-action">
+                <label class="form-label">&nbsp;</label>
+                <button type="submit" class="btn btn-sm btn-primary w-100">
+                    <i class="fas fa-filter me-1"></i>Filter
+                </button>
             </div>
         </div>
     </form>
 
     {% if waiting_lists %}
-    <div class="card shadow-sm mb-3 border-warning">
-        <div class="card-header bg-light py-2">
-            <strong class="small"><i class="fas fa-magic me-1 text-warning"></i>One-click assign by mark range</strong>
-            <span class="small text-muted ms-1">Sends matching candidates to a viva / final / waiting list, highest marks first</span>
-        </div>
-        <div class="card-body py-2">
-            <form method="POST" action="{{ url_for('admission_exam.candidates_assign_by_marks', cycle_id=cycle.id) }}"
-                  class="row g-2 align-items-end"
-                  onsubmit="return confirm('Assign candidates in this mark range to the chosen list?');">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="payment" value="{{ payment }}">
-                <input type="hidden" name="status" value="{{ status }}">
-                <input type="hidden" name="search" value="{{ search }}">
-                <div class="col-md-3">
-                    <label class="form-label small mb-0">Target list</label>
-                    <select class="form-select form-select-sm" name="waiting_list_id" required>
-                        <option value="">Choose list…</option>
-                        {% for wl in waiting_lists %}
-                        <option value="{{ wl.id }}">{{ wl.kind_label }} — {{ wl.name }}</option>
-                        {% endfor %}
-                    </select>
+    <details class="adm-cand-panel adm-cand-tools">
+        <summary>
+            <span><i class="fas fa-bolt me-1"></i>Assign by mark range</span>
+            <span class="adm-cand-tools-meta">Send matching candidates to a list, highest first</span>
+        </summary>
+        <form method="POST" action="{{ url_for('admission_exam.candidates_assign_by_marks', cycle_id=cycle.id) }}"
+              class="adm-cand-assign-grid"
+              onsubmit="return confirm('Assign candidates in this mark range to the chosen list?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="payment" value="{{ payment }}">
+            <input type="hidden" name="status" value="{{ status }}">
+            <input type="hidden" name="search" value="{{ search }}">
+            <div class="adm-cand-field">
+                <label class="form-label">Target list</label>
+                <select class="form-select form-select-sm" name="waiting_list_id" required>
+                    <option value="">Choose list…</option>
+                    {% for wl in waiting_lists %}
+                    <option value="{{ wl.id }}">{{ wl.kind_label }} — {{ wl.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="adm-cand-field">
+                <label class="form-label">Use marks</label>
+                <select class="form-select form-select-sm" name="mark_field">
+                    <option value="total">Total</option>
+                    <option value="written">Written</option>
+                    <option value="viva">Viva</option>
+                </select>
+            </div>
+            <div class="adm-cand-field adm-cand-field-narrow">
+                <label class="form-label">Min</label>
+                <input type="number" step="0.01" class="form-control form-control-sm" name="min_mark" placeholder="e.g. 60">
+            </div>
+            <div class="adm-cand-field adm-cand-field-narrow">
+                <label class="form-label">Max</label>
+                <input type="number" step="0.01" class="form-control form-control-sm" name="max_mark" placeholder="optional">
+            </div>
+            <div class="adm-cand-field">
+                <label class="form-label">From</label>
+                <select class="form-select form-select-sm" name="scope">
+                    <option value="filtered">Current filter</option>
+                    <option value="all">All candidates</option>
+                </select>
+            </div>
+            <div class="adm-cand-field adm-cand-field-check">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="replace_list" value="1" id="replaceListCb">
+                    <label class="form-check-label small" for="replaceListCb">Replace list</label>
                 </div>
-                <div class="col-md-2">
-                    <label class="form-label small mb-0">Use marks</label>
-                    <select class="form-select form-select-sm" name="mark_field">
-                        <option value="total">Total</option>
-                        <option value="written">Written</option>
-                        <option value="viva">Viva</option>
-                    </select>
-                </div>
-                <div class="col-md-1">
-                    <label class="form-label small mb-0">Min</label>
-                    <input type="number" step="0.01" class="form-control form-control-sm" name="min_mark" placeholder="e.g. 60">
-                </div>
-                <div class="col-md-1">
-                    <label class="form-label small mb-0">Max</label>
-                    <input type="number" step="0.01" class="form-control form-control-sm" name="max_mark" placeholder="optional">
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label small mb-0">From</label>
-                    <select class="form-select form-select-sm" name="scope">
-                        <option value="filtered">Current filter</option>
-                        <option value="all">All candidates</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <div class="form-check mt-3">
-                        <input class="form-check-input" type="checkbox" name="replace_list" value="1" id="replaceListCb">
-                        <label class="form-check-label small" for="replaceListCb">Replace list</label>
-                    </div>
-                </div>
-                <div class="col-md-1">
-                    <button type="submit" class="btn btn-sm btn-warning w-100" title="Assign by mark range">
-                        <i class="fas fa-bolt"></i>
-                    </button>
-                </div>
-            </form>
-            <p class="small text-muted mb-0 mt-2">
-                Example: Total Min 70 → viva list. Leave Max blank for “Min and above”.
-                <strong>Replace list</strong> clears the list first, then fills in merit order.
-            </p>
-        </div>
-    </div>
+            </div>
+            <div class="adm-cand-field adm-cand-field-action">
+                <button type="submit" class="btn btn-sm btn-primary w-100">
+                    <i class="fas fa-bolt me-1"></i>Assign
+                </button>
+            </div>
+        </form>
+        <p class="adm-cand-hint mb-0">
+            Leave Max blank for “Min and above”. <strong>Replace list</strong> clears the list first, then fills in merit order.
+        </p>
+    </details>
     {% endif %}
 
     <form method="POST" action="{{ url_for('admission_exam.candidates_bulk', cycle_id=cycle.id) }}" id="bulkForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-            <span class="small text-muted">With selected:</span>
-            <button type="submit" name="action" value="verify_payment" class="btn btn-sm btn-outline-success"
-                    onclick="return confirm('Mark payment as VERIFIED for all checked candidates?');">
-                <i class="fas fa-check me-1"></i>Verify Payment
-            </button>
-            <button type="submit" name="action" value="eligible" class="btn btn-sm btn-outline-info"
-                    onclick="return confirm('Mark all checked candidates as ELIGIBLE for the exam?');">
-                <i class="fas fa-clipboard-check me-1"></i>Mark Eligible
-            </button>
-            <button type="submit" name="action" value="select" class="btn btn-sm btn-outline-primary"
-                    onclick="return confirm('Mark all checked candidates as SELECTED for admission?');">
-                <i class="fas fa-user-check me-1"></i>Select
-            </button>
-            <button type="submit" name="action" value="reject" class="btn btn-sm btn-outline-danger"
-                    onclick="return confirm('Mark all checked candidates as REJECTED?');">
-                <i class="fas fa-user-times me-1"></i>Reject
-            </button>
-            <button type="submit" name="action" value="clear_rolls" class="btn btn-sm btn-outline-secondary"
-                    onclick="return confirm('Unassign roll numbers from all checked candidates?');">
-                <i class="fas fa-eraser me-1"></i>Unassign Rolls
-            </button>
-            <button type="submit" name="action" value="delete" class="btn btn-sm btn-outline-danger"
-                    onclick="return confirm('Permanently delete all checked applications? This cannot be undone.');">
-                <i class="fas fa-trash me-1"></i>Delete
-            </button>
-            {% if waiting_lists %}
-            <select class="form-select form-select-sm" name="waiting_list_id" style="width: auto; max-width: 220px;">
-                <option value="">Waiting list…</option>
-                {% for wl in waiting_lists %}
-                <option value="{{ wl.id }}">{{ wl.kind_label }} — {{ wl.name }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit" name="action" value="add_to_waiting_list" class="btn btn-sm btn-outline-dark"
-                    onclick="return confirm('Add checked candidates to the chosen merit/nomination list (appended at end of merit order)?');">
-                <i class="fas fa-list-ol me-1"></i>Add to Merit List
-            </button>
-            {% endif %}
-            <span class="vr d-none d-md-inline mx-1"></span>
-            <button type="submit" name="action" value="download_forms_zip" class="btn btn-sm btn-primary"
-                    title="ZIP of selected forms; each PDF includes certificate attachments">
-                <i class="fas fa-file-archive me-1"></i>Selected Forms ZIP
-            </button>
-            <button type="submit" name="action" value="download_forms_pdf" class="btn btn-sm btn-outline-primary"
-                    title="Same package; ZIP if more than one selected">
-                <i class="fas fa-file-pdf me-1"></i>Selected Forms
-            </button>
-            <button type="submit" name="action" value="download_admit_cards_pdf" class="btn btn-sm btn-success">
-                <i class="fas fa-id-card me-1"></i>Selected Admit Cards
-            </button>
-        </div>
     </form>
 
     <form method="POST" action="{{ url_for('admission_exam.candidates_save_marks', cycle_id=cycle.id) }}" id="marksForm">
@@ -204,165 +168,291 @@
         <input type="hidden" name="payment" value="{{ payment }}">
         <input type="hidden" name="status" value="{{ status }}">
         <input type="hidden" name="search" value="{{ search }}">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-            <span class="small text-muted">Enter Written / Viva; Total auto-fills if both are set (you can override).</span>
-            <button type="submit" class="btn btn-sm btn-primary">
-                <i class="fas fa-save me-1"></i>Save Marks
-            </button>
-        </div>
     </form>
 
-    <div class="card shadow-sm">
-        <div class="table-responsive">
-            <table class="table table-hover table-sm align-middle mb-0">
-                <thead class="table-light">
+    <div class="adm-cand-panel adm-cand-table-wrap">
+        <div class="adm-cand-toolbar" id="candToolbar">
+            <div class="adm-cand-toolbar-left">
+                <span class="adm-cand-selected" id="candSelectedLabel">0 selected</span>
+                <div class="adm-cand-action-group" id="candBulkActions">
+                    <button type="submit" form="bulkForm" name="action" value="verify_payment" class="btn btn-sm btn-outline-success"
+                            onclick="return confirm('Mark payment as VERIFIED for all checked candidates?');">
+                        Verify payment
+                    </button>
+                    <button type="submit" form="bulkForm" name="action" value="eligible" class="btn btn-sm btn-outline-secondary"
+                            onclick="return confirm('Mark all checked candidates as ELIGIBLE for the exam?');">
+                        Eligible
+                    </button>
+                    <button type="submit" form="bulkForm" name="action" value="select" class="btn btn-sm btn-outline-primary"
+                            onclick="return confirm('Mark all checked candidates as SELECTED for admission?');">
+                        Select
+                    </button>
+                    <button type="submit" form="bulkForm" name="action" value="reject" class="btn btn-sm btn-outline-secondary"
+                            onclick="return confirm('Mark all checked candidates as REJECTED?');">
+                        Reject
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            More
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li>
+                                <button type="submit" form="bulkForm" name="action" value="clear_rolls" class="dropdown-item"
+                                        onclick="return confirm('Unassign roll numbers from all checked candidates?');">
+                                    Unassign rolls
+                                </button>
+                            </li>
+                            {% if waiting_lists %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li class="px-3 py-1">
+                                <select class="form-select form-select-sm" name="waiting_list_id" form="bulkForm">
+                                    <option value="">Merit / waiting list…</option>
+                                    {% for wl in waiting_lists %}
+                                    <option value="{{ wl.id }}">{{ wl.kind_label }} — {{ wl.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </li>
+                            <li>
+                                <button type="submit" form="bulkForm" name="action" value="add_to_waiting_list" class="dropdown-item"
+                                        onclick="return confirm('Add checked candidates to the chosen list?');">
+                                    Add to merit list
+                                </button>
+                            </li>
+                            {% endif %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <button type="button" class="dropdown-item" id="bulkSendNoticeBtn">
+                                    <i class="fas fa-bell me-1"></i>Send notice to selected…
+                                </button>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <button type="submit" form="bulkForm" name="action" value="download_forms_zip" class="dropdown-item">
+                                    Selected forms ZIP
+                                </button>
+                            </li>
+                            <li>
+                                <button type="submit" form="bulkForm" name="action" value="download_forms_pdf" class="dropdown-item">
+                                    Selected forms
+                                </button>
+                            </li>
+                            <li>
+                                <button type="submit" form="bulkForm" name="action" value="download_admit_cards_pdf" class="dropdown-item">
+                                    Selected admit cards
+                                </button>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <button type="submit" form="bulkForm" name="action" value="delete" class="dropdown-item text-danger"
+                                        onclick="return confirm('Permanently delete all checked applications? This cannot be undone.');">
+                                    Delete selected…
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="adm-cand-toolbar-right">
+                <span class="adm-cand-marks-hint d-none d-md-inline">Written + Viva auto-fills Total</span>
+                {% if candidates %}
+                <button type="submit" form="marksForm" class="btn btn-sm btn-primary">
+                    <i class="fas fa-save me-1"></i>Save marks
+                </button>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="table-responsive adm-cand-table-scroll">
+            <table class="table table-hover table-sm align-middle mb-0 adm-cand-table">
+                <thead>
                     <tr>
-                        <th style="width: 30px;"><input type="checkbox" class="form-check-input" id="checkAll" form="bulkForm"></th>
-                        <th>Application ID</th>
-                        <th>Name</th>
-                        <th>Phone</th>
-                        <th>Payment Ref</th>
+                        <th class="adm-cand-check">
+                            <input type="checkbox" class="form-check-input" id="checkAll" form="bulkForm" title="Select all">
+                        </th>
+                        <th>Application</th>
+                        <th>Candidate</th>
                         <th>Payment</th>
                         <th>Status</th>
                         <th>Roll</th>
-                        <th style="min-width: 72px;">Written</th>
-                        <th style="min-width: 72px;">Viva</th>
-                        <th style="min-width: 72px;">Total</th>
-                        <th class="text-end">Actions</th>
+                        <th class="adm-cand-mark-col">Written</th>
+                        <th class="adm-cand-mark-col">Viva</th>
+                        <th class="adm-cand-mark-col">Total</th>
+                        <th class="text-end"></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for c in candidates %}
                     <tr>
-                        <td><input type="checkbox" class="form-check-input row-check" form="bulkForm" name="candidate_ids" value="{{ c.id }}"></td>
-                        <td class="fw-semibold">{{ c.application_id }}</td>
-                        <td>{{ c.full_name }}</td>
-                        <td class="small">{{ c.phone }}</td>
-                        <td class="small">
-                            {% if c.payment_method == 'agrani_bank' %}
-                            <span class="badge bg-light text-dark border">Agrani Bank</span><br>
-                            <code>{{ c.bank_slip_txn_no or '—' }}</code>
-                            {% elif c.payment_method == 'bkash' %}
-                            <span class="badge bg-light text-dark border">Online Payment</span><br>
-                            <code>{{ c.rocket_txn_id or '—' }}</code><br>
-                            <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
-                            {% elif c.payment_method == 'nagad' %}
-                            <span class="badge bg-light text-dark border">Nagad</span><br>
-                            <code>{{ c.rocket_txn_id or '—' }}</code><br>
-                            <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
-                            {% else %}
-                            <span class="badge bg-light text-dark border">Rocket</span><br>
-                            <code>{{ c.rocket_txn_id or '—' }}</code><br>
-                            <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
-                            {% endif %}
+                        <td class="adm-cand-check">
+                            <input type="checkbox" class="form-check-input row-check" form="bulkForm" name="candidate_ids" value="{{ c.id }}">
                         </td>
                         <td>
+                            <div class="adm-cand-appid">{{ c.application_id }}</div>
+                        </td>
+                        <td>
+                            <div class="adm-cand-name">{{ c.full_name }}</div>
+                            <div class="adm-cand-meta">{{ c.phone }}</div>
+                        </td>
+                        <td>
+                            <div class="adm-cand-pay">
+                                {% if c.payment_method == 'agrani_bank' %}
+                                <span class="adm-cand-pill">Agrani Bank</span>
+                                <code>{{ c.bank_slip_txn_no or '—' }}</code>
+                                {% elif c.payment_method == 'bkash' %}
+                                <span class="adm-cand-pill">Online Payment</span>
+                                <code>{{ c.rocket_txn_id or '—' }}</code>
+                                {% if c.rocket_sender_phone %}<span class="adm-cand-meta">{{ c.rocket_sender_phone }}</span>{% endif %}
+                                {% elif c.payment_method == 'nagad' %}
+                                <span class="adm-cand-pill">Nagad</span>
+                                <code>{{ c.rocket_txn_id or '—' }}</code>
+                                {% if c.rocket_sender_phone %}<span class="adm-cand-meta">{{ c.rocket_sender_phone }}</span>{% endif %}
+                                {% else %}
+                                <span class="adm-cand-pill">Rocket</span>
+                                <code>{{ c.rocket_txn_id or '—' }}</code>
+                                {% if c.rocket_sender_phone %}<span class="adm-cand-meta">{{ c.rocket_sender_phone }}</span>{% endif %}
+                                {% endif %}
+                            </div>
                             {% if c.payment_status == 'verified' %}
-                            <span class="badge bg-success">Verified</span>
+                            <span class="badge rounded-pill text-bg-success">Verified</span>
                             {% elif c.payment_status == 'rejected' %}
-                            <span class="badge bg-danger">Rejected</span>
+                            <span class="badge rounded-pill text-bg-danger">Rejected</span>
                             {% else %}
-                            <span class="badge bg-warning text-dark">Pending</span>
+                            <span class="badge rounded-pill text-bg-warning">Pending</span>
                             {% endif %}
                         </td>
                         <td>
                             {% if c.application_status == 'selected' %}
-                            <span class="badge bg-primary">Selected</span>
+                            <span class="badge rounded-pill text-bg-primary">Selected</span>
                             {% elif c.application_status == 'eligible' %}
-                            <span class="badge bg-info text-dark">Eligible</span>
+                            <span class="badge rounded-pill text-bg-info">Eligible</span>
                             {% elif c.application_status == 'rejected' %}
-                            <span class="badge bg-secondary">Rejected</span>
+                            <span class="badge rounded-pill text-bg-secondary">Rejected</span>
                             {% else %}
-                            <span class="badge bg-light text-dark border">Submitted</span>
+                            <span class="badge rounded-pill text-bg-light border">Submitted</span>
                             {% endif %}
                         </td>
-                        <td class="fw-semibold">{{ c.roll_no or '—' }}</td>
-                        <td>
+                        <td class="adm-cand-roll">{{ c.roll_no or '—' }}</td>
+                        <td class="adm-cand-mark-col">
                             <input type="hidden" form="marksForm" name="mark_candidate_ids" value="{{ c.id }}">
                             <input type="number" step="0.01" class="form-control form-control-sm mark-input mark-written"
                                    form="marksForm" name="written_{{ c.id }}" data-cid="{{ c.id }}"
                                    value="{% if c.written_marks is not none %}{{ c.written_marks }}{% endif %}"
                                    placeholder="—">
                         </td>
-                        <td>
+                        <td class="adm-cand-mark-col">
                             <input type="number" step="0.01" class="form-control form-control-sm mark-input mark-viva"
                                    form="marksForm" name="viva_{{ c.id }}" data-cid="{{ c.id }}"
                                    value="{% if c.viva_marks is not none %}{{ c.viva_marks }}{% endif %}"
                                    placeholder="—">
                         </td>
-                        <td>
+                        <td class="adm-cand-mark-col">
                             <input type="number" step="0.01" class="form-control form-control-sm mark-input mark-total"
                                    form="marksForm" name="total_{{ c.id }}" data-cid="{{ c.id }}"
                                    value="{% if c.total_marks is not none %}{{ c.total_marks }}{% endif %}"
                                    placeholder="—">
                         </td>
-                        <td class="text-end text-nowrap">
+                        <td class="text-end">
                             <a href="{{ url_for('admission_exam.candidate_detail', candidate_id=c.id) }}"
-                               class="btn btn-sm btn-outline-primary" title="View / manage">
-                                <i class="fas fa-eye"></i>
+                               class="btn btn-sm btn-outline-primary adm-cand-view" title="Open candidate">
+                                Open
                             </a>
-                            <form method="POST" class="d-inline"
-                                  action="{{ url_for('admission_exam.candidate_delete', candidate_id=c.id) }}"
-                                  onsubmit="return confirm('Delete application {{ c.application_id }} permanently? This cannot be undone.');">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete application">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </form>
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="12" class="text-center text-muted py-4">No candidates found.</td></tr>
+                    <tr>
+                        <td colspan="10" class="text-center text-muted py-5">No candidates match this filter.</td>
+                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+
+        {% if candidates %}
+        <div class="adm-cand-footer">
+            <span class="adm-cand-hint mb-0">Marks save only the rows shown under the current filter.</span>
+            <button type="submit" form="marksForm" class="btn btn-sm btn-primary">
+                <i class="fas fa-save me-1"></i>Save marks
+            </button>
+        </div>
+        {% endif %}
     </div>
-    {% if candidates %}
-    <div class="d-flex justify-content-end mt-2">
-        <button type="submit" form="marksForm" class="btn btn-primary btn-sm">
-            <i class="fas fa-save me-1"></i>Save Marks
-        </button>
-    </div>
-    {% endif %}
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-document.getElementById('checkAll').addEventListener('change', function () {
-    document.querySelectorAll('.row-check').forEach(cb => { cb.checked = this.checked; });
-});
+(function () {
+    var checkAll = document.getElementById('checkAll');
+    var label = document.getElementById('candSelectedLabel');
+    var toolbar = document.getElementById('candToolbar');
 
-function parseMark(el) {
-    const v = (el.value || '').trim();
-    if (!v) return null;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-}
+    function rowChecks() {
+        return Array.prototype.slice.call(document.querySelectorAll('.row-check'));
+    }
 
-function maybeAutoTotal(cid) {
-    const written = document.querySelector('.mark-written[data-cid="' + cid + '"]');
-    const viva = document.querySelector('.mark-viva[data-cid="' + cid + '"]');
-    const total = document.querySelector('.mark-total[data-cid="' + cid + '"]');
-    if (!written || !viva || !total) return;
-    if (total.dataset.manual === '1') return;
-    const w = parseMark(written);
-    const v = parseMark(viva);
-    if (w === null || v === null) return;
-    const sum = Math.round((w + v) * 100) / 100;
-    total.value = String(sum);
-}
+    function syncSelection() {
+        var checks = rowChecks();
+        var n = checks.filter(function (cb) { return cb.checked; }).length;
+        if (label) label.textContent = n + ' selected';
+        if (toolbar) toolbar.classList.toggle('has-selection', n > 0);
+        if (checkAll && checks.length) {
+            checkAll.checked = n === checks.length;
+            checkAll.indeterminate = n > 0 && n < checks.length;
+        }
+    }
 
-document.querySelectorAll('.mark-written, .mark-viva').forEach(function (el) {
-    el.addEventListener('input', function () {
-        maybeAutoTotal(el.dataset.cid);
+    if (checkAll) {
+        checkAll.addEventListener('change', function () {
+            rowChecks().forEach(function (cb) { cb.checked = checkAll.checked; });
+            syncSelection();
+        });
+    }
+    rowChecks().forEach(function (cb) {
+        cb.addEventListener('change', syncSelection);
     });
-});
-document.querySelectorAll('.mark-total').forEach(function (el) {
-    el.addEventListener('input', function () {
-        el.dataset.manual = (el.value || '').trim() ? '1' : '0';
+    syncSelection();
+
+    function parseMark(el) {
+        var v = (el.value || '').trim();
+        if (!v) return null;
+        var n = Number(v);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function maybeAutoTotal(cid) {
+        var written = document.querySelector('.mark-written[data-cid="' + cid + '"]');
+        var viva = document.querySelector('.mark-viva[data-cid="' + cid + '"]');
+        var total = document.querySelector('.mark-total[data-cid="' + cid + '"]');
+        if (!written || !viva || !total) return;
+        if (total.dataset.manual === '1') return;
+        var w = parseMark(written);
+        var v = parseMark(viva);
+        if (w === null || v === null) return;
+        total.value = String(Math.round((w + v) * 100) / 100);
+    }
+
+    document.querySelectorAll('.mark-written, .mark-viva').forEach(function (el) {
+        el.addEventListener('input', function () { maybeAutoTotal(el.dataset.cid); });
     });
-});
+    document.querySelectorAll('.mark-total').forEach(function (el) {
+        el.addEventListener('input', function () {
+            el.dataset.manual = (el.value || '').trim() ? '1' : '0';
+        });
+    });
+
+    var sendNoticeBtn = document.getElementById('bulkSendNoticeBtn');
+    if (sendNoticeBtn) {
+        sendNoticeBtn.addEventListener('click', function () {
+            var ids = rowChecks().filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+            if (!ids.length) {
+                alert('Select at least one candidate first.');
+                return;
+            }
+            var url = {{ url_for('admission_exam.cycle_notices', cycle_id=cycle.id)|tojson }};
+            var qs = ids.map(function (id) { return 'candidate_ids=' + encodeURIComponent(id); }).join('&');
+            window.location.href = url + (url.indexOf('?') >= 0 ? '&' : '?') + qs;
+        });
+    }
+})();
 </script>
 {% endblock %}

@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}Notices – {{ cycle.name }}{% endblock %}
+{% block mobile_title %}Notices{% endblock %}
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/admission_admin.css') }}?v=adm-cand2" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<div class="container my-4" style="max-width: 960px;">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-2">
+            <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.index') }}">Admission Exam</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}">{{ cycle.name }}</a></li>
+            <li class="breadcrumb-item active">Notices</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-4">
+        <div>
+            <h1 class="h3 mb-1">Candidate notices</h1>
+            <p class="text-muted mb-0 small">
+                <strong>All candidates</strong> notices appear on the public admission portal and on each candidate’s dashboard (with unread popup).
+                <strong>Selected / individual</strong> notices appear only on those candidates’ dashboards — not on the public portal.
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('admission_exam.candidates_list', cycle_id=cycle.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-users me-1"></i>Candidates
+            </a>
+            <a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Cycle
+            </a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light"><strong><i class="fas fa-paper-plane me-1"></i>Send notice</strong></div>
+        <div class="card-body">
+            <form method="POST" id="noticeSendForm" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="mb-3">
+                    <label class="form-label">Title</label>
+                    <input type="text" name="title" class="form-control" maxlength="200" required
+                           value="{{ form_title }}" placeholder="e.g. Viva schedule update">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Message</label>
+                    <textarea name="body" class="form-control" rows="5"
+                              placeholder="Write the notice candidates should see…">{{ form_body }}</textarea>
+                    <div class="form-text">Message or file (or both) is required.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Attachment <span class="text-muted fw-normal">(optional)</span></label>
+                    <input type="file" name="notice_file" class="form-control"
+                           accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.webp,.txt">
+                    <div class="form-text">PDF, Office, image, or text — max {{ notice_file_max_label }}.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label d-block">Send to</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="audience" id="audAll" value="all"
+                               {% if form_audience == 'all' %}checked{% endif %}>
+                        <label class="form-check-label" for="audAll">
+                            All candidates ({{ all_candidates|length }})
+                            <span class="text-muted">— portal + dashboards</span>
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="audience" id="audSelected" value="selected"
+                               {% if form_audience != 'all' %}checked{% endif %}>
+                        <label class="form-check-label" for="audSelected">
+                            Selected candidates
+                            <span class="text-muted">— dashboard only</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="mb-3 {% if form_audience == 'all' %}d-none{% endif %}" id="candidatePickWrap">
+                    <label class="form-label">Candidates</label>
+                    {% if all_candidates %}
+                    <div class="border rounded p-2" style="max-height: 240px; overflow: auto;">
+                        {% for c in all_candidates %}
+                        <div class="form-check">
+                            <input class="form-check-input notice-cand-check" type="checkbox" name="candidate_ids"
+                                   value="{{ c.id }}" id="nc{{ c.id }}"
+                                   {% if c.id in preselect %}checked{% endif %}>
+                            <label class="form-check-label" for="nc{{ c.id }}">
+                                <span class="font-monospace">{{ c.application_id }}</span>
+                                — {{ c.full_name }}
+                                {% if c.roll_no %}<span class="text-muted">(Roll {{ c.roll_no }})</span>{% endif %}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <button type="button" class="btn btn-link btn-sm px-0" id="noticeCheckAll">Select all listed</button>
+                    <button type="button" class="btn btn-link btn-sm" id="noticeCheckNone">Clear</button>
+                    {% else %}
+                    <p class="text-muted small mb-0">No candidates in this cycle yet.</p>
+                    {% endif %}
+                </div>
+                <button type="submit" class="btn btn-primary"
+                        onclick="return confirm('Send this notice now?');">
+                    <i class="fas fa-paper-plane me-1"></i>Send notice
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <strong>Sent notices</strong>
+            <span class="badge bg-secondary">{{ notices|length }}</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Audience</th>
+                        <th>Sent</th>
+                        <th>Read</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for n in notices %}
+                    {% set st = notice_stats.get(n.id, {}) %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('admission_exam.cycle_notice_detail', cycle_id=cycle.id, notice_id=n.id) }}">
+                                {{ n.title }}
+                            </a>
+                            {% if n.has_attachment %}
+                            <div class="small text-muted"><i class="fas fa-paperclip me-1"></i>{{ n.original_filename }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="small text-muted">
+                            {% if n.audience == 'all' %}All{% else %}Selected{% endif %}
+                            · {{ st.get('total', 0) }}
+                        </td>
+                        <td class="small">{{ n.created_at|bd('%d-%m-%Y, %I:%M %p') if n.created_at else '—' }}</td>
+                        <td class="small">
+                            {{ st.get('read', 0) }}/{{ st.get('total', 0) }}
+                            {% if st.get('unread') %}
+                            <span class="badge bg-warning text-dark">{{ st.unread }} unread</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end text-nowrap">
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="{{ url_for('admission_exam.cycle_notice_detail', cycle_id=cycle.id, notice_id=n.id) }}">View</a>
+                            <form method="POST"
+                                  action="{{ url_for('admission_exam.cycle_notice_delete', cycle_id=cycle.id, notice_id=n.id) }}"
+                                  class="d-inline"
+                                  onsubmit="return confirm('Delete this notice permanently? It will disappear from the portal and all candidate dashboards.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-muted text-center py-4">No notices sent yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    var all = document.getElementById('audAll');
+    var sel = document.getElementById('audSelected');
+    var wrap = document.getElementById('candidatePickWrap');
+    function sync() {
+        if (!wrap) return;
+        wrap.classList.toggle('d-none', !!(all && all.checked));
+    }
+    if (all) all.addEventListener('change', sync);
+    if (sel) sel.addEventListener('change', sync);
+    sync();
+    var checkAll = document.getElementById('noticeCheckAll');
+    var checkNone = document.getElementById('noticeCheckNone');
+    if (checkAll) checkAll.addEventListener('click', function () {
+        document.querySelectorAll('.notice-cand-check').forEach(function (el) { el.checked = true; });
+    });
+    if (checkNone) checkNone.addEventListener('click', function () {
+        document.querySelectorAll('.notice-cand-check').forEach(function (el) { el.checked = false; });
+    });
+})();
+</script>
+{% endblock %}

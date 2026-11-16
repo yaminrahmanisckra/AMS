@@ -1,0 +1,12 @@
+{# Requires: notice, cycle; optional download_url override #}
+{% if notice.has_attachment %}
+<div class="mt-2">
+    <a class="btn btn-sm btn-outline-primary"
+       href="{% if download_url %}{{ download_url }}{% else %}{{ url_for('admission_exam.public_notice_file', token=cycle.public_token, notice_id=notice.id) }}{% endif %}">
+        <i class="fas fa-paperclip me-1"></i>{{ notice.original_filename or 'Download file' }}
+        {% if notice.file_size %}
+        <span class="text-muted">({{ format_file_size(notice.file_size) if format_file_size is defined else '' }})</span>
+        {% endif %}
+    </a>
+</div>
+{% endif %}

@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ candidate.application_id }} – Candidate{% endblock %}
 {% block mobile_title %}Candidate{% endblock %}
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/admission_image_crop.css') }}?v=3" rel="stylesheet">
+{% endblock %}
 {% block content %}
 <div class="container my-4" style="max-width: 1000px;">
     <nav aria-label="breadcrumb">
@@ -41,7 +44,8 @@
                         <div class="col-md-3 text-center mb-3">
                             {% if candidate.photo_path %}
                             <img src="{{ url_for('admission_exam.candidate_photo_admin', candidate_id=candidate.id) }}"
-                                 alt="Photo" class="img-thumbnail" style="max-width: 130px;">
+                                 alt="Photo" class="img-thumbnail"
+                                 style="width: 96px; height: 96px; object-fit: cover;">
                             {% else %}
                             <div class="border rounded p-4 text-muted small">No photo</div>
                             {% endif %}
@@ -50,7 +54,7 @@
                                 {% if candidate.signature_path %}
                                 <img src="{{ url_for('admission_exam.candidate_signature_admin', candidate_id=candidate.id) }}"
                                      alt="Signature" class="img-thumbnail bg-white"
-                                     style="max-width: 150px; max-height: 60px;">
+                                     style="max-width: 150px; max-height: 40px; object-fit: contain;">
                                 {% else %}
                                 <div class="border rounded p-2 text-muted small">No signature</div>
                                 {% endif %}
@@ -93,18 +97,27 @@
                                 {% for key, label in extra_field_defs %}
                                 <div class="col-md-6">
                                     <label class="form-label small">{{ label }}</label>
-                                    <input type="text" class="form-control form-control-sm" name="{{ key }}" value="{{ extra.get(key, '') }}">
+                                    <input type="text" class="form-control form-control-sm" name="{{ key }}"
+                                           value="{{ extra.get(key, '') }}"
+                                           {% if key == 'name_bangla' %}lang="bn" data-bangla-name="1"{% endif %}>
+                                    {% if key == 'name_bangla' %}
+                                    <div class="form-text">শুধু বাংলায় লিখুন।</div>
+                                    {% endif %}
                                 </div>
                                 {% endfor %}
                                 <div class="col-md-6">
                                     <label class="form-label small">Replace Photo</label>
-                                    <input type="file" class="form-control form-control-sm" name="photo" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
-                                    <div class="form-text">JPG/PNG, max 1 MB</div>
+                                    <input type="file" class="form-control form-control-sm" name="photo" id="adminPhotoInput"
+                                           accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+                                    <div class="form-text">JPG/PNG. Crop to exactly <strong>300×300 px</strong>. Max 1 MB after crop.</div>
+                                    <div class="text-danger small mt-1 d-none" id="adminPhotoError"></div>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label small">Replace Signature</label>
-                                    <input type="file" class="form-control form-control-sm" name="candidate_signature" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
-                                    <div class="form-text">JPG/PNG, max 1 MB</div>
+                                    <input type="file" class="form-control form-control-sm" name="candidate_signature" id="adminSignatureInput"
+                                           accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+                                    <div class="form-text">JPG/PNG. Crop to exactly <strong>300×80 px</strong>. Max 500 KB after crop.</div>
+                                    <div class="text-danger small mt-1 d-none" id="adminSignatureError"></div>
                                 </div>
                             </div>
                             <button type="submit" class="btn btn-sm btn-primary mt-3"><i class="fas fa-save me-1"></i>Save Changes</button>
@@ -215,17 +228,38 @@
             <!-- Account management -->
             <div class="card shadow-sm">
                 <div class="card-header bg-light"><strong>Candidate Account</strong></div>
-                <div class="card-body d-flex flex-wrap gap-2">
+                <div class="card-body">
                     <form method="POST" action="{{ url_for('admission_exam.candidate_reset_pin', candidate_id=candidate.id) }}"
-                          onsubmit="return confirm('Generate a new PIN for this candidate? The old PIN will stop working.');">
+                          onsubmit="return confirm('Generate a new PIN for this candidate? The old PIN will stop working.');"
+                          class="mb-3">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-sm btn-outline-warning"><i class="fas fa-key me-1"></i>Reset PIN</button>
                     </form>
-                    <form method="POST" action="{{ url_for('admission_exam.candidate_delete', candidate_id=candidate.id) }}"
-                          onsubmit="return confirm('Delete this application permanently? This cannot be undone.');">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash me-1"></i>Delete Application</button>
-                    </form>
+                    <div class="border border-danger-subtle rounded p-3 bg-light">
+                        <button type="button" class="btn btn-link btn-sm text-danger text-decoration-none p-0"
+                                data-bs-toggle="collapse" data-bs-target="#deleteApplicationPanel"
+                                aria-expanded="false" aria-controls="deleteApplicationPanel">
+                            <i class="fas fa-trash me-1"></i>Delete this application…
+                        </button>
+                        <div class="collapse mt-3" id="deleteApplicationPanel">
+                            <p class="small text-muted mb-2">
+                                This permanently removes the application and cannot be undone.
+                                Type <strong>{{ candidate.application_id }}</strong> to enable delete.
+                            </p>
+                            <label class="form-label small mb-1" for="deleteAppIdConfirm">Application ID</label>
+                            <input type="text" class="form-control form-control-sm mb-2" id="deleteAppIdConfirm"
+                                   autocomplete="off" spellcheck="false"
+                                   placeholder="{{ candidate.application_id }}">
+                            <form method="POST" action="{{ url_for('admission_exam.candidate_delete', candidate_id=candidate.id) }}"
+                                  id="deleteApplicationForm"
+                                  onsubmit="return confirm('Delete {{ candidate.application_id }} permanently? This cannot be undone.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-danger" id="deleteApplicationBtn" disabled>
+                                    <i class="fas fa-trash me-1"></i>Permanently delete
+                                </button>
+                            </form>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -290,7 +324,7 @@
                                 <div class="mt-2">
                                     <img src="{{ url_for('admission_exam.user_scrutinizer_signature_image', user_id=candidate.verifier.id) }}"
                                          alt="Scrutinizer signature" class="img-thumbnail bg-white"
-                                         style="max-height: 56px; max-width: 180px;">
+                                         style="max-width: 150px; max-height: 40px; object-fit: contain;">
                                 </div>
                                 {% else %}
                                 <div class="small text-warning mt-1">No signature on this member’s profile yet.</div>
@@ -361,7 +395,8 @@
                     {% if my_signature_uploaded %}
                     <div class="mb-2">
                         <img src="{{ url_for('admission_exam.user_verification_signature_image') }}"
-                             alt="My signature" class="img-thumbnail bg-white" style="max-height: 56px;">
+                             alt="My signature" class="img-thumbnail bg-white"
+                             style="max-width: 150px; max-height: 40px; object-fit: contain;">
                     </div>
                     {% endif %}
                     {% if candidate.payment_status == 'verified' and (not candidate.verified_by or candidate.verified_by != current_user.id) %}
@@ -442,7 +477,89 @@
                     </p>
                 </div>
             </div>
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <strong><i class="fas fa-bell me-1"></i>Send notice</strong>
+                    <a href="{{ url_for('admission_exam.cycle_notices', cycle_id=cycle.id) }}" class="btn btn-sm btn-link">All notices</a>
+                </div>
+                <div class="card-body">
+                    <p class="small text-muted">This candidate will see an unread popup on their dashboard until they mark it as read.</p>
+                    <form method="POST" action="{{ url_for('admission_exam.candidate_send_notice', candidate_id=candidate.id) }}"
+                          enctype="multipart/form-data">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mb-2">
+                            <label class="form-label small">Title</label>
+                            <input type="text" name="title" class="form-control form-control-sm" maxlength="200" required
+                                   placeholder="Notice title">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small">Message</label>
+                            <textarea name="body" class="form-control form-control-sm" rows="4"
+                                      placeholder="Message for this candidate…"></textarea>
+                            <div class="form-text">Message or file (or both).</div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small">Attachment <span class="text-muted">(optional)</span></label>
+                            <input type="file" name="notice_file" class="form-control form-control-sm"
+                                   accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.webp,.txt">
+                            <div class="form-text">PDF, Office, image, or text — max 10 MB.</div>
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-primary"
+                                onclick="return confirm('Send this notice to {{ candidate.application_id }}?');">
+                            <i class="fas fa-paper-plane me-1"></i>Send to this candidate
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admission_image_crop.js') }}?v=3"></script>
+<script>
+(function () {
+    if (window.AdmissionImageCrop) {
+        AdmissionImageCrop.bind('adminPhotoInput', {
+            width: 300, height: 300, kind: 'photo', label: 'Photo',
+            title: 'Crop passport photo (300×300)',
+            errId: 'adminPhotoError', maxOutputBytes: 1 * 1024 * 1024,
+            maxSourceBytes: 10 * 1024 * 1024, fileName: 'photo.jpg'
+        });
+        AdmissionImageCrop.bind('adminSignatureInput', {
+            width: 300, height: 80, kind: 'signature', label: 'Signature',
+            title: 'Crop signature (300×80)',
+            errId: 'adminSignatureError', maxOutputBytes: 512 * 1024,
+            maxSourceBytes: 10 * 1024 * 1024, fileName: 'signature.jpg'
+        });
+    }
+    var expected = {{ candidate.application_id|tojson }};
+    var input = document.getElementById('deleteAppIdConfirm');
+    var btn = document.getElementById('deleteApplicationBtn');
+    if (input && btn) {
+        function syncDeleteBtn() {
+            btn.disabled = (input.value || '').trim() !== expected;
+        }
+        input.addEventListener('input', syncDeleteBtn);
+        syncDeleteBtn();
+    }
+
+    var BANGLA_KEEP = /[^\u0980-\u09FF\u200C\u200D\s.\-·]/g;
+    document.querySelectorAll('input[data-bangla-name="1"]').forEach(function (el) {
+        el.addEventListener('input', function () {
+            var start = el.selectionStart;
+            var before = el.value;
+            var cleaned = before.replace(BANGLA_KEEP, '');
+            if (cleaned !== before) {
+                el.value = cleaned;
+                try {
+                    var delta = before.length - cleaned.length;
+                    el.setSelectionRange(Math.max(0, start - delta), Math.max(0, start - delta));
+                } catch (e) {}
+            }
+        });
+    });
+})();
+</script>
 {% endblock %}

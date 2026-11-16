@@ -1,0 +1,44 @@
+{# Requires: popup_notice (AdmissionNoticeRecipient), cycle #}
+<div class="modal fade" id="admNoticePopup" tabindex="-1" aria-labelledby="admNoticePopupTitle" aria-hidden="true"
+     data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="admNoticePopupTitle">
+                    <i class="fas fa-bell me-2 text-warning"></i>{{ popup_notice.notice.title }}
+                </h5>
+            </div>
+            <div class="modal-body">
+                <div class="small text-muted mb-2">
+                    {{ popup_notice.notice.created_at|bd('%d-%m-%Y, %I:%M %p') if popup_notice.notice.created_at else '' }}
+                </div>
+                {% if popup_notice.notice.body %}
+                <div style="white-space: pre-wrap;">{{ popup_notice.notice.body }}</div>
+                {% endif %}
+                {% with notice=popup_notice.notice %}
+                {% include "admission_exam/_notice_attachment.html" %}
+                {% endwith %}
+                {% if unread_notices and unread_notices|length > 1 %}
+                <p class="small text-muted mt-3 mb-0">{{ unread_notices|length - 1 }} more unread notice(s) after this.</p>
+                {% endif %}
+            </div>
+            <div class="modal-footer">
+                <form method="POST" action="{{ url_for('admission_exam.candidate_notice_mark_read', token=cycle.public_token, receipt_id=popup_notice.id) }}" class="m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-check me-1"></i>Mark as read
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    var el = document.getElementById('admNoticePopup');
+    if (!el || typeof bootstrap === 'undefined') return;
+    var modal = bootstrap.Modal.getOrCreateInstance(el);
+    modal.show();
+})();
+</script>

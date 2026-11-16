@@ -115,6 +115,11 @@ PATCHES = {
         ('viva_marks', 'viva_marks REAL'),
         ('total_marks', 'total_marks REAL'),
     ],
+    'admission_notice': [
+        ('file_path', 'file_path VARCHAR(255)'),
+        ('original_filename', 'original_filename VARCHAR(255)'),
+        ('file_size', 'file_size INTEGER'),
+    ],
     'users': [
         ('dashboard_card_order', 'dashboard_card_order TEXT'),
     ],
@@ -140,6 +145,30 @@ def table_columns(cur, name):
     return {row[1] for row in cur.fetchall()}
 
 
+NEW_TABLES = {
+    'admission_notice': """
+        CREATE TABLE admission_notice (
+            id INTEGER NOT NULL PRIMARY KEY,
+            cycle_id INTEGER NOT NULL REFERENCES admission_cycle(id),
+            title VARCHAR(200) NOT NULL,
+            body TEXT NOT NULL,
+            audience VARCHAR(20) NOT NULL DEFAULT 'selected',
+            created_by INTEGER REFERENCES users(id),
+            created_at DATETIME
+        )
+    """,
+    'admission_notice_recipient': """
+        CREATE TABLE admission_notice_recipient (
+            id INTEGER NOT NULL PRIMARY KEY,
+            notice_id INTEGER NOT NULL REFERENCES admission_notice(id),
+            candidate_id INTEGER NOT NULL REFERENCES admission_candidate(id),
+            read_at DATETIME,
+            CONSTRAINT uq_admission_notice_recipient UNIQUE (notice_id, candidate_id)
+        )
+    """,
+}
+
+
 def main():
     if not os.path.exists(DB_PATH):
         raise SystemExit(f'Database not found: {DB_PATH}')
@@ -147,6 +176,27 @@ def main():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     added = []
+
+    if table_exists(cur, 'admission_cycle') and table_exists(cur, 'admission_candidate'):
+        for name, ddl in NEW_TABLES.items():
+            if table_exists(cur, name):
+                continue
+            cur.execute(ddl)
+            added.append(f'table:{name}')
+        if table_exists(cur, 'admission_notice'):
+            cur.execute(
+                'CREATE INDEX IF NOT EXISTS ix_admission_notice_cycle_id '
+                'ON admission_notice (cycle_id)'
+            )
+        if table_exists(cur, 'admission_notice_recipient'):
+            cur.execute(
+                'CREATE INDEX IF NOT EXISTS ix_admission_notice_recipient_notice_id '
+                'ON admission_notice_recipient (notice_id)'
+            )
+            cur.execute(
+                'CREATE INDEX IF NOT EXISTS ix_admission_notice_recipient_candidate_id '
+                'ON admission_notice_recipient (candidate_id)'
+            )
 
     for table, columns in PATCHES.items():
         if not table_exists(cur, table):
@@ -197,14 +247,15 @@ def main():
               )
         ''')
 
-    cur.execute('DELETE FROM alembic_version')
-    cur.execute("INSERT INTO alembic_version (version_num) VALUES ('o5p6q7r8s9t0')")
+    if table_exists(cur, 'alembic_version'):
+        cur.execute('DELETE FROM alembic_version')
+        cur.execute("INSERT INTO alembic_version (version_num) VALUES ('o5p6q7r8s9t0')")
 
     conn.commit()
     conn.close()
 
     if added:
-        print('Added columns:')
+        print('Added / created:')
         for item in added:
             print(f'  - {item}')
     else:

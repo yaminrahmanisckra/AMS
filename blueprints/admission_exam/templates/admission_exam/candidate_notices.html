@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Notices – {{ cycle.name }}{% endblock %}
+{% block mobile_title %}Notices{% endblock %}
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/admission_public.css') }}?v=adm3" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<div class="adm-shell">
+<div class="adm-wrap">
+    <div class="adm-page-head adm-rise">
+        <div>
+            <div class="adm-hero-kicker mb-2">Candidate Dashboard</div>
+            <h1 style="font-family:var(--adm-font-display);font-size:clamp(1.45rem,4vw,2rem);margin:0;">Notices</h1>
+            <div class="adm-muted mt-1">{{ cycle.name }}</div>
+        </div>
+        <a href="{{ url_for('admission_exam.candidate_dashboard', token=cycle.public_token) }}" class="adm-btn adm-btn-ghost adm-btn-sm">
+            <i class="fas fa-arrow-left"></i>Dashboard
+        </a>
+    </div>
+
+    <div class="adm-panel adm-rise" id="notices-panel">
+        <div class="adm-panel-head">
+            <strong><i class="fas fa-bell me-1"></i>All notices</strong>
+            {% if unread_notices %}
+            <span class="badge bg-warning text-dark">{{ unread_notices|length }} unread</span>
+            {% endif %}
+        </div>
+        <div class="adm-panel-body">
+            {% if notice_receipts %}
+            <div class="list-group list-group-flush">
+                {% for r in notice_receipts %}
+                <div class="list-group-item px-0 {% if not r.is_read %}border-start border-3 border-warning ps-2{% endif %}">
+                    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                        <div>
+                            <div class="fw-semibold">{{ r.notice.title }}</div>
+                            <div class="small text-muted mb-2">
+                                {{ r.notice.created_at|bd('%d-%m-%Y, %I:%M %p') if r.notice.created_at else '' }}
+                                {% if r.is_read %}
+                                · Read {{ r.read_at|bd('%d-%m-%Y, %I:%M %p') if r.read_at else '' }}
+                                {% else %}
+                                · <span class="text-warning">Unread</span>
+                                {% endif %}
+                            </div>
+                            {% if r.notice.body %}
+                            <div style="white-space: pre-wrap;">{{ r.notice.body }}</div>
+                            {% endif %}
+                            {% with notice=r.notice %}
+                            {% include "admission_exam/_notice_attachment.html" %}
+                            {% endwith %}
+                        </div>
+                        {% if not r.is_read %}
+                        <form method="POST" action="{{ url_for('admission_exam.candidate_notice_mark_read', token=cycle.public_token, receipt_id=r.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="next" value="{{ url_for('admission_exam.candidate_notices', token=cycle.public_token) }}">
+                            <button type="submit" class="adm-btn adm-btn-primary adm-btn-sm">Mark as read</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-muted mb-0">No notices yet.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+</div>
+
+{% if popup_notice %}
+{% include "admission_exam/_notice_popup.html" %}
+{% endif %}
+{% endblock %}

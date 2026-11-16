@@ -125,10 +125,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // File input preview
+    // File input preview (skip crop-controlled / opt-out inputs — they show cropped preview themselves)
     const fileInputs = document.querySelectorAll('input[type="file"]');
     fileInputs.forEach(input => {
         input.addEventListener('change', function() {
+            if (input.hasAttribute('data-adm-crop') || input.hasAttribute('data-no-file-preview')) {
+                return;
+            }
             const file = this.files[0];
             if (file) {
                 const reader = new FileReader();
