@@ -3,8 +3,8 @@
 {% block mobile_title %}Marks{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="d-flex align-items-center justify-content-between mb-3">
+<div class="container-fluid px-2 mt-3 marks-entry-page">
+    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
         <div>
             <h3 class="mb-1"><i class="fas fa-clipboard-check me-2 text-primary"></i>Marks Entry</h3>
             <div class="text-muted">{{ entry.course_name }} ({{ entry.course_code }}) &middot; Year {{ entry.year or '—' }} / Term {{ entry.term or '—' }}</div>
@@ -13,9 +13,11 @@
         <a href="{{ url_for('exam_evaluation') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back to Evaluation</a>
     </div>
 
-    <div class="alert alert-info small">
+    <div class="alert alert-info small marks-hint">
         <i class="fas fa-lightbulb me-2"></i>
-        First set allocated marks in each question header (suggested: UG 10 / PG 12.5). Mark entry stays locked until allocation is set. For sub-parts (a, b, c…), allocate per part — the question header shows the total. Marks above allocation are highlighted and cannot be saved. Totals round to whole numbers. Student ID can only be entered in Scrutinizer mode.
+        Set <strong>Max</strong> for each question/sub-part before entering marks (suggested: UG 10 / PG 12.5).
+        For a, b, c… allocate per part — the question badge shows the total.
+        Over-allocation is highlighted and cannot be saved. Student ID is editable only in Scrutinizer mode.
     </div>
 
     <form id="marks-form" method="POST">
@@ -50,11 +52,11 @@
             </div>
         </div>
 
-        <div class="card shadow-sm mb-3">
-            <div class="card-header bg-light d-flex flex-wrap justify-content-between align-items-center">
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <h5 class="mb-0 me-2"><i class="fas fa-table me-2 text-primary"></i>Marks Table</h5>
-                    <div class="btn-group btn-group-sm" role="group">
+        <div class="card shadow-sm mb-3 marks-table-card">
+            <div class="card-header bg-white marks-toolbar">
+                <div class="marks-toolbar-left">
+                    <h5 class="mb-0 marks-toolbar-title"><i class="fas fa-table me-2 text-primary"></i>Marks Table</h5>
+                    <div class="btn-group btn-group-sm flex-wrap" role="group">
                         <button type="button" class="btn btn-primary" id="btn-add-question"><i class="fas fa-plus me-1"></i>Add Question</button>
                         <button type="button" class="btn btn-outline-primary" id="btn-add-student"><i class="fas fa-user-plus me-1"></i>Add Student Row</button>
                         <button type="button" class="btn btn-outline-primary" id="btn-add-custom-rows"><i class="fas fa-users me-1"></i>Custom Rows</button>
@@ -66,9 +68,10 @@
                     <button type="button" class="btn btn-outline-success" id="btn-download-excel"><i class="fas fa-file-excel me-1"></i>Excel</button>
                 </div>
             </div>
-            <div class="card-body">
-                <div class="marks-table-wrapper table-responsive m-table-scroll-sticky">
-                    <table class="table table-bordered table-sm align-middle" id="marks-table">
+            <div class="card-body p-0">
+                <div class="marks-table-wrapper m-table-scroll-sticky">
+                    <table class="table table-bordered table-sm align-middle mb-0" id="marks-table">
+                        <colgroup id="marks-cols"></colgroup>
                         <thead>
                             <tr id="marks-header-main"></tr>
                             <tr id="marks-header-sub"></tr>
@@ -76,7 +79,7 @@
                         <tbody id="marks-body"></tbody>
                     </table>
                 </div>
-                <p class="small text-muted mt-2 mb-0">* Student ID column is editable only by the assigned scrutinizer.</p>
+                <p class="small text-muted px-3 py-2 mb-0 marks-table-footnote">Scroll sideways if needed. Student ID is editable only by the assigned scrutinizer.</p>
             </div>
         </div>
 
@@ -94,146 +97,319 @@
 </div>
 
 <style>
-#marks-table {
-    min-width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
+.marks-entry-page {
+    --marks-ink: #212529;
+    --marks-muted: #6c757d;
+    --marks-line: #dee2e6;
+    --marks-main-h: 46px;
+    --serial-w: 2.75rem;
+    --code-w: 11rem;
+}
+
+.marks-hint { font-size: 0.875rem; }
+
+.marks-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--marks-line);
+    background: #fff;
+}
+
+.marks-toolbar-left {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.marks-toolbar-title {
+    font-size: 1rem;
+    margin: 0;
+    color: var(--marks-ink);
 }
 
 .marks-table-wrapper {
-    overflow-x: auto;
-    overflow-y: auto;
-    max-height: 70vh;
+    overflow: auto;
+    max-height: min(72vh, 820px);
+    background: #fff;
 }
 
-#marks-table thead th {
-    position: sticky;
-    background-color: #fff;
-    z-index: 5;
-    box-shadow: inset 0 -1px 0 rgba(0,0,0,0.1);
-}
-
-#marks-table thead tr:first-child th {
-    top: 0;
-}
-
-#marks-table thead tr:nth-child(2) th {
-    top: 52px;
-    z-index: 4;
+#marks-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 0;
+    font-size: 0.875rem;
+    table-layout: fixed;
 }
 
 #marks-table th,
 #marks-table td {
     vertical-align: middle;
     text-align: center;
-}
-#marks-table .mark-input {
-    min-width: 68px;
-    width: 100%;
-}
-.marks-band-1 {
-    background-color: rgba(0, 123, 255, 0.18);
-}
-.marks-band-2 {
-    background-color: rgba(40, 167, 69, 0.18);
-}
-.code-input {
-    min-width: 200px;
-    width: 100%;
-    font-size: 16px; /* Prevent iOS zoom */
-}
-.code-cell {
-    width: 220px;
-    min-width: 220px;
-    max-width: 220px;
-    white-space: nowrap;
+    border-color: var(--marks-line) !important;
+    padding: 0.4rem 0.45rem;
+    background: #fff;
+    position: relative;
 }
 
+#marks-table thead th {
+    position: sticky;
+    background: #fff;
+    z-index: 6;
+    box-shadow: inset 0 -1px 0 var(--marks-line);
+    font-weight: 600;
+}
+
+#marks-table thead tr:first-child th { top: 0; }
+#marks-table thead tr:nth-child(2) th {
+    top: var(--marks-main-h);
+    z-index: 5;
+}
+
+#marks-table .serial-cell,
+#marks-table thead th.serial-head {
+    position: sticky;
+    left: 0;
+    z-index: 7;
+    background: #fff;
+}
+#marks-table thead th.serial-head { z-index: 9; }
+
+#marks-table .code-cell,
+#marks-table thead th.code-head {
+    position: sticky;
+    left: var(--serial-w);
+    z-index: 7;
+    background: #fff;
+    box-shadow: 1px 0 0 var(--marks-line);
+}
+#marks-table thead th.code-head {
+    z-index: 9;
+    box-shadow: inset 0 -1px 0 var(--marks-line), 1px 0 0 var(--marks-line);
+}
+
+#marks-table .mark-input,
+#marks-table .total-field {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+    text-align: center;
+    box-sizing: border-box;
+}
+#marks-table .mark-input {
+    background-color: rgba(255, 255, 255, 0.45);
+}
+
+#marks-table .sp-alloc .allocated-input,
+#marks-table .allocated-wrap .allocated-input {
+    flex: 1 1 2.75rem;
+    width: auto;
+    min-width: 2.6rem;
+    margin: 0;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+#marks-table th.marks-part-col,
+#marks-table td.marks-part-col,
+#marks-table .total-cell,
+#marks-table thead th.total-head,
+#marks-table .student-id-cell,
+#marks-table thead th.student-head {
+    padding-left: 0.15rem;
+    padding-right: 0.15rem;
+}
+
+.col-resize {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 7px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 8;
+    touch-action: none;
+}
+.col-resize:hover,
+.col-resize.is-dragging {
+    background: rgba(15, 23, 42, 0.12);
+}
+
+/* One light tint per question so a, b, c stay with their question */
+.marks-q-0 { background: #e7f1ff !important; }
+.marks-q-1 { background: #e7f6ec !important; }
+.marks-q-2 { background: #fff3df !important; }
+.marks-q-3 { background: #f3e9ff !important; }
+.marks-q-4 { background: #e5f6f6 !important; }
+.marks-q-5 { background: #fde8ef !important; }
+
+#marks-table tr.marks-row.is-active > td {
+    box-shadow: inset 0 0 0 999px rgba(220, 53, 69, 0.1);
+}
+#marks-table tr.marks-row.is-active > td.serial-cell {
+    box-shadow: inset 5px 0 0 #dc3545, inset 0 0 0 999px rgba(220, 53, 69, 0.1);
+}
+#marks-table tr.marks-row.is-active > td.code-cell {
+    box-shadow: inset 0 0 0 999px rgba(220, 53, 69, 0.1), 1px 0 0 var(--marks-line);
+}
+
+.code-input,
 .student-id-input {
-    min-width: 140px;
+    font-size: 16px;
+    width: 100%;
+    min-width: 0;
 }
-/* Duplicate Code / Student ID highlighting */
-.duplicate-field-row {
-    background-color: #fff3cd !important;
-    border-left: 3px solid #ffc107 !important;
-}
+.total-field { font-weight: 600; }
+
 .duplicate-field-row .code-input.is-invalid,
 .duplicate-field-row .student-id-input.is-invalid {
     border-color: #dc3545 !important;
-    background-color: #f8d7da !important;
     font-weight: 600;
 }
-.total-field {
-    min-width: 90px;
-    font-weight: 600;
-}
+
 .question-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-}
-.question-header .question-toggle {
-    padding: 0.15rem 0.4rem;
-}
-.question-actions {
-    display: none;
-    gap: 0.25rem;
-}
-.question-header.show-actions .question-actions {
-    display: flex;
-}
-.subpart-header {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.35rem;
-    font-size: 0.9rem;
-    flex-wrap: wrap;
+    min-height: 1.6rem;
+    padding: 0.05rem 0;
 }
+
+.question-header .q-head-main {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.question-header .question-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--marks-ink);
+    white-space: nowrap;
+}
+
+.question-header .q-head-actions {
+    position: static;
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    gap: 0.15rem;
+}
+
+.question-header .question-toggle {
+    padding: 0.1rem 0.3rem;
+    line-height: 1.1;
+}
+
+.question-actions { display: none; gap: 0.15rem; }
+.question-header.show-actions .question-actions { display: inline-flex; }
+
+.question-allocated-total {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--marks-ink);
+    white-space: nowrap;
+}
+.question-allocated-total.is-empty { color: var(--marks-muted); font-weight: 500; }
+
 .allocated-wrap {
     display: inline-flex;
     align-items: center;
-    gap: 0.05rem;
-    font-weight: 600;
+    justify-content: center;
+    gap: 0.25rem;
     white-space: nowrap;
 }
+.allocated-wrap .alloc-label,
+.sp-alloc-lbl {
+    font-size: 0.7rem;
+    color: var(--marks-muted);
+}
+
 .allocated-input {
-    width: 3.4rem;
-    min-width: 3.4rem;
-    display: inline-block;
-    padding: 0.1rem 0.2rem;
-    font-size: 0.8rem;
-    text-align: center;
+    padding: 0.2rem 0.3rem;
+    font-size: 0.85rem;
 }
 .allocated-input.is-unallocated {
-    border-color: #e0a800 !important;
-    background-color: #fff3cd !important;
+    border-color: #adb5bd !important;
 }
-.question-allocated-total {
+
+.subpart-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    width: 100%;
+    margin: 0 auto;
+}
+
+.subpart-top {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    min-height: 1.2rem;
+}
+
+.subpart-label {
+    font-size: 0.85rem;
     font-weight: 600;
-    white-space: nowrap;
+    color: var(--marks-ink);
+    cursor: pointer;
+    line-height: 1.2;
 }
+
+.subpart-remove {
+    line-height: 1;
+    padding: 0 !important;
+    font-size: 0.75rem;
+    color: #6c757d !important;
+}
+
+.sp-alloc {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    width: 100%;
+}
+
 .mark-input.marks-exceed-allocated {
     border-color: #dc3545 !important;
-    background-color: #f8d7da !important;
 }
 .mark-input.marks-awaiting-allocation {
-    background-color: #f1f3f5 !important;
+    background: rgba(255, 255, 255, 0.72) !important;
     cursor: not-allowed;
+    color: #adb5bd;
 }
-.field-readonly {
-    background-color: #f8f9fa;
-    cursor: not-allowed;
-}
+.field-readonly { cursor: not-allowed; }
+
 .role-badge {
     font-size: 0.75rem;
     margin-top: 0.25rem;
     display: inline-block;
 }
-.marks-export-group .btn {
-    min-width: 90px;
+.marks-export-group .btn { min-width: 90px; }
+.marks-table-footnote {
+    border-top: 1px solid var(--marks-line);
+    background: #fff;
 }
+
+.code-cell .input-group { width: 100%; flex-wrap: nowrap; }
+.code-cell .remove-student { padding-left: 0.45rem; padding-right: 0.45rem; }
 </style>
 
 <script>
@@ -257,6 +433,23 @@
     const headerMain = document.getElementById('marks-header-main');
     const headerSub = document.getElementById('marks-header-sub');
     const tbody = document.getElementById('marks-body');
+    if (tbody) {
+        tbody.addEventListener('focusin', (event) => {
+            const row = event.target.closest('tr.marks-row');
+            if (!row) return;
+            tbody.querySelectorAll('tr.marks-row.is-active').forEach(active => {
+                if (active !== row) active.classList.remove('is-active');
+            });
+            row.classList.add('is-active');
+        });
+        tbody.addEventListener('focusout', (event) => {
+            const row = event.target.closest('tr.marks-row');
+            if (!row) return;
+            const next = event.relatedTarget;
+            if (next && row.contains(next)) return;
+            row.classList.remove('is-active');
+        });
+    }
     const addQuestionBtn = document.getElementById('btn-add-question');
     const addStudentBtn = document.getElementById('btn-add-student');
     const addCustomRowsBtn = document.getElementById('btn-add-custom-rows');
@@ -523,11 +716,20 @@
         const allSet = question.parts.every(isAllocatedSet);
         if (!allSet) {
             totalEl.textContent = '(—)';
+            totalEl.classList.add('is-empty');
             totalEl.title = 'Set allocated marks for all sub-parts';
             return;
         }
         totalEl.textContent = `(${formatAllocatedDisplay(questionAllocatedTotal(question))})`;
-        totalEl.title = '';
+        totalEl.classList.remove('is-empty');
+        totalEl.title = 'Total allocated for this question';
+    }
+
+    function syncStickyHeaderOffset() {
+        const page = document.querySelector('.marks-entry-page');
+        if (!page || !headerMain) return;
+        const h = Math.ceil(headerMain.getBoundingClientRect().height || 58);
+        page.style.setProperty('--marks-main-h', `${h}px`);
     }
 
     function updateMarkLocksForPart(questionId, partId) {
@@ -855,8 +1057,8 @@
                     cell.dataset.partId = part.id;
                     cell.innerHTML = '<input type="number" step="0.5" min="0" class="form-control form-control-sm mark-input">';
                 }
-                const bandClass = `marks-band-${(index % 2) + 1}`;
-                cell.classList.add(bandClass);
+                cell.classList.add('marks-part-col');
+                setQuestionTone(cell, index);
                 row.insertBefore(cell, totalCell);
                 const markInput = cell.querySelector('input');
                 attachMarkInputEvents(markInput, row);
@@ -869,6 +1071,14 @@
         applyRolePermissions(row);
     }
 
+    function setQuestionTone(el, index) {
+        el.classList.remove('marks-band-1', 'marks-band-2');
+        for (let tone = 0; tone < 6; tone += 1) {
+            el.classList.remove('marks-q-' + tone);
+        }
+        el.classList.add('marks-q-' + (index % 6));
+    }
+
     function renderHeaders() {
         const showSubHeader = questions.some(q => q.parts.length > 1);
         headerMain.innerHTML = '';
@@ -878,46 +1088,56 @@
         const serialTh = document.createElement('th');
         serialTh.rowSpan = showSubHeader ? 2 : 1;
         serialTh.textContent = '#';
-        serialTh.classList.add('bg-light');
+        serialTh.classList.add('bg-light', 'serial-head');
+        addColResize(serialTh);
         headerMain.appendChild(serialTh);
 
         const codeTh = document.createElement('th');
         codeTh.rowSpan = showSubHeader ? 2 : 1;
         codeTh.textContent = 'Code';
-        codeTh.classList.add('bg-light');
+        codeTh.classList.add('bg-light', 'code-head');
+        addColResize(codeTh);
         headerMain.appendChild(codeTh);
 
         questions.forEach((question, index) => {
             const th = document.createElement('th');
             th.dataset.questionId = question.id;
             th.colSpan = showSubHeader ? question.parts.length : 1;
-            const bandClass = `marks-band-${(index % 2) + 1}`;
+            setQuestionTone(th, index);
+            if (!showSubHeader) {
+                th.classList.add('marks-part-col');
+                th.dataset.partId = singlePart.id;
+            }
             const isMultiPart = question.parts.length > 1;
             const singlePart = question.parts[0];
+            const allSet = question.parts.every(isAllocatedSet);
             let allocatedControl = '';
-            if (isMultiPart) {
-                allocatedControl = `<span class="question-allocated-total" data-question-id="${question.id}">${question.parts.every(isAllocatedSet) ? `(${formatAllocatedDisplay(questionAllocatedTotal(question))})` : '(—)'}</span>`;
-            } else if (!showSubHeader) {
-                allocatedControl = `<span class="allocated-wrap">(<input type="number" step="0.5" min="0" class="form-control form-control-sm allocated-input${!isAllocatedSet(singlePart) ? ' is-unallocated' : ''}" data-question-id="${question.id}" data-part-id="${singlePart.id}" value="${formatAllocatedDisplay(singlePart.allocated)}" placeholder="${formatAllocatedDisplay(defaultAllocated)}" title="Set allocated marks before entering student marks">)</span>`;
+            if (isMultiPart || showSubHeader) {
+                allocatedControl = `<span class="question-allocated-total${allSet ? '' : ' is-empty'}" data-question-id="${question.id}" title="${allSet ? 'Total allocated for this question' : 'Set allocated marks for all sub-parts'}">${allSet ? `(${formatAllocatedDisplay(questionAllocatedTotal(question))})` : '(—)'}</span>`;
             } else {
-                allocatedControl = `<span class="question-allocated-total" data-question-id="${question.id}">${question.parts.every(isAllocatedSet) ? `(${formatAllocatedDisplay(questionAllocatedTotal(question))})` : '(—)'}</span>`;
+                allocatedControl = `
+                    <span class="allocated-wrap" title="Allocated marks for this question">
+                        <span class="alloc-label">Max</span>
+                        <input type="number" step="0.5" min="0" class="form-control form-control-sm allocated-input${!isAllocatedSet(singlePart) ? ' is-unallocated' : ''}" data-question-id="${question.id}" data-part-id="${singlePart.id}" value="${formatAllocatedDisplay(singlePart.allocated)}" placeholder="${formatAllocatedDisplay(defaultAllocated)}">
+                    </span>`;
             }
             th.innerHTML = `
-                <div class="question-header ${bandClass}" data-question-id="${question.id}">
-                    <span class="d-flex align-items-center gap-1 flex-wrap">
-                        <span class="fw-semibold question-title">${question.label}</span>
+                <div class="question-header" data-question-id="${question.id}">
+                    <span class="q-head-main">
+                        <span class="question-title">${question.label}</span>
                         ${allocatedControl}
                     </span>
-                    <div class="d-flex align-items-center gap-1">
-                        <button type="button" class="btn btn-outline-secondary btn-sm question-toggle" data-question-id="${question.id}" title="Show question actions"><i class="fas fa-ellipsis-h"></i></button>
+                    <div class="q-head-actions">
+                        <button type="button" class="btn btn-outline-secondary btn-sm question-toggle" data-question-id="${question.id}" title="Show question actions" aria-expanded="false"><i class="fas fa-ellipsis-h"></i></button>
                         <div class="question-actions btn-group btn-group-sm">
                             <button type="button" class="btn btn-outline-secondary question-rename" data-question-id="${question.id}" title="Rename question"><i class="fas fa-edit"></i></button>
-                            <button type="button" class="btn btn-outline-secondary question-add-part" data-question-id="${question.id}" title="Add sub-part"><i class="fas fa-th-large"></i></button>
+                            <button type="button" class="btn btn-outline-secondary question-add-part" data-question-id="${question.id}" title="Add sub-part (a, b, c…)"><i class="fas fa-th-large"></i></button>
                             <button type="button" class="btn btn-outline-danger question-remove" data-question-id="${question.id}" title="Remove question"><i class="fas fa-times"></i></button>
                         </div>
                     </div>
                 </div>
             `;
+            if (!showSubHeader) addColResize(th);
             headerMain.appendChild(th);
 
             if (showSubHeader) {
@@ -925,13 +1145,21 @@
                     const subTh = document.createElement('th');
                     subTh.dataset.questionId = question.id;
                     subTh.dataset.partId = part.id;
+                    subTh.classList.add('marks-part-col');
+                    setQuestionTone(subTh, index);
                     subTh.innerHTML = `
                         <div class="subpart-header">
-                            <span class="subpart-label" data-question-id="${question.id}" data-part-id="${part.id}" title="Click to rename">${part.label}</span>
-                            <span class="allocated-wrap">(<input type="number" step="0.5" min="0" class="form-control form-control-sm allocated-input${!isAllocatedSet(part) ? ' is-unallocated' : ''}" data-question-id="${question.id}" data-part-id="${part.id}" value="${formatAllocatedDisplay(part.allocated)}" placeholder="${formatAllocatedDisplay(defaultAllocated)}" title="Set allocated marks before entering student marks">)</span>
-                            ${question.parts.length > 1 ? `<button type="button" class="btn btn-link text-danger p-0 subpart-remove" data-question-id="${question.id}" data-part-id="${part.id}" title="Remove sub-part"><i class="fas fa-times-circle"></i></button>` : ''}
+                            <div class="subpart-top">
+                                <span class="subpart-label" data-question-id="${question.id}" data-part-id="${part.id}" title="Click to rename">${part.label}</span>
+                                ${question.parts.length > 1 ? `<button type="button" class="btn btn-link text-danger p-0 subpart-remove" data-question-id="${question.id}" data-part-id="${part.id}" title="Remove sub-part"><i class="fas fa-times-circle"></i></button>` : ''}
+                            </div>
+                            <label class="sp-alloc mb-0">
+                                <span class="sp-alloc-lbl">Max</span>
+                                <input type="number" step="0.5" min="0" class="form-control form-control-sm allocated-input${!isAllocatedSet(part) ? ' is-unallocated' : ''}" data-question-id="${question.id}" data-part-id="${part.id}" value="${formatAllocatedDisplay(part.allocated)}" placeholder="${formatAllocatedDisplay(defaultAllocated)}" title="Allocated marks for part ${part.label}">
+                            </label>
                         </div>
                     `;
+                    addColResize(subTh);
                     headerSub.appendChild(subTh);
                 });
             }
@@ -940,12 +1168,13 @@
         const totalTh = document.createElement('th');
         totalTh.rowSpan = showSubHeader ? 2 : 1;
         totalTh.textContent = 'Total';
-        totalTh.classList.add('bg-light');
+        totalTh.classList.add('bg-light', 'total-head');
+        addColResize(totalTh);
         headerMain.appendChild(totalTh);
 
         const studentTh = document.createElement('th');
         studentTh.rowSpan = showSubHeader ? 2 : 1;
-        studentTh.classList.add('bg-light');
+        studentTh.classList.add('bg-light', 'student-head');
         if (pageRole === 'scrutinizer') {
             studentTh.innerHTML = `
                 <div class="d-flex align-items-center justify-content-center gap-2">
@@ -958,6 +1187,7 @@
         } else {
             studentTh.textContent = 'Student ID';
         }
+        addColResize(studentTh);
         headerMain.appendChild(studentTh);
 
         attachHeaderEvents();
@@ -971,7 +1201,119 @@
             delete row.dataset.originalIndex;
         });
         updateSortButtonIcon();
+        rebuildColumns();
+        requestAnimationFrame(syncStickyHeaderOffset);
     }
+
+    const columnLocks = { serial: null, code: null, total: null, student: null, parts: {} };
+
+    function addColResize(th) {
+        const handle = document.createElement('span');
+        handle.className = 'col-resize';
+        handle.title = 'Drag to resize column';
+        th.appendChild(handle);
+    }
+
+    function columnSpecs() {
+        const specs = [
+            { id: 'serial', weight: 0.4, min: 46, lock: columnLocks.serial },
+            { id: 'code', weight: 1.55, min: 168, lock: columnLocks.code },
+        ];
+        questions.forEach(question => {
+            question.parts.forEach(part => {
+                specs.push({
+                    id: 'part:' + part.id,
+                    weight: 1,
+                    min: 86,
+                    lock: columnLocks.parts[part.id] || null,
+                });
+            });
+        });
+        specs.push({ id: 'total', weight: 0.75, min: 76, lock: columnLocks.total });
+        specs.push({ id: 'student', weight: 1.6, min: 168, lock: columnLocks.student });
+        return specs;
+    }
+
+    function distributeColumns(available) {
+        const specs = columnSpecs();
+        const floorSum = specs.reduce((sum, spec) => sum + (spec.lock || spec.min), 0);
+        const target = Math.max(available || 0, floorSum);
+        const widths = specs.map(spec => spec.lock || spec.min);
+        let extra = target - widths.reduce((sum, px) => sum + px, 0);
+        const flexIndexes = specs.map((spec, index) => (spec.lock ? -1 : index)).filter(index => index >= 0);
+        const weightSum = flexIndexes.reduce((sum, index) => sum + specs[index].weight, 0) || 1;
+        let given = 0;
+        flexIndexes.forEach((index, order) => {
+            const add = order === flexIndexes.length - 1
+                ? extra - given
+                : Math.floor(extra * specs[index].weight / weightSum);
+            widths[index] += add;
+            given += add;
+        });
+        return widths;
+    }
+
+    function rebuildColumns() {
+        const group = document.getElementById('marks-cols');
+        const table = document.getElementById('marks-table');
+        const page = document.querySelector('.marks-entry-page');
+        const wrap = document.querySelector('.marks-table-wrapper');
+        if (!group || !table) return;
+        const available = wrap ? Math.floor(wrap.clientWidth) : 0;
+        const widths = distributeColumns(available);
+        group.replaceChildren();
+        widths.forEach(px => {
+            const col = document.createElement('col');
+            col.style.width = px + 'px';
+            group.appendChild(col);
+        });
+        const sum = widths.reduce((total, px) => total + px, 0);
+        table.style.width = sum > available + 1 ? sum + 'px' : '100%';
+        if (page && widths.length >= 2) {
+            page.style.setProperty('--serial-w', widths[0] + 'px');
+            page.style.setProperty('--code-w', widths[1] + 'px');
+        }
+    }
+
+    (function bindColumnResize() {
+        const table = document.getElementById('marks-table');
+        if (!table) return;
+        let dragging = false;
+        table.addEventListener('pointerdown', function (event) {
+            const handle = event.target.closest('.col-resize');
+            if (!handle || !table.contains(handle)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const th = handle.closest('th');
+            if (!th) return;
+            const startX = event.clientX;
+            const startW = th.getBoundingClientRect().width;
+            dragging = true;
+            handle.classList.add('is-dragging');
+            function remember(width) {
+                if (th.classList.contains('serial-head')) columnLocks.serial = width;
+                else if (th.classList.contains('code-head')) columnLocks.code = width;
+                else if (th.classList.contains('total-head')) columnLocks.total = width;
+                else if (th.classList.contains('student-head')) columnLocks.student = width;
+                else if (th.dataset.partId) columnLocks.parts[th.dataset.partId] = width;
+            }
+            function move(ev) {
+                remember(Math.max(40, Math.round(startW + (ev.clientX - startX))));
+                rebuildColumns();
+            }
+            function stop() {
+                dragging = false;
+                handle.classList.remove('is-dragging');
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', stop);
+            }
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', stop);
+        });
+        window.addEventListener('resize', () => {
+            if (!dragging) rebuildColumns();
+        });
+    })();
 
     function addQuestion(options = {}) {
         const {
@@ -1555,6 +1897,11 @@
     });
 
     initializeTable();
+    window.addEventListener('resize', () => {
+        window.clearTimeout(window.__marksStickyTimer);
+        window.__marksStickyTimer = window.setTimeout(syncStickyHeaderOffset, 120);
+    });
+    requestAnimationFrame(syncStickyHeaderOffset);
 })();
 </script>
 {% endblock %}

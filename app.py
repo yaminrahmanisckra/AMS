@@ -2393,242 +2393,354 @@ def create_app():
         return headers, rows
 
     def _generate_marks_pdf(entry, data):
-        headers, rows = _flatten_marks_payload(data)
-
+        """A4 portrait mark sheet. Question and sub-part (a, b, c) headers share one width."""
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import mm
         from reportlab.pdfgen import canvas
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether
+
+        questions = data.get('questions') or []
+        source_rows = data.get('rows') or []
+
+        # Flatten question parts into ordered columns
+        part_cols = []  # [{q_label, part_label, allocated, q_index}]
+        for q_index, question in enumerate(questions):
+            q_label = (question.get('label') or f'Question {q_index + 1}').strip()
+            parts = question.get('parts') or [{'label': 'Marks', 'allocated': None}]
+            if not parts:
+                parts = [{'label': 'Marks', 'allocated': None}]
+            for part in parts:
+                part_cols.append({
+                    'q_label': q_label,
+                    'part_label': (part.get('label') or 'Marks').strip() or 'Marks',
+                    'allocated': _format_allocated_marks_value(part.get('allocated')),
+                    'q_index': q_index,
+                })
+
+        use_multipart_header = any(
+            len((q.get('parts') or [])) > 1 for q in questions
+        )
 
         buffer = BytesIO()
         doc = SimpleDocTemplate(
             buffer,
             pagesize=A4,
-            topMargin=18 * mm,
-            bottomMargin=18 * mm,
-            leftMargin=18 * mm,
-            rightMargin=18 * mm,
+            topMargin=12 * mm,
+            bottomMargin=12 * mm,
+            leftMargin=10 * mm,
+            rightMargin=10 * mm,
         )
         styles = getSampleStyleSheet()
-        header_style = ParagraphStyle(
-            'Header',
-            parent=styles['Heading1'],
-            alignment=1,
-            fontSize=16,
-            leading=18,
-            textColor=colors.HexColor('#0a3d62'),
-            spaceAfter=4,
+        ink = colors.black
+        muted = colors.HexColor('#444444')
+        line = colors.black
+
+        title_style = ParagraphStyle(
+            'MarksPdfTitle', parent=styles['Heading1'], alignment=1,
+            fontSize=14, leading=17, textColor=ink, spaceAfter=1, fontName='Helvetica-Bold',
         )
-        info_label_style = ParagraphStyle(
-            'InfoLabel',
-            parent=styles['Normal'],
-            fontSize=9,
-            leading=12,
-            textColor=colors.HexColor('#0a3d62'),
+        subtitle_style = ParagraphStyle(
+            'MarksPdfSub', parent=styles['Normal'], alignment=1,
+            fontSize=10, leading=12, textColor=ink, spaceAfter=8, fontName='Helvetica-Bold',
         )
-        info_value_style = ParagraphStyle(
-            'InfoValue',
-            parent=styles['Normal'],
-            fontSize=9,
-            leading=12,
-            textColor=colors.HexColor('#111111'),
+        meta_label = ParagraphStyle(
+            'MarksPdfMetaL', parent=styles['Normal'], fontSize=7.5, leading=9,
+            textColor=ink, fontName='Helvetica-Bold',
+        )
+        meta_value = ParagraphStyle(
+            'MarksPdfMetaV', parent=styles['Normal'], fontSize=8.5, leading=11,
+            textColor=ink,
+        )
+        th_style = ParagraphStyle(
+            'MarksPdfTH', parent=styles['Normal'], fontSize=7, leading=8.5,
+            alignment=1, textColor=ink, fontName='Helvetica-Bold',
+        )
+        th_sub_style = ParagraphStyle(
+            'MarksPdfTHSub', parent=styles['Normal'], fontSize=6.5, leading=8,
+            alignment=1, textColor=ink, fontName='Helvetica-Bold',
+        )
+        cell_c = ParagraphStyle(
+            'MarksPdfCellC', parent=styles['Normal'], fontSize=7.5, leading=9, alignment=1, textColor=ink,
+        )
+        cell_l = ParagraphStyle(
+            'MarksPdfCellL', parent=styles['Normal'], fontSize=7.5, leading=9, alignment=0, textColor=ink,
+        )
+        cell_b = ParagraphStyle(
+            'MarksPdfCellB', parent=cell_c, fontName='Helvetica-Bold',
         )
 
+        def _short_q(label):
+            value = str(label or '').strip()
+            lower = value.lower()
+            if lower.startswith('question'):
+                rest = value[8:].strip()
+                return f'Q{rest}' if rest else 'Q'
+            return value
+
+        def _q_total(q_index):
+            vals = [c['allocated'] for c in part_cols if c['q_index'] == q_index and c['allocated'] is not None]
+            if not vals or len(vals) != len([c for c in part_cols if c['q_index'] == q_index]):
+                return '—'
+            try:
+                total = sum(float(v) for v in vals)
+            except (TypeError, ValueError):
+                return '—'
+            return str(int(total)) if total == int(total) else str(total)
+
+        def _fit_widths(weights, total):
+            total_w = sum(weights) or 1
+            widths = [total * (w / total_w) for w in weights]
+            widths[-1] = total - sum(widths[:-1])
+            return widths
+
+        page_width = doc.width
         elements = []
-        elements.append(Paragraph('Khulna University', header_style))
-        elements.append(Spacer(1, 6))
+        elements.append(Paragraph('Khulna University', title_style))
+        elements.append(Paragraph('Exam Mark Sheet', subtitle_style))
 
         info_table = Table(
             [
                 [
-                    Paragraph('Course', info_label_style),
-                    Paragraph(entry.course_name or '', info_value_style),
-                    Paragraph('Course Code', info_label_style),
-                    Paragraph(entry.course_code or '', info_value_style),
+                    Paragraph('Course', meta_label),
+                    Paragraph(entry.course_name or '—', meta_value),
+                    Paragraph('Code', meta_label),
+                    Paragraph(entry.course_code or '—', meta_value),
+                    Paragraph('Section', meta_label),
+                    Paragraph(entry.section or '—', meta_value),
                 ],
                 [
-                    Paragraph('Discipline', info_label_style),
-                    Paragraph(entry.discipline or '', info_value_style),
-                    Paragraph('School', info_label_style),
-                    Paragraph(entry.school or '', info_value_style),
+                    Paragraph('Discipline', meta_label),
+                    Paragraph(entry.discipline or '—', meta_value),
+                    Paragraph('Year', meta_label),
+                    Paragraph(entry.year or '—', meta_value),
+                    Paragraph('Term', meta_label),
+                    Paragraph(entry.term or '—', meta_value),
                 ],
                 [
-                    Paragraph('Year', info_label_style),
-                    Paragraph(entry.year or '', info_value_style),
-                    Paragraph('Term', info_label_style),
-                    Paragraph(entry.term or '', info_value_style),
-                ],
-                [
-                    Paragraph('Section', info_label_style),
-                    Paragraph(entry.section or '', info_value_style),
-                    Paragraph('', info_label_style),
-                    Paragraph('', info_value_style),
+                    Paragraph('Session', meta_label),
+                    Paragraph(entry.academic_session or '—', meta_value),
+                    '', '', '', '',
                 ],
             ],
-            colWidths=[32 * mm, 46 * mm, 32 * mm, 46 * mm],
+            colWidths=_fit_widths([0.14, 0.26, 0.12, 0.16, 0.14, 0.18], page_width),
         )
-        info_table.setStyle(
-            TableStyle(
-                [
-                    ('GRID', (0, 0), (-1, -1), 0.25, colors.black),
-                    ('BACKGROUND', (0, 0), (-1, -1), colors.white),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('SPAN', (2, 3), (3, 3)),
-                ]
-            )
-        )
-        elements.append(info_table)
-        elements.append(Spacer(1, 12))
-
-        table_data = [headers] + rows
-        total_index = headers.index('Total') if 'Total' in headers else max(len(headers) - 2, 0)
-        table_header_style = ParagraphStyle(
-            'TableHeader',
-            parent=styles['Normal'],
-            fontSize=8,
-            leading=10,
-            alignment=1,
-            wordWrap='CJK',
-        )
-        table_cell_center = ParagraphStyle(
-            'TableCellCenter',
-            parent=styles['Normal'],
-            fontSize=8,
-            leading=10,
-            alignment=1,
-            wordWrap='CJK',
-        )
-        table_cell_left = ParagraphStyle(
-            'TableCellLeft',
-            parent=styles['Normal'],
-            fontSize=8,
-            leading=10,
-            alignment=0,
-            wordWrap='CJK',
-        )
-        table_cell_bold = ParagraphStyle(
-            'TableCellBold',
-            parent=table_cell_center,
-            fontName='Helvetica-Bold',
-        )
-
-        def shorten_header(text):
-            if not text:
-                return ''
-            value = str(text)
-            lower = value.lower()
-            if lower.startswith('question'):
-                remainder = value[8:].lstrip()
-                return f"Q {remainder}".strip()
-            return value
-
-        formatted_table_data = []
-        for row_index, row_values in enumerate(table_data):
-            formatted_row = []
-            for col_index, value in enumerate(row_values):
-                text = '' if value is None else str(value)
-                if row_index == 0:
-                    text = shorten_header(text)
-                if row_index == 0:
-                    formatted_row.append(Paragraph(text, table_header_style))
-                else:
-                    if col_index == 0 or col_index == len(row_values) - 1:
-                        formatted_row.append(Paragraph(text, table_cell_left))
-                    elif col_index == total_index:
-                        formatted_row.append(Paragraph(text, table_cell_bold))
-                    else:
-                        formatted_row.append(Paragraph(text, table_cell_center))
-            formatted_table_data.append(formatted_row)
-        table_data = formatted_table_data
-        available_width = doc.width
-        weights = []
-        for header in headers:
-            lowered = str(header).strip().lower()
-            if lowered in {'serial', '#'}:
-                weights.append(0.7)
-            elif lowered == 'code':
-                weights.append(1.4)
-            elif lowered == 'student id':
-                weights.append(1.6)
-            elif lowered == 'total':
-                weights.append(1.2)
-            else:
-                weights.append(1.0)
-        total_weight = sum(weights) or 1
-        col_widths = [available_width * (w / total_weight) for w in weights]
-        table = Table(table_data, colWidths=col_widths, repeatRows=1)
-        table_style = [
-            ('GRID', (0, 0), (-1, -1), 0.25, colors.black),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('ALIGN', (-1, 1), (-1, -1), 'LEFT'),
-            ('ALIGN', (1, 1), (-2, -1), 'CENTER'),
+        info_table.setStyle(TableStyle([
+            ('BOX', (0, 0), (-1, -1), 0.6, line),
+            ('INNERGRID', (0, 0), (-1, -1), 0.4, line),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
-            ('FONTNAME', (total_index, 0), (total_index, -1), 'Helvetica-Bold'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('SPAN', (1, 2), (-1, 2)),
+        ]))
+        elements.append(info_table)
+        elements.append(Spacer(1, 6))
+
+        # Build table matrix (no fill colors — printer-friendly)
+        table_data = []
+        span_cmds = []
+
+        if use_multipart_header:
+            row1 = [
+                Paragraph('#', th_style),
+                Paragraph('Code', th_style),
+            ]
+            row2 = ['', '']
+            col = 2
+            q_cursor = 0
+            while q_cursor < len(part_cols):
+                q_index = part_cols[q_cursor]['q_index']
+                group = [c for c in part_cols if c['q_index'] == q_index]
+                q_label = _short_q(group[0]['q_label'])
+                total_txt = _q_total(q_index)
+                row1.append(Paragraph(f'{q_label}<br/><font size="6.5">Marks {total_txt}</font>', th_style))
+                for _ in group[1:]:
+                    row1.append('')
+                if len(group) > 1:
+                    span_cmds.append(('SPAN', (col, 0), (col + len(group) - 1, 0)))
+                for part in group:
+                    alloc = part['allocated'] or '—'
+                    label = part['part_label']
+                    if label.lower() == 'marks' and len(group) == 1:
+                        row2.append(Paragraph(f'Marks {alloc}', th_sub_style))
+                    else:
+                        row2.append(Paragraph(f'{label}<br/><font size="6">Marks {alloc}</font>', th_sub_style))
+                col += len(group)
+                q_cursor += len(group)
+
+            row1.extend([Paragraph('Total', th_style), Paragraph('Student ID', th_style)])
+            row2.extend(['', ''])
+            span_cmds.extend([
+                ('SPAN', (0, 0), (0, 1)),
+                ('SPAN', (1, 0), (1, 1)),
+                ('SPAN', (-2, 0), (-2, 1)),
+                ('SPAN', (-1, 0), (-1, 1)),
+            ])
+            table_data.extend([row1, row2])
+            header_rows = 2
+            total_index = 2 + len(part_cols)
+        else:
+            header = [
+                Paragraph('#', th_style),
+                Paragraph('Code', th_style),
+            ]
+            for part in part_cols:
+                q_label = _short_q(part['q_label'])
+                alloc = part['allocated'] or '—'
+                header.append(Paragraph(f'{q_label}<br/><font size="6.5">Marks {alloc}</font>', th_style))
+            header.extend([Paragraph('Total', th_style), Paragraph('Student ID', th_style)])
+            table_data.append(header)
+            header_rows = 1
+            total_index = 2 + len(part_cols)
+
+        for index, row in enumerate(source_rows, start=1):
+            marks_map = row.get('marks') or {}
+            values = [
+                Paragraph(str(index), cell_c),
+                Paragraph(str(row.get('code') or ''), cell_l),
+            ]
+            for part in part_cols:
+                question_marks = marks_map.get(part['q_label'], {})
+                if isinstance(question_marks, dict):
+                    value = question_marks.get(part['part_label'], '')
+                else:
+                    value = question_marks if part['part_label'] in (None, 'Marks') else ''
+                values.append(Paragraph('' if value is None else str(value), cell_c))
+            values.append(Paragraph(str(row.get('total') or ''), cell_b))
+            values.append(Paragraph(str(row.get('student_id') or ''), cell_l))
+            table_data.append(values)
+
+        part_weight = 0.78 if len(part_cols) > 8 else 1.0
+        weights = [0.42, 1.28] + [part_weight] * len(part_cols) + [0.72, 1.15]
+        col_widths = _fit_widths(weights, page_width)
+
+        marks_table = Table(table_data, colWidths=col_widths, repeatRows=header_rows)
+        style_cmds = [
+            ('BOX', (0, 0), (-1, -1), 0.6, line),
+            ('INNERGRID', (0, 0), (-1, -1), 0.4, line),
+            ('LINEBELOW', (0, header_rows - 1), (-1, header_rows - 1), 0.8, line),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (1, header_rows), (1, -1), 'LEFT'),
+            ('ALIGN', (-1, header_rows), (-1, -1), 'LEFT'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 2),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+            ('FONTNAME', (total_index, header_rows), (total_index, -1), 'Helvetica-Bold'),
         ]
-        table.setStyle(TableStyle(table_style))
-        elements.append(table)
-        elements.append(Spacer(1, 18))
+        row_shade = colors.HexColor('#f0f0f0')
+        for row_index in range(header_rows, len(table_data)):
+            if (row_index - header_rows) % 2 == 1:
+                style_cmds.append(('BACKGROUND', (0, row_index), (-1, row_index), row_shade))
+        style_cmds.extend(span_cmds)
+        marks_table.setStyle(TableStyle(style_cmds))
+        elements.append(marks_table)
+        elements.append(Spacer(1, 10))
 
         from utils.user_signature import reportlab_signature_flowable
 
         examiner_teacher = entry.owner_teacher if entry.owner_teacher_id else None
         scrutinizer_teacher = entry.assigned_scrutinizer if entry.assigned_scrutinizer_id else None
-        sig_w = 42 * mm
-        sig_h = 14 * mm
-        row_h = 24 * mm
-
-        signature_rows = [
-            ['', '', 'Signature', 'Signature Date'],
-            [
-                'Name of Examiner:',
-                examiner_teacher.name if examiner_teacher else '',
-                reportlab_signature_flowable(examiner_teacher, sig_w, sig_h),
-                '',
-            ],
-        ]
-        row_heights = [8 * mm, row_h]
-        if scrutinizer_teacher:
-            signature_rows.append([
-                'Name of Scrutinizer:',
-                scrutinizer_teacher.name or '',
-                reportlab_signature_flowable(scrutinizer_teacher, sig_w, sig_h),
-                '',
-            ])
-            row_heights.append(row_h)
-
-        signature_table = Table(
-            signature_rows,
-            colWidths=[32 * mm, 48 * mm, sig_w, 28 * mm],
-            rowHeights=row_heights,
+        # Cropped signature is 300×80 px. Draw it at CSS-pixel size (96 px = 1 in).
+        sig_w = 300 * 72 / 96.0
+        sig_h = 80 * 72 / 96.0
+        sig_caption = ParagraphStyle(
+            'MarksPdfSigCap', parent=styles['Normal'], fontSize=8, leading=10,
+            alignment=1, textColor=ink,
         )
-        signature_table.setStyle(
-            TableStyle(
-                [
-                    ('BOX', (0, 0), (-1, -1), 0, colors.white),
-                    ('INNERGRID', (0, 0), (-1, -1), 0, colors.white),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('VALIGN', (2, 1), (2, -1), 'BOTTOM'),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('ALIGN', (2, 0), (3, 0), 'LEFT'),
-                    ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                    ('FONTSIZE', (0, 0), (-1, -1), 9),
-                    ('TOPPADDING', (0, 0), (-1, -1), 4),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-                    ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
-                ]
+        sig_name = ParagraphStyle(
+            'MarksPdfSigN', parent=styles['Normal'], fontSize=9, leading=11,
+            alignment=1, textColor=ink, fontName='Helvetica-Bold',
+        )
+        sig_role = ParagraphStyle(
+            'MarksPdfSigR', parent=styles['Normal'], fontSize=8, leading=10,
+            alignment=1, textColor=ink,
+        )
+
+        from utils.timezone import BD_DATE_FMT, bd_now
+
+        sheet_date = bd_now().strftime(BD_DATE_FMT)
+
+        def _pdf_text(value):
+            return (
+                str(value or '')
+                .replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
             )
-        )
-        elements.append(signature_table)
+
+        def _teacher_address(person):
+            institute = (getattr(person, 'institute', None) or '').strip()
+            university = ''
+            try:
+                from utils.tenant import current_tenant
+                tenant = current_tenant()
+                if not institute:
+                    institute = (tenant.institute_label or '').strip()
+                university = (tenant.university_name or '').strip()
+            except Exception:
+                university = ''
+            if university and university.lower() not in institute.lower():
+                if institute.endswith(', KU') or institute.endswith(' KU'):
+                    institute = institute[:-4].rstrip(' ,')
+                institute = f'{institute}, {university}' if institute else university
+            return institute
+
+        def _sign_block(person, role_label, block_width):
+            """Signature image (300×80 px) above the word Signature, then name, designation, address."""
+            image = reportlab_signature_flowable(person, sig_w, sig_h)
+            name = (getattr(person, 'name', None) or '').strip() or '—'
+            designation = (getattr(person, 'designation', None) or '').strip()
+            address = _teacher_address(person)
+            rows = [
+                [image],
+                [Paragraph('Signature', sig_caption)],
+                [Paragraph(_pdf_text(name), sig_name)],
+            ]
+            if designation:
+                rows.append([Paragraph(_pdf_text(designation), sig_role)])
+            if address:
+                rows.append([Paragraph(_pdf_text(address), sig_role)])
+            rows.append([Paragraph(role_label, sig_role)])
+            rows.append([Paragraph(f'Date: {sheet_date}', sig_caption)])
+            block = Table(rows, colWidths=[block_width])
+            block.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (0, 0), 'BOTTOM'),
+                ('VALIGN', (0, 1), (-1, -1), 'TOP'),
+                ('LINEABOVE', (0, 1), (-1, 1), 0.6, line),
+                ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+                ('TOPPADDING', (0, 0), (-1, -1), 1),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+                ('TOPPADDING', (0, 1), (-1, 1), 3),
+            ]))
+            return block
+
+        half = page_width / 2.0
+        if scrutinizer_teacher:
+            signers = [(
+                _sign_block(examiner_teacher, 'Examiner', half),
+                _sign_block(scrutinizer_teacher, 'Scrutinizer', half),
+            )]
+        else:
+            signers = [('', _sign_block(examiner_teacher, 'Examiner', half))]
+        sig_widths = [half, half]
+
+        signature_table = Table(signers, colWidths=sig_widths)
+        signature_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ]))
+        elements.append(KeepTogether([signature_table]))
 
         class NumberedCanvas(canvas.Canvas):
             def __init__(self, *args, **kwargs):
@@ -2649,10 +2761,14 @@ def create_app():
 
             def draw_page_number(self, page_count):
                 page = self.getPageNumber()
-                label = f"Page {page} of {page_count}"
-                self.setFont("Helvetica", 9)
+                self.setStrokeColor(line)
+                self.setLineWidth(0.4)
                 width, _ = self._pagesize
-                self.drawRightString(width - 18 * mm, 12 * mm, label)
+                self.line(10 * mm, 9 * mm, width - 10 * mm, 9 * mm)
+                self.setFont('Helvetica', 8)
+                self.setFillColor(muted)
+                self.drawString(10 * mm, 5.5 * mm, 'Exam Evaluation Mark Sheet')
+                self.drawRightString(width - 10 * mm, 5.5 * mm, f'Page {page} of {page_count}')
 
         doc.build(elements, canvasmaker=NumberedCanvas)
         buffer.seek(0)
