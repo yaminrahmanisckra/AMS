@@ -1611,6 +1611,22 @@ def _ku_logo_for_reportlab_stamp(cache_name='ku_univ_logo_admit_v4.png'):
         return None
 
 
+# Cropped chairman / scrutinizer signatures are 300×80 px.
+# Draw them at CSS-pixel size (96 px = 1 in), same as the exam mark sheet.
+OFFICIAL_SIG_W_MM = 300 * 25.4 / 96.0  # 79.375
+OFFICIAL_SIG_H_MM = 80 * 25.4 / 96.0    # 21.1667
+
+
+def _official_sig_slot(center_x_mm, bottom_mm):
+    """300×80 px box whose centre and bottom match the previous signature slot."""
+    return {
+        'left': round(center_x_mm - OFFICIAL_SIG_W_MM / 2.0, 2),
+        'top': round(bottom_mm - OFFICIAL_SIG_H_MM, 2),
+        'w': round(OFFICIAL_SIG_W_MM, 2),
+        'h': round(OFFICIAL_SIG_H_MM, 2),
+    }
+
+
 # Image stamp slots — millimetres from the TOP-LEFT of the A4 page.
 # Must stay in sync with admit_card_pdf.html (.slot-* rules).
 ADMIT_IMAGE_SLOTS = {
@@ -1620,7 +1636,8 @@ ADMIT_IMAGE_SLOTS = {
     'photo': {'left': 156, 'top': 82, 'w': 34, 'h': 42},
     # Above signature lines, clear of footer text
     'sig_cand': {'left': 30, 'top': 200, 'w': 48, 'h': 16},
-    'sig_chair': {'left': 132, 'top': 200, 'w': 48, 'h': 16},
+    # Was 132×48 at top 200 (centre 156, bottom 216).
+    'sig_chair': _official_sig_slot(156, 216),
 }
 
 # Application-form image slots — mm from page TOP-LEFT.
@@ -1629,7 +1646,8 @@ APP_FORM_IMAGE_SLOTS = {
     'logo': {'page': 0, 'left': 24, 'top': 13, 'w': 26, 'h': 26},
     'photo': {'page': 0, 'left': 168, 'top': 54, 'w': 26, 'h': 32},
     'sig_cand': {'page': 1, 'left': 32, 'top': 168, 'w': 55, 'h': 18},
-    'sig_scrut': {'page': 1, 'left': 120, 'top': 168, 'w': 55, 'h': 18},
+    # Was 120×55 at top 168 (centre 147.5, bottom 186).
+    'sig_scrut': dict(_official_sig_slot(147.5, 186), page=1),
 }
 
 
@@ -2167,22 +2185,22 @@ def _render_admit_card_pdf_reportlab(candidate):
             ('RIGHTPADDING', (0, 0), (-1, -1), 10),
         ]))
 
-    def _sign_column(label, image_path=None, cache_name=None):
+    def _sign_column(label, image_path=None, cache_name=None, img_w=48 * mm, img_h=18 * mm):
         flow = []
         sig_img = None
         if image_path:
             sig_img = _reportlab_flowable_image(
-                image_path, 48 * mm, 18 * mm,
+                image_path, img_w, img_h,
                 label='signature',
                 cache_name=cache_name or f'cycle_{cycle.id if cycle else 0}_signature.jpg',
             )
         if sig_img is not None:
             flow.append(sig_img)
         else:
-            flow.append(Spacer(1, 18 * mm))
+            flow.append(Spacer(1, img_h))
         flow.append(Paragraph(escape(_rl_safe_text(label)), style_sign))
         rows = [[f] for f in flow]
-        inner = Table(rows, colWidths=[78 * mm])
+        inner = Table(rows, colWidths=[max(78 * mm, img_w)])
         inner.setStyle(TableStyle([
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
@@ -2203,6 +2221,8 @@ def _render_admit_card_pdf_reportlab(candidate):
                 'Chairman, Admission Committee',
                 chairman_sig_src,
                 cache_name=f'cycle_{cycle.id if cycle else 0}_signature.jpg',
+                img_w=OFFICIAL_SIG_W_MM * mm,
+                img_h=OFFICIAL_SIG_H_MM * mm,
             ),
         ]],
         colWidths=[content_w / 2, content_w / 2],
@@ -2796,20 +2816,21 @@ def _render_application_form_pdf_reportlab(candidate):
             ('RIGHTPADDING', (0, 0), (-1, -1), 1.5),
         ]))
 
-    def _app_sign_column(label, image_path=None, cache_name=None, sublabel=None, col_w=None):
+    def _app_sign_column(label, image_path=None, cache_name=None, sublabel=None, col_w=None,
+                         img_w=36 * mm, img_h=10 * mm):
         col_w = col_w or 80 * mm
         flow = []
         sig_img = None
         if image_path:
             sig_img = _reportlab_flowable_image(
-                image_path, 36 * mm, 10 * mm,
+                image_path, img_w, img_h,
                 label='app_signature',
                 cache_name=cache_name or 'app_signature.jpg',
             )
         if sig_img is not None:
             flow.append(sig_img)
         else:
-            flow.append(Spacer(1, 10 * mm))
+            flow.append(Spacer(1, img_h))
         flow.append(Paragraph(escape(_rl_safe_text(label)), style_sign))
         if sublabel:
             flow.append(_p(sublabel, style_sign))
@@ -2909,7 +2930,9 @@ def _render_application_form_pdf_reportlab(candidate):
                 scrutinizer_sig_src,
                 cache_name=f'form_{candidate.id}_scrutinizer_sig.jpg',
                 sublabel=verifier_name,
-                col_w=sig_col_w,
+                col_w=max(sig_col_w, OFFICIAL_SIG_W_MM * mm),
+                img_w=OFFICIAL_SIG_W_MM * mm,
+                img_h=OFFICIAL_SIG_H_MM * mm,
             ),
         ]],
         colWidths=[content_w / 2.0, content_w / 2.0],

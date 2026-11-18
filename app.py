@@ -2399,7 +2399,7 @@ def create_app():
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import mm
         from reportlab.pdfgen import canvas
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Flowable
 
         questions = data.get('questions') or []
         source_rows = data.get('rows') or []
@@ -2638,8 +2638,6 @@ def create_app():
                 style_cmds.append(('BACKGROUND', (0, row_index), (-1, row_index), row_shade))
         style_cmds.extend(span_cmds)
         marks_table.setStyle(TableStyle(style_cmds))
-        elements.append(marks_table)
-        elements.append(Spacer(1, 10))
 
         from utils.user_signature import reportlab_signature_flowable
 
@@ -2690,57 +2688,127 @@ def create_app():
                 institute = f'{institute}, {university}' if institute else university
             return institute
 
-        def _sign_block(person, role_label, block_width):
-            """Signature image (300×80 px) above the word Signature, then name, designation, address."""
-            image = reportlab_signature_flowable(person, sig_w, sig_h)
+        def _sign_block(person, role_label, block_width, scale=1.0):
+            """Signature, name, designation and address. ``scale`` 1 is full size, 0 is the smallest."""
+            scale = max(0.0, min(1.0, float(scale)))
+            img_h = 8 + (sig_h - 8) * scale
+            name_size = 5.0 + 4.0 * scale
+            meta_size = 4.6 + 3.4 * scale
+            tag = f'{scale:.3f}'.replace('.', '')
+            name_style = ParagraphStyle(
+                f'MarksSigName{tag}', parent=sig_name,
+                fontSize=name_size, leading=name_size + 0.9,
+            )
+            role_style = ParagraphStyle(
+                f'MarksSigRole{tag}', parent=sig_role,
+                fontSize=meta_size, leading=meta_size + 0.8,
+            )
+            cap_style = ParagraphStyle(
+                f'MarksSigCap{tag}', parent=sig_caption,
+                fontSize=meta_size, leading=meta_size + 0.8,
+            )
+            pad_y = 0.15 + 0.85 * scale
+            pad_x = 1.5 + 6.5 * scale
+            cap_top = 0.4 + 2.6 * scale
+            image = reportlab_signature_flowable(person, img_h * (sig_w / sig_h), img_h)
             name = (getattr(person, 'name', None) or '').strip() or '—'
             designation = (getattr(person, 'designation', None) or '').strip()
             address = _teacher_address(person)
             rows = [
                 [image],
-                [Paragraph('Signature', sig_caption)],
-                [Paragraph(_pdf_text(name), sig_name)],
+                [Paragraph('Signature', cap_style)],
+                [Paragraph(_pdf_text(name), name_style)],
             ]
             if designation:
-                rows.append([Paragraph(_pdf_text(designation), sig_role)])
+                rows.append([Paragraph(_pdf_text(designation), role_style)])
             if address:
-                rows.append([Paragraph(_pdf_text(address), sig_role)])
-            rows.append([Paragraph(role_label, sig_role)])
-            rows.append([Paragraph(f'Date: {sheet_date}', sig_caption)])
+                rows.append([Paragraph(_pdf_text(address), role_style)])
+            rows.append([Paragraph(role_label, role_style)])
+            rows.append([Paragraph(f'Date: {sheet_date}', cap_style)])
             block = Table(rows, colWidths=[block_width])
             block.setStyle(TableStyle([
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('VALIGN', (0, 0), (0, 0), 'BOTTOM'),
                 ('VALIGN', (0, 1), (-1, -1), 'TOP'),
-                ('LINEABOVE', (0, 1), (-1, 1), 0.6, line),
-                ('LEFTPADDING', (0, 0), (-1, -1), 8),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-                ('TOPPADDING', (0, 0), (-1, -1), 1),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-                ('TOPPADDING', (0, 1), (-1, 1), 3),
+                ('LINEABOVE', (0, 1), (-1, 1), 0.4, line),
+                ('LEFTPADDING', (0, 0), (-1, -1), pad_x),
+                ('RIGHTPADDING', (0, 0), (-1, -1), pad_x),
+                ('TOPPADDING', (0, 0), (-1, -1), pad_y),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), pad_y),
+                ('TOPPADDING', (0, 1), (-1, 1), cap_top),
             ]))
             return block
 
         half = page_width / 2.0
-        if scrutinizer_teacher:
-            signers = [(
-                _sign_block(examiner_teacher, 'Examiner', half),
-                _sign_block(scrutinizer_teacher, 'Scrutinizer', half),
-            )]
-        else:
-            signers = [('', _sign_block(examiner_teacher, 'Examiner', half))]
         sig_widths = [half, half]
 
-        signature_table = Table(signers, colWidths=sig_widths)
-        signature_table.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-        ]))
-        elements.append(KeepTogether([signature_table]))
+        def _make_signature(scale):
+            if scrutinizer_teacher:
+                row = (
+                    _sign_block(examiner_teacher, 'Examiner', half, scale),
+                    _sign_block(scrutinizer_teacher, 'Scrutinizer', half, scale),
+                )
+            else:
+                row = ('', _sign_block(examiner_teacher, 'Examiner', half, scale))
+            table = Table([row], colWidths=sig_widths)
+            table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('TOPPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ]))
+            return table
+
+        class _FittedSignature(Flowable):
+            """Shrink signature, name and designation to the space left on this page.
+
+            If the marks already spilled onto the next page, this is placed on a
+            fresh frame and keeps the full size. If only a sliver remains, it
+            moves to the next page instead of becoming unreadable.
+            """
+
+            def __init__(self):
+                Flowable.__init__(self)
+                self._inner = None
+                self.spaceBefore = 6
+
+            def wrap(self, availWidth, availHeight):
+                full = _make_signature(1.0)
+                full_w, full_h = full.wrap(availWidth, availHeight)
+                if full_h <= availHeight - 1:
+                    self._inner = full
+                    self.width, self.height = full_w, full_h
+                    return full_w, full_h
+
+                lo, hi = 0.0, 1.0
+                best = None
+                best_size = None
+                for _ in range(14):
+                    mid = (lo + hi) / 2.0
+                    trial = _make_signature(mid)
+                    trial_w, trial_h = trial.wrap(availWidth, availHeight)
+                    if trial_h <= availHeight - 1:
+                        best = trial
+                        best_size = (trial_w, trial_h)
+                        lo = mid
+                    else:
+                        hi = mid
+                if best is None:
+                    self._inner = full
+                    self.width, self.height = full_w, full_h
+                    return full_w, max(full_h, availHeight + 1)
+                self._inner = best
+                self.width, self.height = best_size
+                return best_size
+
+            def draw(self):
+                if self._inner is not None:
+                    self._inner.drawOn(self.canv, 0, 0)
+
+        elements.append(marks_table)
+        elements.append(_FittedSignature())
 
         class NumberedCanvas(canvas.Canvas):
             def __init__(self, *args, **kwargs):
