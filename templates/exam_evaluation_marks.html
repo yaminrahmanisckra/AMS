@@ -15,7 +15,7 @@
 
     <div class="alert alert-info small marks-hint">
         <i class="fas fa-lightbulb me-2"></i>
-        Set <strong>Max</strong> for each question/sub-part before entering marks (suggested: UG 10 / PG 12.5).
+        A new sheet starts with <strong>4 questions</strong> for undergraduate (Max 10) and <strong>3 questions</strong> for postgraduate (Max 12.5). Change Max if a question is worth something else.
         For a, b, c… allocate per part — the question badge shows the total.
         Over-allocation is highlighted and cannot be saved. Student ID is editable only in Scrutinizer mode.
     </div>
@@ -196,8 +196,11 @@
 #marks-table .mark-input,
 #marks-table .total-field {
     width: 100%;
+    max-width: min(5.25rem, 100%);
     min-width: 0;
-    margin: 0;
+    margin-left: auto;
+    margin-right: auto;
+    display: block;
     padding-left: 0.25rem;
     padding-right: 0.25rem;
     text-align: center;
@@ -209,9 +212,10 @@
 
 #marks-table .sp-alloc .allocated-input,
 #marks-table .allocated-wrap .allocated-input {
-    flex: 1 1 2.75rem;
-    width: auto;
-    min-width: 2.6rem;
+    flex: 0 0 4.1rem;
+    width: 4.1rem;
+    max-width: 100%;
+    min-width: 0;
     margin: 0;
     padding-left: 0.25rem;
     padding-right: 0.25rem;
@@ -277,35 +281,44 @@
 }
 
 .question-header {
+    position: relative;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.35rem;
+    gap: 0.28rem;
+    width: 100%;
     min-height: 1.6rem;
-    padding: 0.05rem 0;
+    padding: 0.1rem 1.35rem 0.1rem 0.15rem;
 }
 
 .question-header .q-head-main {
-    display: inline-flex;
+    display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.35rem;
-    flex-wrap: wrap;
+    gap: 0.28rem;
+    width: 100%;
     min-width: 0;
 }
 
 .question-header .question-title {
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     font-weight: 600;
     color: var(--marks-ink);
+    line-height: 1.2;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .question-header .q-head-actions {
-    position: static;
+    position: absolute;
+    top: 0.05rem;
+    right: 0;
     display: flex;
     align-items: center;
-    flex: 0 0 auto;
     gap: 0.15rem;
 }
 
@@ -314,7 +327,18 @@
     line-height: 1.1;
 }
 
-.question-actions { display: none; gap: 0.15rem; }
+.question-actions {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 6;
+    gap: 0.15rem;
+    padding: 0.15rem;
+    background: #fff;
+    border: 1px solid var(--marks-line);
+    border-radius: 0.25rem;
+}
 .question-header.show-actions .question-actions { display: inline-flex; }
 
 .question-allocated-total {
@@ -326,10 +350,11 @@
 .question-allocated-total.is-empty { color: var(--marks-muted); font-weight: 500; }
 
 .allocated-wrap {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.25rem;
+    gap: 0.35rem;
+    width: 100%;
     white-space: nowrap;
 }
 .allocated-wrap .alloc-label,
@@ -425,9 +450,21 @@
         'section': entry.section
     }|tojson }};
     const pageRole = {{ role|tojson }};
-    const programLevel = {{ (entry.program_level or 'ug')|tojson }};
-    const defaultQuestionCount = programLevel === 'pg' ? 3 : 4;
-    const defaultAllocated = programLevel === 'pg' ? 12.5 : 10;
+    const programLevel = String({{ (entry.program_level or 'ug')|tojson }}).trim().toLowerCase();
+    const pgYearLabels = {{ (tenant.pg_year_labels or [])|tojson }};
+    const pgCourseYearDigit = String({{ (tenant.pg_course_year_digit or '')|tojson }});
+    function sheetIsPostgraduate() {
+        if (programLevel === 'pg') return true;
+        const year = String(metadata.year || '').trim().toUpperCase();
+        if (year && pgYearLabels.some(label => year.includes(String(label || '').trim().toUpperCase()))) {
+            return true;
+        }
+        const digits = String(metadata.course_code || '').replace(/\D/g, '');
+        return Boolean(pgCourseYearDigit) && digits.length >= 4 && digits.slice(-4, -3) === pgCourseYearDigit;
+    }
+    const isPostgraduate = sheetIsPostgraduate();
+    const defaultQuestionCount = isPostgraduate ? 3 : 4;
+    const defaultAllocated = isPostgraduate ? 12.5 : 10;
 
     const questions = [];
     const headerMain = document.getElementById('marks-header-main');
@@ -1104,12 +1141,12 @@
             th.dataset.questionId = question.id;
             th.colSpan = showSubHeader ? question.parts.length : 1;
             setQuestionTone(th, index);
-            if (!showSubHeader) {
+            const isMultiPart = question.parts.length > 1;
+            const singlePart = question.parts[0];
+            if (!showSubHeader && singlePart) {
                 th.classList.add('marks-part-col');
                 th.dataset.partId = singlePart.id;
             }
-            const isMultiPart = question.parts.length > 1;
-            const singlePart = question.parts[0];
             const allSet = question.parts.every(isAllocatedSet);
             let allocatedControl = '';
             if (isMultiPart || showSubHeader) {
@@ -1216,41 +1253,80 @@
 
     function columnSpecs() {
         const specs = [
-            { id: 'serial', weight: 0.4, min: 46, lock: columnLocks.serial },
-            { id: 'code', weight: 1.55, min: 168, lock: columnLocks.code },
+            { id: 'serial', min: 40, prefer: 46, cap: 64, grow: false, lock: columnLocks.serial },
+            { id: 'code', min: 156, prefer: 196, cap: 240, grow: false, lock: columnLocks.code },
         ];
         questions.forEach(question => {
             question.parts.forEach(part => {
                 specs.push({
                     id: 'part:' + part.id,
-                    weight: 1,
-                    min: 86,
+                    min: 128,
+                    prefer: 148,
+                    cap: 188,
+                    grow: true,
                     lock: columnLocks.parts[part.id] || null,
                 });
             });
         });
-        specs.push({ id: 'total', weight: 0.75, min: 76, lock: columnLocks.total });
-        specs.push({ id: 'student', weight: 1.6, min: 168, lock: columnLocks.student });
+        specs.push({ id: 'total', min: 64, prefer: 74, cap: 104, grow: false, lock: columnLocks.total });
+        specs.push({ id: 'student', min: 148, prefer: 176, cap: 220, grow: false, lock: columnLocks.student });
         return specs;
     }
 
     function distributeColumns(available) {
         const specs = columnSpecs();
-        const floorSum = specs.reduce((sum, spec) => sum + (spec.lock || spec.min), 0);
-        const target = Math.max(available || 0, floorSum);
-        const widths = specs.map(spec => spec.lock || spec.min);
-        let extra = target - widths.reduce((sum, px) => sum + px, 0);
-        const flexIndexes = specs.map((spec, index) => (spec.lock ? -1 : index)).filter(index => index >= 0);
-        const weightSum = flexIndexes.reduce((sum, index) => sum + specs[index].weight, 0) || 1;
-        let given = 0;
-        flexIndexes.forEach((index, order) => {
-            const add = order === flexIndexes.length - 1
-                ? extra - given
-                : Math.floor(extra * specs[index].weight / weightSum);
-            widths[index] += add;
-            given += add;
-        });
-        return widths;
+        const widths = specs.map(spec => spec.lock || spec.prefer);
+        const flexible = () => specs.map((spec, index) => (spec.lock ? -1 : index)).filter(index => index >= 0);
+        if (!available) {
+            return widths.map(px => Math.round(px));
+        }
+
+        let over = widths.reduce((sum, px) => sum + px, 0) - available;
+        let guard = 0;
+        while (over > 1 && guard < 12) {
+            guard += 1;
+            const shrinkable = flexible().filter(index => widths[index] > specs[index].min + 0.5);
+            if (!shrinkable.length) break;
+            const share = over / shrinkable.length;
+            shrinkable.forEach(index => {
+                const cut = Math.min(widths[index] - specs[index].min, share);
+                widths[index] -= cut;
+                over -= cut;
+            });
+        }
+
+        let extra = available - widths.reduce((sum, px) => sum + px, 0);
+        guard = 0;
+        while (extra > 1 && guard < 12) {
+            guard += 1;
+            let receivers = flexible().filter(index => specs[index].grow && widths[index] < specs[index].cap - 0.5);
+            if (!receivers.length) {
+                receivers = flexible().filter(index => widths[index] < specs[index].cap - 0.5);
+            }
+            if (!receivers.length) break;
+            const share = extra / receivers.length;
+            let used = 0;
+            receivers.forEach(index => {
+                const add = Math.min(specs[index].cap - widths[index], share);
+                widths[index] += add;
+                used += add;
+            });
+            extra -= used;
+            if (used < 0.5) break;
+        }
+        if (extra > 1) {
+            const growers = flexible().filter(index => specs[index].grow);
+            const targets = growers.length ? growers : flexible();
+            if (targets.length) {
+                const share = extra / targets.length;
+                targets.forEach((index, order) => {
+                    widths[index] += order === targets.length - 1
+                        ? extra - share * (targets.length - 1)
+                        : share;
+                });
+            }
+        }
+        return widths.map(px => Math.max(32, Math.round(px)));
     }
 
     function rebuildColumns() {
@@ -1442,9 +1518,7 @@
         // Reset sort state when table is cleared
         isStudentIdSorted = false;
         updateSortButtonIcon();
-        for (let i = 1; i <= defaultQuestionCount; i++) {
-            addQuestion({ promptForLabel: false, initialLabel: `Question ${i}` });
-        }
+        addDefaultQuestions();
         addStudentRow({});
     }
 
@@ -1792,9 +1866,56 @@
         }
     }
 
+    function rowHasEnteredMarks(row) {
+        if (!row || typeof row !== 'object') return false;
+        if (String(row.code || row.student_code || '').trim()) return true;
+        if (String(row.student_id || row.studentId || '').trim()) return true;
+        const marks = row.marks;
+        if (!marks || typeof marks !== 'object') return false;
+        return Object.values(marks).some(partMap => {
+            if (partMap && typeof partMap === 'object') {
+                return Object.values(partMap).some(value => String(value ?? '').trim() !== '');
+            }
+            return String(partMap ?? '').trim() !== '';
+        });
+    }
+
+    function isStockQuestion(question, index) {
+        const label = String((question && question.label) || '').trim();
+        if (!new RegExp('^Question\\s+' + (index + 1) + '$', 'i').test(label)) return false;
+        const parts = Array.isArray(question.parts) ? question.parts : [];
+        if (parts.length > 1) return false;
+        if (parts.length === 1) {
+            const allocated = parts[0].allocated;
+            if (allocated !== null && allocated !== undefined && `${allocated}`.trim() !== '') {
+                const number = parseFloat(allocated);
+                if (!Number.isNaN(number) && Math.abs(number - defaultAllocated) > 0.001) return false;
+            }
+        }
+        return true;
+    }
+
+    function savedQuestionsAreStock(list) {
+        if (!Array.isArray(list) || !list.length) return true;
+        return list.every((question, index) => isStockQuestion(question, index));
+    }
+
+    function addDefaultQuestions() {
+        for (let i = 1; i <= defaultQuestionCount; i++) {
+            addQuestion({
+                promptForLabel: false,
+                initialLabel: `Question ${i}`,
+                initialAllocated: defaultAllocated,
+            });
+        }
+    }
+
     function initializeTable() {
-        if (initialData && Array.isArray(initialData.questions) && initialData.questions.length) {
-            initialData.questions.forEach(question => {
+        const savedQuestions = initialData && Array.isArray(initialData.questions) ? initialData.questions : [];
+        const savedRows = initialData && Array.isArray(initialData.rows) ? initialData.rows : [];
+        const untouched = !savedRows.some(rowHasEnteredMarks) && savedQuestionsAreStock(savedQuestions);
+        if (savedQuestions.length && !untouched) {
+            savedQuestions.forEach(question => {
                 addQuestion({
                     promptForLabel: false,
                     initialLabel: question.label || `Question ${questions.length + 1}`,
@@ -1803,9 +1924,7 @@
                 });
             });
         } else {
-            for (let i = 1; i <= defaultQuestionCount; i++) {
-                addQuestion({ promptForLabel: false, initialLabel: `Question ${i}` });
-            }
+            addDefaultQuestions();
         }
 
         if (initialData && Array.isArray(initialData.rows) && initialData.rows.length) {

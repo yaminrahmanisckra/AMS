@@ -158,6 +158,7 @@
     .admin-dash .qi-pay { background: #4338ca; }
     .admin-dash .qi-account { background: #0f172a; }
     .admin-dash .qi-audit { background: #334155; }
+    .admin-dash .qi-backup { background: #b45309; }
     .admin-dash .users-card-title {
         display: flex;
         align-items: center;
@@ -561,6 +562,13 @@
             <a href="{{ url_for('admin_remuneration_rates') }}" class="quick-link">
                 <span class="qi qi-pay"><i class="fas fa-money-bill-wave"></i></span>
                 Remuneration Rates
+            </a>
+        </div>
+        <div class="admin-sort-card" data-card="backup">
+            <span class="card-drag-handle" draggable="true" title="Drag to rearrange"><i class="fas fa-grip-vertical"></i></span>
+            <a href="{{ url_for('site_backup.index') }}" class="quick-link">
+                <span class="qi qi-backup"><i class="fas fa-database"></i></span>
+                Backup
             </a>
         </div>
         <div class="admin-sort-card" data-card="audit">

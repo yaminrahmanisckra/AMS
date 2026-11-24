@@ -17,7 +17,7 @@ from blueprints.class_management.models import (
     CourseOutline,
     ClassSplitInvite,
 )
-from role_utils import parse_roles, is_admin, get_teachers_excluding_head, role_required
+from role_utils import parse_roles, is_admin, get_teachers_excluding_head, get_assignable_course_teachers, role_required
 from utils.ownership import resolve_caller_teacher
 try:
     from utils.semester_utils import filter_by_active_semester
@@ -427,11 +427,15 @@ def _resolve_class_target_context(registration_like, fallback_course_code, fallb
                 'term': relevant_term
             }
 
+    # Regular (and carry-on) courses join the class of the course semester,
+    # which can differ from the student's current year/term.
+    source_year = str(_extract('source_year') or '').strip()
+    source_term = str(_extract('source_term') or '').strip()
     return {
         'course_code': fallback_course_code,
         'academic_session': fallback_session,
-        'year': fallback_year,
-        'term': fallback_term
+        'year': source_year or fallback_year,
+        'term': source_term or fallback_term
     }
 
 
@@ -1138,8 +1142,8 @@ def view_curriculum(curriculum_id):
     # Get batches for dropdown - only show batches applicable to this curriculum + "None" option
     curriculum_batches = curriculum.get_batches_list(window_id=active_window_id) if curriculum else []
     
-    # Get teachers for assignment dropdown (exclude Head of the Discipline)
-    teachers = _get_teachers_excluding_head()
+    # Course assignment includes teachers who also hold Head or another role.
+    teachers = get_assignable_course_teachers()
     
     # Get existing session assignments for courses
     course_assignments = {}
@@ -4420,6 +4424,8 @@ def coordinator_save_student_registration():
                         reg_obj or {
                             'remark': student_info.get('remark') if isinstance(student_info, dict) else 'Regular',
                             'carry_on': carry_on_flag,
+                            'source_year': source_year,
+                            'source_term': source_term,
                             'relevant_course_code': (base_relevant_mapping or {}).get('relevant_course_code'),
                             'relevant_academic_session': (base_relevant_mapping or {}).get('relevant_academic_session'),
                             'relevant_year': (base_relevant_mapping or {}).get('relevant_year'),
@@ -5917,13 +5923,22 @@ def swap_assignment_parts():
 def get_course_assignments(course_id):
     """Return existing assignments for a course."""
     try:
-        assignments = _csa_query().filter_by(course_id=course_id).order_by(
+        assignments = _csa_query().options(
+            noload(CourseSessionAssignment.teacher)
+        ).filter_by(course_id=course_id).order_by(
             CourseSessionAssignment.created_at.desc()
         ).all()
 
+        from blueprints.class_management.models import Teacher
+        teacher_ids = {assignment.teacher_id for assignment in assignments if assignment.teacher_id}
+        teacher_names = {}
+        if teacher_ids:
+            for teacher in Teacher.query.filter(Teacher.id.in_(teacher_ids)).all():
+                teacher_names[teacher.id] = teacher.name
+
         data = []
         for assignment in assignments:
-            teacher_name = assignment.teacher.name if hasattr(assignment, 'teacher') and assignment.teacher else None
+            teacher_name = teacher_names.get(assignment.teacher_id)
             data.append({
                 'id': assignment.id,
                 'teacher_id': assignment.teacher_id,

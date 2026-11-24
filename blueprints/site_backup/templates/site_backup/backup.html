@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Backup &amp; Restore{% endblock %}
+{% block mobile_title %}Backup{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width: 920px;">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+            <h1 class="h4 mb-1">Backup &amp; Restore</h1>
+            <p class="text-muted small mb-0">Administrator account only. Passwords and <code>.env</code> are never included.</p>
+        </div>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Admin
+        </a>
+    </div>
+
+    <div class="alert alert-warning small">
+        Database and uploaded files can be restored from here. The program files can be downloaded, then replaced in cPanel and the Python app restarted. Do not restore while others are entering marks or payments.
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white"><strong>Create a backup</strong></div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('site_backup.start') }}" id="backupForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="everything" name="everything" value="1">
+                    <label class="form-check-label fw-semibold" for="everything">Full site (everything below)</label>
+                </div>
+                {% for part in parts %}
+                <div class="form-check mb-2">
+                    <input class="form-check-input backup-part" type="checkbox" name="part_{{ part.key }}" id="part_{{ part.key }}" value="1">
+                    <label class="form-check-label" for="part_{{ part.key }}">
+                        <strong>{{ part.label }}</strong>
+                        <span class="text-muted">· {{ part.size_label }}</span>
+                        {% if not part.restorable %}<span class="badge text-bg-secondary ms-1">Download only</span>{% endif %}
+                        <div class="small text-muted">{{ part.help }}</div>
+                    </label>
+                </div>
+                {% endfor %}
+                <button type="submit" class="btn btn-primary mt-2">
+                    <i class="fas fa-download me-1"></i>Create backup
+                </button>
+            </form>
+            <div id="jobStatus" class="small mt-3 text-muted"></div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white"><strong>Backups on this server</strong></div>
+        <div class="card-body p-0">
+            {% if archives %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Kind</th>
+                            <th>Contents</th>
+                            <th>Size</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in archives %}
+                        <tr>
+                            <td class="small">{{ row.created_at or '—' }}</td>
+                            <td class="small">{{ row.kind }}{% if row.state != 'done' %} · {{ row.state }}{% endif %}</td>
+                            <td class="small">{{ row.parts|join(', ') }}</td>
+                            <td class="small">{{ format_size(row.size) if row.size else '—' }}</td>
+                            <td class="text-end text-nowrap">
+                                {% if row.state == 'done' %}
+                                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('site_backup.download', job_id=row.id) }}">Download</a>
+                                <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="collapse" data-bs-target="#restore-{{ row.id }}">Restore</button>
+                                {% endif %}
+                                {% if row.state != 'running' %}
+                                <form method="POST" action="{{ url_for('site_backup.delete', job_id=row.id) }}" class="d-inline" onsubmit="return confirm('Remove this backup from the server?');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Delete</button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% if row.state == 'done' %}
+                        <tr class="collapse" id="restore-{{ row.id }}">
+                            <td colspan="5">
+                                <form method="POST" action="{{ url_for('site_backup.restore') }}" class="p-2">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="archive_id" value="{{ row.id }}">
+                                    <p class="small mb-2">Restores the current site from this file. A safety copy is saved first. Program files are not replaced.</p>
+                                    {% for part in parts if part.restorable and part.key in row.parts %}
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" name="restore_{{ part.key }}" value="1" id="r-{{ row.id }}-{{ part.key }}" checked>
+                                        <label class="form-check-label small" for="r-{{ row.id }}-{{ part.key }}">{{ part.label }}</label>
+                                    </div>
+                                    {% endfor %}
+                                    <div class="input-group input-group-sm mt-2" style="max-width: 360px;">
+                                        <input type="text" class="form-control" name="confirm" placeholder="Type RESTORE" autocomplete="off">
+                                        <button class="btn btn-danger" type="submit">Restore</button>
+                                    </div>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted small p-3 mb-0">No backup has been created on this server yet.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white"><strong>Restore an uploaded zip</strong></div>
+        <div class="card-body">
+            <p class="small text-muted">Use a zip downloaded from this page. If the file is too large for the browser, copy it into <code>{{ backup_dir }}</code> on the server and it will appear in the list above.</p>
+            <form method="POST" action="{{ url_for('site_backup.restore_upload') }}" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="file" class="form-control form-control-sm mb-2" name="archive" accept=".zip,application/zip" required>
+                {% for part in parts if part.restorable %}
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" name="restore_{{ part.key }}" value="1" id="up-{{ part.key }}" checked>
+                    <label class="form-check-label small" for="up-{{ part.key }}">{{ part.label }}</label>
+                </div>
+                {% endfor %}
+                <div class="input-group input-group-sm mt-2" style="max-width: 420px;">
+                    <input type="text" class="form-control" name="confirm" placeholder="Type RESTORE" autocomplete="off">
+                    <button class="btn btn-danger" type="submit">Upload and restore</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    const all = document.getElementById('everything');
+    const boxes = Array.from(document.querySelectorAll('.backup-part'));
+    if (all) {
+        all.addEventListener('change', function () {
+            boxes.forEach(function (box) { box.checked = all.checked; });
+        });
+    }
+    const statusEl = document.getElementById('jobStatus');
+    const params = new URLSearchParams(window.location.search);
+    const jobId = params.get('job');
+    if (!jobId || !statusEl) return;
+    let timer = null;
+    function poll() {
+        fetch('{{ url_for("site_backup.status", job_id="JOB") }}'.replace('JOB', jobId), {
+            headers: {'Accept': 'application/json'}
+        }).then(function (res) { return res.json(); }).then(function (data) {
+            const msg = data.message || data.state || '';
+            statusEl.textContent = msg;
+            if (data.state === 'done') {
+                statusEl.innerHTML = msg + ' <a href="{{ url_for("site_backup.download", job_id="JOB") }}">Download</a>'.replace('JOB', jobId);
+                if (data.kind === 'restore') {
+                    statusEl.textContent = msg;
+                }
+                window.clearInterval(timer);
+            } else if (data.state === 'error') {
+                statusEl.textContent = msg;
+                window.clearInterval(timer);
+            }
+        }).catch(function () {
+            statusEl.textContent = 'Could not read backup status.';
+        });
+    }
+    poll();
+    timer = window.setInterval(poll, 2000);
+})();
+</script>
+{% endblock %}

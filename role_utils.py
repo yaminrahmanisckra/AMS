@@ -109,6 +109,49 @@ def get_teachers_excluding_head(external_only=None):
             return []
 
 
+def get_assignable_course_teachers():
+    """Teachers who can be assigned to a curriculum course.
+
+    A teacher who also has Head, Dean, or Admin still appears. Only accounts
+    with no teaching role (for example a teaching-assistant-only user) are left out.
+    """
+    try:
+        from blueprints.class_management.models import Teacher
+        from user_models import User
+
+        if not Teacher:
+            return []
+
+        users = User.query.all()
+        by_teacher_id = {}
+        by_name = {}
+        for user in users:
+            if getattr(user, 'teacher_id', None):
+                by_teacher_id[user.teacher_id] = user
+            name = (getattr(user, 'full_name', None) or '').strip()
+            if name and name not in by_name:
+                by_name[name] = user
+
+        teaching_roles = {'teacher', 'head', 'dean'}
+        assignable = []
+        for teacher in Teacher.query.order_by(Teacher.name).all():
+            user = by_teacher_id.get(teacher.id) or by_name.get((teacher.name or '').strip())
+            if not user:
+                continue
+            roles = set(parse_roles(getattr(user, 'role', None)))
+            if not (roles & teaching_roles):
+                continue
+            assignable.append(teacher)
+        return assignable
+    except Exception as e:
+        try:
+            from flask import current_app
+            current_app.logger.warning(f'Error listing assignable course teachers: {e}')
+        except Exception:
+            pass
+        return get_teachers_excluding_head()
+
+
 def _coerce_role_values(role_field) -> list[str]:
     """Return lowercase role tokens from strings, iterables, or None."""
     if role_field is None or role_field == '':

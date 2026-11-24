@@ -143,9 +143,11 @@ def teacher_sees_feedback_respondents(teacher_id):
 
 def _class_students_for_session(session_id, order=True):
     """ClassStudent list for a session, excluding students deleted from Student Management."""
-    q = ClassStudent.query.filter(ClassStudent.session_id == session_id)
     session = Session.query.get(session_id)
-    if Student and not getattr(session, 'is_external_course', False):
+    if session is not None:
+        _sync_registered_students_into_session(session)
+    q = ClassStudent.query.filter(ClassStudent.session_id == session_id)
+    if Student and session is not None and not getattr(session, 'is_external_course', False):
         q = q.filter(ClassStudent.student_id.in_(db.session.query(Student.student_id)))
     if order:
         q = q.order_by(ClassStudent.student_id)
@@ -156,6 +158,10 @@ def _class_students_for_sessions(session_ids, order=True):
     """ClassStudent list for given sessions, excluding deleted students."""
     if not session_ids:
         return []
+    for session_id in session_ids:
+        session = Session.query.get(session_id)
+        if session is not None:
+            _sync_registered_students_into_session(session)
     q = ClassStudent.query.filter(ClassStudent.session_id.in_(session_ids))
     if Student:
         has_external = Session.query.filter(
@@ -197,18 +203,7 @@ def _active_enrollment_public_ids(session, related_sessions=None):
         and session.year
         and session.term
     ):
-        from sqlalchemy import func
-
-        course_key = str(session.course_code or '').strip().replace(' ', '').lower()
-        collapsed = func.replace(func.lower(StudentCourseRegistration.course_code), ' ', '')
-        reg_q = StudentCourseRegistration.query.filter(
-            collapsed == course_key,
-            StudentCourseRegistration.academic_session == session.academic_session,
-            StudentCourseRegistration.year == session.year,
-            StudentCourseRegistration.term == session.term,
-            StudentCourseRegistration.status == 'finalized',
-        ).filter(_registration_window_clause(session))
-        student_pks = [row.student_id for row in reg_q.with_entities(StudentCourseRegistration.student_id).all()]
+        student_pks = [reg.student_id for reg in _finalized_regs_for_class_session(session)]
         if student_pks:
             return {
                 sid
@@ -248,6 +243,152 @@ def _student_notifications_query(user_id):
     if window_id is None:
         return q
     return q.filter(StudentNotification.window_id == window_id)
+
+
+def _registration_belongs_to_class(reg, session_obj):
+    """True when this registration belongs in the class semester.
+
+    year/term is the student's current semester. source_year/source_term is the
+    semester of the course they registered (a 2nd Year 2nd Term student can
+    still be registered for a 2nd Year 1st Term course). Either pair counts.
+    Labels such as "2nd Year" and "Second" are treated as the same year.
+    """
+    if not reg or not session_obj:
+        return False
+    try:
+        from blueprints.course_management.routes import (
+            _registration_terms_match,
+            _registration_years_match,
+        )
+    except Exception:
+        def _registration_years_match(a, b):
+            return str(a or '').strip().lower() == str(b or '').strip().lower()
+
+        def _registration_terms_match(a, b):
+            return str(a or '').strip().lower() == str(b or '').strip().lower()
+
+    def _pair(year, term):
+        return (
+            _registration_years_match(year, session_obj.year)
+            and _registration_terms_match(term, session_obj.term)
+        )
+
+    return _pair(getattr(reg, 'year', None), getattr(reg, 'term', None)) or _pair(
+        getattr(reg, 'source_year', None),
+        getattr(reg, 'source_term', None),
+    )
+
+
+def _finalized_regs_for_class_session(session_obj):
+    """Finalized registrations that belong in this class, including backlog courses."""
+    if (
+        not session_obj
+        or not StudentCourseRegistration
+        or not session_obj.course_code
+        or not session_obj.academic_session
+        or not session_obj.year
+        or not session_obj.term
+    ):
+        return []
+    course_key = str(session_obj.course_code or '').strip().replace(' ', '').lower()
+    collapsed = func.replace(func.lower(StudentCourseRegistration.course_code), ' ', '')
+    regs = StudentCourseRegistration.query.filter(
+        collapsed == course_key,
+        StudentCourseRegistration.academic_session == session_obj.academic_session,
+        StudentCourseRegistration.status == 'finalized',
+    ).filter(_registration_window_clause(session_obj)).all()
+    return [reg for reg in regs if _registration_belongs_to_class(reg, session_obj)]
+
+
+def _sync_registered_students_into_session(session):
+    """Add finalized registrants who belong in this class but have no ClassStudent row.
+
+    Happens when the student's current year/term differs from the course semester,
+    so the original placement looked up a different class session.
+    """
+    if (
+        not session
+        or not Student
+        or not StudentCourseRegistration
+        or getattr(session, 'is_external_course', False)
+        or not session.course_code
+        or not session.academic_session
+        or not session.year
+        or not session.term
+    ):
+        return 0
+    pending = bool(db.session.new or db.session.dirty or db.session.deleted)
+    nested = db.session.begin_nested()
+    try:
+        regs = _finalized_regs_for_class_session(session)
+        if not regs:
+            nested.rollback()
+            return 0
+        existing_ids = {
+            row.student_id
+            for row in ClassStudent.query.filter_by(session_id=session.id).all()
+        }
+        added = 0
+        for reg in regs:
+            student = Student.query.get(reg.student_id)
+            public_id = (getattr(student, 'student_id', None) or '').strip()
+            if not student or not public_id or public_id in existing_ids:
+                continue
+            class_student = ClassStudent(
+                student_id=public_id,
+                name=(student.name or '').strip() or public_id,
+                session_id=session.id,
+                teacher_id=session.teacher_id,
+            )
+            db.session.add(class_student)
+            db.session.flush()
+            try:
+                _carry_on_assessment_marks(class_student, session)
+            except Exception:
+                current_app.logger.exception(
+                    'Carry-on skipped while syncing student %s into session %s',
+                    public_id,
+                    session.id,
+                )
+            try:
+                _replicate_student_to_peers(session, class_student)
+            except Exception:
+                current_app.logger.exception(
+                    'Peer replicate skipped while syncing student %s into session %s',
+                    public_id,
+                    session.id,
+                )
+            existing_ids.add(public_id)
+            added += 1
+        if not added:
+            nested.rollback()
+            return 0
+        nested.commit()
+        if not pending:
+            db.session.commit()
+        current_app.logger.info(
+            'Synced %s registered student(s) into class session %s (%s %s %s)',
+            added,
+            session.id,
+            session.course_code,
+            session.year,
+            session.term,
+        )
+        return added
+    except Exception:
+        current_app.logger.exception(
+            'Could not sync registered students into class session %s',
+            getattr(session, 'id', None),
+        )
+        try:
+            nested.rollback()
+        except Exception:
+            if not pending:
+                db.session.rollback()
+        else:
+            if not pending:
+                db.session.rollback()
+        return 0
 
 
 def _registration_window_clause(session_obj):
@@ -309,14 +450,10 @@ def _finalized_registration_for_session(student_pk, session_obj):
         return None
     if not session_obj.course_code or not session_obj.academic_session or not session_obj.year or not session_obj.term:
         return None
-    return StudentCourseRegistration.query.filter_by(
-        student_id=student_pk,
-        course_code=session_obj.course_code,
-        academic_session=session_obj.academic_session,
-        year=session_obj.year,
-        term=session_obj.term,
-        status='finalized',
-    ).filter(_registration_window_clause(session_obj)).first()
+    for reg in _finalized_regs_for_class_session(session_obj):
+        if reg.student_id == student_pk:
+            return reg
+    return None
 
 
 def _notify_students_in_session(session_id, notif_type, title, link_url):

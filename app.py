@@ -629,6 +629,9 @@ def create_app():
         logging.warning('Written Assignment blueprint not loaded: %s', e)
         logging.warning(traceback.format_exc())
 
+    from blueprints.site_backup import site_backup_bp
+    app.register_blueprint(site_backup_bp, url_prefix='/admin/backup')
+
     # Service Worker route for PWA
     @app.route('/sw.js')
     def service_worker():

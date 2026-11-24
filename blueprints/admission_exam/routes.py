@@ -6052,24 +6052,18 @@ def _bulk_download_candidates_pdfs(cycle, candidates, action):
     if action == 'download_admit_cards_pdf':
         pdfs = []
         for c in candidates:
-            if not (c.payment_status == 'verified' and c.roll_no):
-                errors.append(c.application_id)
-                continue
             try:
                 pdfs.append(_render_admit_card_pdf(c))
             except Exception as e:
                 current_app.logger.exception('Bulk admit PDF failed for %s: %s', c.application_id, e)
                 errors.append(c.application_id)
         if not pdfs:
-            flash(
-                'No admit cards could be generated. Candidates need verified payment and a roll number.',
-                'warning',
-            )
+            flash('No admit cards could be generated.', 'warning')
             return redirect(url_for('admission_exam.candidates_list', cycle_id=cycle.id))
         merged = _merge_pdf_bytes_list(pdfs)
         name = f'admit_cards_{safe_cycle}.pdf'
         if errors:
-            flash(f'Skipped {len(errors)} candidate(s) without admit card.', 'warning')
+            flash(f'Skipped {len(errors)} candidate(s) whose admit card could not be generated.', 'warning')
         return send_file(
             io.BytesIO(merged), mimetype='application/pdf',
             as_attachment=True, download_name=name,
@@ -6650,13 +6644,38 @@ def user_scrutinizer_signature_image(user_id):
     return send_confined_file(user.signature_path)
 
 
+@admission_exam_bp.route('/candidate/<int:candidate_id>/application-form.pdf')
+@login_required
+@candidate_access_required
+def candidate_application_form_admin(candidate):
+    """Committee member download of any candidate's application form PDF."""
+    try:
+        pdf_bytes, engine = _render_application_package_pdf(candidate)
+    except Exception as e:
+        current_app.logger.exception(
+            'Admin application PDF failed for %s: %s', candidate.application_id, e
+        )
+        try:
+            pdf_bytes, engine = _render_application_form_pdf(candidate)
+        except Exception as e2:
+            current_app.logger.exception(
+                'Bare admin application PDF also failed for %s: %s', candidate.application_id, e2
+            )
+            flash('Could not generate the application form PDF. Check server logs for details.', 'danger')
+            return redirect(url_for('admission_exam.candidate_detail', candidate_id=candidate.id))
+    stamp = datetime.utcnow().strftime('%H%M%S')
+    app_id = re.sub(r'[^A-Za-z0-9_-]+', '_', candidate.application_id or str(candidate.id))
+    return _admit_pdf_response(
+        pdf_bytes,
+        f'application_{app_id}_{stamp}.pdf',
+        engine_header=engine or APP_FORM_PDF_ENGINE,
+    )
+
+
 @admission_exam_bp.route('/candidate/<int:candidate_id>/admit-card.pdf')
 @login_required
 @candidate_access_required
 def candidate_admit_card_admin(candidate):
-    if not (candidate.payment_status == 'verified' and candidate.roll_no):
-        flash('Admit card preview requires verified payment and an assigned roll number.', 'warning')
-        return redirect(url_for('admission_exam.candidate_detail', candidate_id=candidate.id))
     if not _photo_abs_path(candidate):
         flash(
             f'Photo file not found on server for {candidate.application_id} '
@@ -6935,6 +6954,6 @@ def export_application_forms_zip(cycle):
 @login_required
 @cycle_access_required
 def export_admit_cards_pdf(cycle):
-    """Merged admit cards for filtered candidates who have verified payment + roll."""
+    """Merged admit cards for the filtered candidates. Payment and roll are not required."""
     candidates, _payment, _status, _search = _filter_cycle_candidates(cycle)
     return _bulk_download_candidates_pdfs(cycle, candidates, 'download_admit_cards_pdf')

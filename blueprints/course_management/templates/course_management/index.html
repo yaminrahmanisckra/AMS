@@ -1434,11 +1434,23 @@
                             <label for="teacher_id{{ course.id }}" class="form-label">
                                 <i class="fas fa-user me-2"></i>Teacher <span class="text-danger">*</span>
                             </label>
+                            <input type="search" class="form-control form-control-sm mb-2 teacher-search" data-target="teacher_id{{ course.id }}" placeholder="Search teacher name" autocomplete="off">
                             <select class="form-select" id="teacher_id{{ course.id }}" name="teacher_id" required>
                                 <option value="">Select Teacher</option>
-                                {% for teacher in teachers %}
-                                <option value="{{ teacher.id }}">{{ teacher.name }} ({{ teacher.short_name }})</option>
-                                {% endfor %}
+                                {% if teachers | rejectattr('is_external') | list %}
+                                <optgroup label="Internal">
+                                    {% for teacher in teachers if not teacher.is_external %}
+                                    <option value="{{ teacher.id }}">{{ teacher.name }}{% if teacher.short_name %} ({{ teacher.short_name }}){% endif %}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endif %}
+                                {% if teachers | selectattr('is_external') | list %}
+                                <optgroup label="External">
+                                    {% for teacher in teachers if teacher.is_external %}
+                                    <option value="{{ teacher.id }}">{{ teacher.name }}{% if teacher.short_name %} ({{ teacher.short_name }}){% endif %}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endif %}
                             </select>
                         </div>
                         
@@ -1529,11 +1541,23 @@
                             <label for="new_teacher_id{{ course.id }}" class="form-label">
                                 <i class="fas fa-user me-2"></i>Teacher
                             </label>
+                            <input type="search" class="form-control form-control-sm mb-2 teacher-search" data-target="new_teacher_id{{ course.id }}" placeholder="Search teacher name" autocomplete="off">
                             <select class="form-select" id="new_teacher_id{{ course.id }}" name="new_teacher_id">
                                 <option value="">Keep current teacher</option>
-                                {% for teacher in teachers %}
-                                <option value="{{ teacher.id }}">{{ teacher.name }} ({{ teacher.short_name }})</option>
-                                {% endfor %}
+                                {% if teachers | rejectattr('is_external') | list %}
+                                <optgroup label="Internal">
+                                    {% for teacher in teachers if not teacher.is_external %}
+                                    <option value="{{ teacher.id }}">{{ teacher.name }}{% if teacher.short_name %} ({{ teacher.short_name }}){% endif %}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endif %}
+                                {% if teachers | selectattr('is_external') | list %}
+                                <optgroup label="External">
+                                    {% for teacher in teachers if teacher.is_external %}
+                                    <option value="{{ teacher.id }}">{{ teacher.name }}{% if teacher.short_name %} ({{ teacher.short_name }}){% endif %}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endif %}
                             </select>
                             <small class="form-text text-muted">নতুন শিক্ষক না বদলালে বর্তমান শিক্ষকই থাকবে।</small>
                         </div>
@@ -2930,7 +2954,12 @@ document.addEventListener('DOMContentLoaded', function() {
         container.style.display = 'block';
 
         fetch(`/course-management/api/course/${courseId}/assignments`)
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 list.innerHTML = '';
                 if (data.success && data.assignments.length > 0) {
@@ -2966,11 +2995,32 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => {
                 console.error('Failed to load assignments:', error);
+                if (list.children.length > 0) {
+                    return;
+                }
                 container.style.display = 'block';
                 emptyText.style.display = 'block';
                 emptyText.textContent = 'Failed to load assignments.';
             });
     }
+
+    document.querySelectorAll('.teacher-search').forEach(function (input) {
+        input.addEventListener('input', function () {
+            const select = document.getElementById(input.dataset.target);
+            if (!select) return;
+            const query = input.value.trim().toLowerCase();
+            select.querySelectorAll('optgroup').forEach(function (group) {
+                let visible = 0;
+                group.querySelectorAll('option').forEach(function (option) {
+                    const match = option.selected || !query || option.textContent.toLowerCase().includes(query);
+                    option.hidden = !match;
+                    option.disabled = !match;
+                    if (match) visible += 1;
+                });
+                group.hidden = visible === 0;
+            });
+        });
+    });
 
     // Load assignments whenever modal is shown
     const assignTeacherModals = document.querySelectorAll('[id^=\"assignTeacherModal\"]');

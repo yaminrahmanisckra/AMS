@@ -19,13 +19,15 @@
         <h4 class="fw-bold mb-0">{{ candidate.full_name }}
             <span class="text-muted fs-6">({{ candidate.application_id }})</span>
         </h4>
-        <div class="d-flex gap-2">
-            {% if candidate.payment_status == 'verified' and candidate.roll_no %}
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="{{ url_for('admission_exam.candidate_application_form_admin', candidate_id=candidate.id) }}?v={{ range(100000, 999999) | random }}"
+               class="btn btn-sm btn-outline-danger" target="_blank" rel="noopener">
+                <i class="fas fa-file-pdf me-1"></i>Application Form PDF
+            </a>
             <a href="{{ url_for('admission_exam.candidate_admit_card_admin', candidate_id=candidate.id) }}?v={{ range(100000, 999999) | random }}"
                class="btn btn-sm btn-success" target="_blank" rel="noopener">
                 <i class="fas fa-id-card me-1"></i>Admit Card PDF
             </a>
-            {% endif %}
         </div>
     </div>
 
